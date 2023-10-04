@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: syncbot-build-template
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 128
+    Tracing: Active
+  Api:
+    TracingEnabled: true
+
+Parameters:
+  SlackToken:
+    Description: Slack token that is passed by the bot
+    Type: String
+    Default: "123"
+  SlackSigningSecret:
+    Description: Auth token used to pass to the controller to get the commands
+    Type: String
+    Default: "123"
+  SlackClientSecret:
+    Description: Auth token used to pass to the controller to get the commands
+    Type: String
+    Default: "123"
+  SlackOauthScopes:
+    Description: Auth token used to pass to the controller to get the commands
+    Type: String
+    Default: "app_mentions:read,channels:history,channels:join,chat.write,chat.write.customize,files:read,users:read,files:write"
+  Stage:
+    Description: Parameter for getting the deployment stage
+    Type: String
+    Default: staging
+  DatabaseHost:
+    Description: RDS Database Host
+    Type: String
+    Default: "123"
+  DatabaseUser:
+    Description: RDS Database User
+    Type: String
+    Default: "moneyball"
+  DatabasePassword:
+    Description: RDS Database Password
+    Type: String
+    Default: "123"
+  DatabaseSchema:
+    Description: RDS Database Schema
+    Type: String
+    Default: "syncbot"
+  PasswordEncryptKey:
+    Description: Hash encrypt key for decrypting email passwords
+    Type: String
+    Default: "123"
+
+Mappings:
+  StagesMap:
+    staging:
+      SlackClientID: "1966318390773.6037875913205"
+      SlackStateS3Bucket: "slack-state-bucket"
+      SlackInstallS3Bucket: "slack-installation-bucket"
+      KeepWarmName: "SyncBotKeepWarmTest"
+    prod:
+      SlackClientID: "1990266264068.6053437451057"
+      SlackStateS3Bucket: "slack-state-bucket"
+      SlackInstallS3Bucket: "slack-installation-bucket"
+      KeepWarmName: "SyncBotKeepWarmProd"
+
+Resources:
+  SyncBotFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: syncbot/
+      Handler: app.handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      Policies:
+        - AmazonS3FullAccess
+        - AWSLambdaRole
+        - AmazonEventBridgeFullAccess
+      Timeout: 400
+      Events:
+        SyncBot:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /slack/events
+            Method: post
+        SyncBotInstall:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /slack/install
+            Method: get
+        SyncBotKeepWarm:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: "rate(5 minutes)"
+            Name: !FindInMap
+              - StagesMap
+              - Ref: Stage
+              - KeepWarmName
+      Environment:
+        Variables:
+          SLACK_BOT_TOKEN: !Ref SlackToken
+          SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
+          ENV_SLACK_CLIENT_SECRET: !Ref SlackClientSecret
+          ENV_SLACK_SCOPES: !Ref SlackOauthScopes
+          DATABASE_HOST: !Ref DatabaseHost
+          ADMIN_DATABASE_USER: !Ref DatabaseUser
+          ADMIN_DATABASE_PASSWORD: !Ref DatabasePassword
+          ADMIN_DATABASE_SCHEMA: !Ref DatabaseSchema
+          ENV_SLACK_CLIENT_ID: !FindInMap
+            - StagesMap
+            - Ref: Stage
+            - SlackClientID
+          ENV_SLACK_STATE_S3_BUCKET_NAME: !FindInMap
+            - StagesMap
+            - Ref: Stage
+            - SlackStateS3Bucket
+          ENV_SLACK_INSTALLATION_S3_BUCKET_NAME: !FindInMap
+            - StagesMap
+            - Ref: Stage
+            - SlackInstallS3Bucket
+
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  SyncBotApi:
+    Description: API Gateway endpoint URL for Prod stage for SyncBot function
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/slack/events/"
+  SyncBotFunction:
+    Description: SyncBot Lambda Function ARN
+    Value: !GetAtt SyncBotFunction.Arn
+  SyncBotFunctionIamRole:
+    Description: Implicit IAM Role created for Hello World function
+    Value: !GetAtt SyncBotFunctionRole.Arn
