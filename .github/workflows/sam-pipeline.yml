@@ -9,6 +9,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
       - uses: aws-actions/setup-sam@v2
         with:
           use-installer: true
@@ -41,7 +43,7 @@ jobs:
           aws-region: us-east-2
 
       - name: Download artifact
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: build-artifact
           path: './.aws-sam/build'
@@ -60,7 +62,7 @@ jobs:
           aws-region: us-east-2
 
       - name: Download artifact
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: build-artifact
           path: './.aws-sam/build'
