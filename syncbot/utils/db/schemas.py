@@ -30,12 +30,18 @@ class Region(BaseClass, GetDBClass):
     workspace_name = Column(String(100))
     bot_token = Column(String(100))
 
+    def get_id():
+        return Region.team_id
+
 
 class Sync(BaseClass, GetDBClass):
     __tablename__ = "syncs"
     id = Column(Integer, primary_key=True)
     title = Column(String(100), unique=True)
     description = Column(String(100))
+
+    def get_id():
+        return Sync.id
 
 
 class SyncChannel(BaseClass, GetDBClass):
@@ -46,6 +52,9 @@ class SyncChannel(BaseClass, GetDBClass):
     region = relationship("Region", backref="sync_channels")
     channel_id = Column(String(100))
 
+    def get_id():
+        return SyncChannel.channel_id
+
 
 class PostMeta(BaseClass, GetDBClass):
     __tablename__ = "post_meta"
@@ -53,6 +62,9 @@ class PostMeta(BaseClass, GetDBClass):
     post_id = Column(String(100))
     sync_channel_id = Column(Integer, ForeignKey("sync_channels.id"))
     ts = Column(DECIMAL(16, 6))
+
+    def get_id():
+        return PostMeta.post_id
 
 
 # class SyncChannelExtended(BaseClass, GetDBClass):

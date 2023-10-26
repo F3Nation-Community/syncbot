@@ -1,9 +1,11 @@
+import json
 import os
 from typing import Dict, List, Tuple
 from slack_bolt.adapter.aws_lambda.lambda_s3_oauth_flow import LambdaS3OAuthFlow
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk import WebClient
 import slack_sdk
+from syncbot.utils.slack import actions
 from utils import constants
 from utils.db import schemas, DbManager
 
@@ -41,18 +43,14 @@ def safe_get(data, *keys):
 
 
 def get_sync_list(team_id: str, channel_id: str) -> List[Tuple[schemas.SyncChannel, schemas.Region]]:
-    # TODO: this query is not exactly right
-    sync = DbManager.find_records(
-        schemas.SyncChannel, [schemas.SyncChannel.channel_id == channel_id, schemas.Region.team_id == team_id]
-    )
-    if sync:
+    sync_channel_record = DbManager.find_records(schemas.SyncChannel, [schemas.SyncChannel.channel_id == channel_id])
+    if sync_channel_record:
         sync_channels = DbManager.find_join_records2(
             left_cls=schemas.SyncChannel,
             right_cls=schemas.Region,
-            filters=[schemas.SyncChannel.sync_id == sync[0].sync_id],
+            filters=[schemas.SyncChannel.sync_id == sync_channel_record[0].sync_id],
         )
     else:
-        # TODO: remove self from channel?
         sync_channels = []
     return sync_channels
 
@@ -79,6 +77,7 @@ def post_message(
     thread_ts: str = None,
     update_ts: str = None,
     region_name: str = None,
+    files: Dict[str, str] = None,
 ) -> Dict:
     slack_client = WebClient(bot_token)
     posted_from = f"({region_name})" if region_name else "(via SyncBot)"
@@ -87,6 +86,24 @@ def post_message(
             channel=channel_id,
             text=msg_text,
             ts=update_ts,
+        )
+    elif files:
+        file_uploads = []
+        for file in files:
+            file_uploads.append(
+                {
+                    "file": file["path"],
+                    "filename": file["name"],
+                    "title": file["title"],
+                }
+            )
+        res = slack_client.files_upload_v2(
+            file_uploads=file_uploads,
+            channels=channel_id,
+            initial_comment=msg_text,
+            username=f"{user_name} {posted_from}",
+            icon_url=user_profile_url,
+            thread_ts=thread_ts,
         )
     else:
         res = slack_client.chat_postMessage(
@@ -120,3 +137,67 @@ def delete_message(bot_token: str, channel_id: str, ts: str) -> Dict:
         ts=ts,
     )
     return res
+
+
+def get_request_type(body: dict) -> tuple[str]:
+    request_type = safe_get(body, "type")
+    if request_type == "event_callback":
+        return ("event_callback", safe_get(body, "event", "type"))
+    elif request_type == "block_actions":
+        block_action = safe_get(body, "actions", 0, "action_id")
+        if block_action[: len(actions.CONFIG_REMOVE_SYNC)] == actions.CONFIG_REMOVE_SYNC:
+            block_action = actions.CONFIG_REMOVE_SYNC
+        return ("block_actions", block_action)
+    elif request_type == "view_submission":
+        return ("view_submission", safe_get(body, "view", "callback_id"))
+    elif not request_type and "command" in body:
+        return ("command", safe_get(body, "command"))
+    else:
+        return ("unknown", "unknown")
+
+
+def get_region_record(team_id: str, body: dict, context: dict, client: WebClient) -> schemas.Region:
+    region_record: schemas.Region = DbManager.get_record(schemas.Region, id=team_id)
+    team_domain = safe_get(body, "team", "domain")
+
+    if not region_record:
+        try:
+            team_info = client.team_info()
+            team_name = team_info["team"]["name"]
+        except Exception:
+            team_name = team_domain
+        region_record: schemas.Region = DbManager.create_record(
+            schemas.Region(
+                team_id=team_id,
+                workspace_name=team_name,
+                bot_token=context["bot_token"],
+            )
+        )
+
+    return region_record
+
+
+def update_modal(
+    blocks: List[dict],
+    client: WebClient,
+    view_id: str,
+    title_text: str,
+    callback_id: str,
+    submit_button_text: str = "Submit",
+    parent_metadata: dict = None,
+    close_button_text: str = "Close",
+    notify_on_close: bool = False,
+):
+    view = {
+        "type": "modal",
+        "callback_id": callback_id,
+        "title": {"type": "plain_text", "text": title_text},
+        "submit": {"type": "plain_text", "text": submit_button_text},
+        "close": {"type": "plain_text", "text": close_button_text},
+        "notify_on_close": notify_on_close,
+        "blocks": blocks,
+    }
+    if parent_metadata:
+        view["private_metadata"] = json.dumps(parent_metadata)
+
+    client.views_update(view_id=view_id, view=view)

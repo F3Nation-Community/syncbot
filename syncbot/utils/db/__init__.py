@@ -79,14 +79,16 @@ class DbManager:
             session.rollback()
             close_session(session)
 
-    def find_join_records3(left_cls: T, right_cls1: T, right_cls2: T, filters, schema=None) -> List[Tuple[T]]:
+    def find_join_records3(
+        left_cls: T, right_cls1: T, right_cls2: T, filters, schema=None, left_join=False
+    ) -> List[Tuple[T]]:
         session = get_session(schema=schema)
         try:
             records = (
                 session.query(left_cls, right_cls1, right_cls2)
                 .select_from(left_cls)
-                .join(right_cls1)
-                .join(right_cls2)
+                .join(right_cls1, isouter=left_join)
+                .join(right_cls2, isouter=left_join)
                 .filter(and_(*filters))
                 .all()
             )
