@@ -46,7 +46,7 @@ else:
     ARGS = []
     LAZY_KWARGS = {
         "ack": lambda ack: ack(),
-        "lazy": main_response,
+        "lazy": [main_response],
     }
 
 MATCH_ALL_PATTERN = re.compile(".*")
