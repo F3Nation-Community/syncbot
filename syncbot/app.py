@@ -39,11 +39,19 @@ def main_response(body, logger, client, ack, context):
         )
 
 
+if LOCAL_DEVELOPMENT:
+    LAZY_KWARGS = {}
+else:
+    LAZY_KWARGS = {
+        "ack": lambda ack: ack(),
+        "lazy": main_response,
+    }
+
 MATCH_ALL_PATTERN = re.compile(".*")
-app.event(MATCH_ALL_PATTERN)(main_response)
-app.action(MATCH_ALL_PATTERN)(main_response)
-app.view(MATCH_ALL_PATTERN)(main_response)
-app.command(MATCH_ALL_PATTERN)(main_response)
+app.event(MATCH_ALL_PATTERN)(main_response, **LAZY_KWARGS)
+app.action(MATCH_ALL_PATTERN)(main_response, **LAZY_KWARGS)
+app.view(MATCH_ALL_PATTERN)(main_response, **LAZY_KWARGS)
+app.command(MATCH_ALL_PATTERN)(main_response, **LAZY_KWARGS)
 
 
 if __name__ == "__main__":
