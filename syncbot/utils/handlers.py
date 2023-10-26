@@ -1,6 +1,6 @@
 from logging import Logger
 from slack_sdk.web import WebClient
-from syncbot.utils import constants
+from utils import constants
 from utils.slack import orm
 from utils.slack import actions, forms
 from utils.db import DbManager, schemas
