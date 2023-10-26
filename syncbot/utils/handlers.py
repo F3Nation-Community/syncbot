@@ -100,9 +100,12 @@ def respond_to_message_event(
                     except Exception as e:
                         logger.error(e)
                     return
+                user_name, user_profile_url = helpers.get_user_info(client, user_id)
+                region_name = helpers.safe_get(
+                    [record[1].workspace_name for record in sync_records if record[0].channel_id == channel_id], 0
+                )
                 for record in sync_records:
                     sync_channel, region = record
-                    user_name, user_profile_url = helpers.get_user_info(client, user_id)
                     if sync_channel.channel_id == channel_id:
                         ts = helpers.safe_get(body, "event", "ts")
                     else:
@@ -112,7 +115,7 @@ def respond_to_message_event(
                             msg_text=msg_text,
                             user_name=user_name,
                             user_profile_url=user_profile_url,
-                            region_name=region.workspace_name,
+                            region_name=region_name,
                             # files=photo_ids,
                         )
                         ts = helpers.safe_get(res, "ts")
@@ -129,6 +132,9 @@ def respond_to_message_event(
                 post_list = []
                 post_uuid = uuid.uuid4().bytes
                 post_records = helpers.get_post_records(thread_ts)
+                region_name = helpers.safe_get(
+                    [record[2].workspace_name for record in post_records if record[1].channel_id == channel_id], 0
+                )
                 for record in post_records:
                     post_meta, sync_channel, region = record
                     user_name, user_profile_url = helpers.get_user_info(client, user_id)
@@ -142,7 +148,7 @@ def respond_to_message_event(
                             user_name=user_name,
                             user_profile_url=user_profile_url,
                             thread_ts="{:.6f}".format(post_meta.ts),
-                            region_name=region.workspace_name,
+                            region_name=region_name,
                         )
                         ts = helpers.safe_get(res, "ts")
                     post_list.append(
@@ -157,6 +163,9 @@ def respond_to_message_event(
         elif event_subtype == "message_changed":
             # handle edited message
             post_records = helpers.get_post_records(ts)
+            region_name = helpers.safe_get(
+                [record[2].workspace_name for record in post_records if record[1].channel_id == channel_id], 0
+            )
             for record in post_records:
                 post_meta, sync_channel, region = record
                 if sync_channel.channel_id == channel_id:
@@ -167,7 +176,7 @@ def respond_to_message_event(
                         channel_id=sync_channel.channel_id,
                         msg_text=msg_text,
                         update_ts="{:.6f}".format(post_meta.ts),
-                        region_name=region.workspace_name,
+                        region_name=region_name,
                     )
         elif event_subtype == "message_deleted":
             # handle deleted message
