@@ -1,13 +1,21 @@
 import json
 import os
+from logging import Logger
 from typing import Dict, List, Tuple
+
+import boto3
+import requests
+import slack_sdk
+from PIL import Image
+from pillow_heif import register_heif_opener
 from slack_bolt.adapter.aws_lambda.lambda_s3_oauth_flow import LambdaS3OAuthFlow
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk import WebClient
-import slack_sdk
-from utils.slack import actions
 from utils import constants
-from utils.db import schemas, DbManager
+from utils.db import DbManager, schemas
+from utils.slack import actions
+
+register_heif_opener()
 
 
 def get_oauth_flow():
@@ -77,33 +85,20 @@ def post_message(
     thread_ts: str = None,
     update_ts: str = None,
     region_name: str = None,
-    files: Dict[str, str] = None,
+    blocks: List[dict] = None,
 ) -> Dict:
     slack_client = WebClient(bot_token)
     posted_from = f"({region_name})" if region_name else "(via SyncBot)"
+    if blocks:
+        # msg_block = orm.SectionBlock(label=msg_text).as_form_field()
+        msg_block = {"type": "section", "text": {"type": "mrkdwn", "text": msg_text}}
+        blocks.insert(0, msg_block)
     if update_ts:
         res = slack_client.chat_update(
             channel=channel_id,
             text=msg_text,
             ts=update_ts,
-        )
-    elif files:
-        file_uploads = []
-        for file in files:
-            file_uploads.append(
-                {
-                    "file": file["path"],
-                    "filename": file["name"],
-                    "title": file["title"],
-                }
-            )
-        res = slack_client.files_upload_v2(
-            file_uploads=file_uploads,
-            channels=channel_id,
-            initial_comment=msg_text,
-            username=f"{user_name} {posted_from}",
-            icon_url=user_profile_url,
-            thread_ts=thread_ts,
+            blocks=blocks,
         )
     else:
         res = slack_client.chat_postMessage(
@@ -112,6 +107,7 @@ def post_message(
             username=f"{user_name} {posted_from}",
             icon_url=user_profile_url,
             thread_ts=thread_ts,
+            blocks=blocks,
         )
     return res
 
@@ -201,3 +197,63 @@ def update_modal(
         view["private_metadata"] = json.dumps(parent_metadata)
 
     client.views_update(view_id=view_id, view=view)
+
+
+def upload_photos(files: List[dict], client: WebClient, logger: Logger) -> List[dict]:
+    uploaded_photos = []
+    photos = [file for file in files if file["mimetype"][:5] == "image"]
+    for photo in photos:
+        try:
+            # Download photo
+            # Try to get a medium size photo first, then fallback to smaller sizes
+            r = requests.get(
+                photo.get("thumb_480") or photo.get("thumb_360") or photo.get("thumb_80") or photo.get("url_private"),
+                headers={"Authorization": f"Bearer {client.token}"},
+            )
+            r.raise_for_status()
+
+            file_name = f"{photo['id']}.{photo['filetype']}"
+            file_path = f"/tmp/{file_name}"
+            file_mimetype = photo["mimetype"]
+
+            # Save photo to disk
+            with open(file_path, "wb") as f:
+                f.write(r.content)
+
+            # Convert HEIC to PNG
+            if photo["filetype"] == "heic":
+                heic_img = Image.open(file_path)
+                x, y = heic_img.size
+                coeff = min(constants.MAX_HEIF_SIZE / max(x, y), 1)
+                heic_img = heic_img.resize((int(x * coeff), int(y * coeff)))
+                heic_img.save(file_path.replace(".heic", ".png"), quality=95, optimize=True, format="PNG")
+                os.remove(file_path)
+
+                file_path = file_path.replace(".heic", ".png")
+                file_name = file_name.replace(".heic", ".png")
+                file_mimetype = "image/png"
+
+            # Upload photo to S3
+            if constants.LOCAL_DEVELOPMENT:
+                s3_client = boto3.client(
+                    "s3",
+                    aws_access_key_id=os.environ[constants.AWS_ACCESS_KEY_ID],
+                    aws_secret_access_key=os.environ[constants.AWS_SECRET_ACCESS_KEY],
+                )
+            else:
+                s3_client = boto3.client("s3")
+
+            with open(file_path, "rb") as f:
+                s3_client.upload_fileobj(
+                    f, constants.S3_IMAGE_BUCKET, file_name, ExtraArgs={"ContentType": file_mimetype}
+                )
+                uploaded_photos.append(
+                    {
+                        "url": f"{constants.S3_IMAGE_URL}{file_name}",
+                        "name": file_name,
+                        "path": file_path,
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Error uploading file: {e}")
+    return uploaded_photos

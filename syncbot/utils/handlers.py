@@ -1,11 +1,12 @@
-from logging import Logger
-from slack_sdk.web import WebClient
-from utils import constants
-from utils.slack import orm
-from utils.slack import actions, forms
-from utils.db import DbManager, schemas
-from utils import helpers, builders
+import os
+import time
 import uuid
+from logging import Logger
+
+from slack_sdk.web import WebClient
+from utils import builders, constants, helpers
+from utils.db import DbManager, schemas
+from utils.slack import actions, forms, orm
 
 
 def handle_remove_sync(
@@ -56,35 +57,33 @@ def respond_to_message_event(
     msg_text = helpers.safe_get(body, "event", "text") or helpers.safe_get(body, "event", "message", "text")
     user_id = helpers.safe_get(body, "event", "user") or helpers.safe_get(body, "event", "message", "user")
     thread_ts = helpers.safe_get(body, "event", "thread_ts")
-    ts = helpers.safe_get(body, "event", "message", "ts") or helpers.safe_get(body, "event", "previous_message", "ts")
-    # files = [file for file in helpers.safe_get(body, "event", "files") or []]
-    # photos = [photo for photo in files if helpers.safe_get(photo, "original_w")]
+    ts = (
+        helpers.safe_get(body, "event", "message", "ts")
+        or helpers.safe_get(body, "event", "previous_message", "ts")
+        or helpers.safe_get(body, "event", "ts")
+    )
+    files = [
+        file
+        for file in helpers.safe_get(body, "event", "files")
+        or helpers.safe_get(body, "event", "message", "files")
+        or []
+    ]
+    photos = [photo for photo in files if helpers.safe_get(photo, "original_w")]
+    if event_subtype in ["message_changed", "message_deleted"]:
+        photo_names = [
+            f"{photo['id']}.png" if photo['filetype'] == "heic" else f"{photo['id']}.{photo['filetype']}"
+            for photo in photos
+        ]
+        photo_list = [{"url": f"{constants.S3_IMAGE_URL}{name}", "name": name} for name in photo_names]
+    else:
+        photo_list = helpers.upload_photos(files=photos, client=client, logger=logger)
+    photo_blocks = [
+        orm.ImageBlock(image_url=photo["url"], alt_text=photo["name"]).as_form_field() for photo in photo_list
+    ]
 
     if (event_type == "message") and (message_subtype != "bot_message"):  # and (event_context not in EVENT_LIST):
         # EVENT_LIST.append(event_context)
         if (not event_subtype) or (event_subtype == "file_share" and msg_text != ""):
-            # photo_ids = []
-            # for photo in photos:
-            #     try:
-            #         res = requests.get(
-            #             photo["thumb_480"],
-            #             headers={"Authorization": f"Bearer {os.environ[constants.SLACK_BOT_TOKEN]}"},
-            #         )
-            #         img_bytes = bytearray(res.content)
-            #         img_path = f"data/cache/{photo['id']}.{photo['filetype']}"
-            #         # save image to cache
-            #         with open(img_path, "wb") as f:
-            #             f.write(img_bytes)
-            #         photo_ids.append(
-            #             {
-            #                 "path": img_path,
-            #                 "name": photo["name"],
-            #                 "title": photo["title"],
-            #             }
-            #         )
-            #     except Exception as e:
-            #         logger.error(e)
-            #         continue
             post_list = []
             post_uuid = uuid.uuid4().bytes
             if not thread_ts:
@@ -116,9 +115,14 @@ def respond_to_message_event(
                             user_name=user_name,
                             user_profile_url=user_profile_url,
                             region_name=region_name,
-                            # files=photo_ids,
+                            blocks=photo_blocks,
                         )
-                        ts = helpers.safe_get(res, "ts")
+                        if photos != []:
+                            time.sleep(1)  # required so the next step catches the latest ts
+                            posts = client.conversations_history(channel=sync_channel.channel_id, limit=1)
+                            ts = posts["messages"][0]["ts"]
+                        else:
+                            ts = helpers.safe_get(res, "ts") or helpers.safe_get(body, "event", "ts")
                     post_list.append(
                         schemas.PostMeta(
                             post_id=post_uuid,
@@ -126,6 +130,8 @@ def respond_to_message_event(
                             ts=float(ts),
                         )
                     )
+                for photo in photo_list:
+                    os.remove(photo["path"])
                 DbManager.create_records(post_list)
             else:
                 # handle threaded reply
@@ -149,6 +155,7 @@ def respond_to_message_event(
                             user_profile_url=user_profile_url,
                             thread_ts="{:.6f}".format(post_meta.ts),
                             region_name=region_name,
+                            blocks=photo_blocks,
                         )
                         ts = helpers.safe_get(res, "ts")
                     post_list.append(
@@ -177,6 +184,7 @@ def respond_to_message_event(
                         msg_text=msg_text,
                         update_ts="{:.6f}".format(post_meta.ts),
                         region_name=region_name,
+                        blocks=photo_blocks,
                     )
         elif event_subtype == "message_deleted":
             # handle deleted message
