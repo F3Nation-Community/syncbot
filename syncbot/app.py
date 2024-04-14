@@ -1,19 +1,26 @@
 import json
+import logging
 import re
+import sys
+
 from slack_bolt import App
 from slack_bolt.adapter.aws_lambda import SlackRequestHandler
 from utils.constants import LOCAL_DEVELOPMENT
-from utils.helpers import safe_get, get_request_type, get_oauth_flow
+from utils.helpers import get_oauth_flow, get_request_type, safe_get
 from utils.routing import MAIN_MAPPER
-import logging
 
 SlackRequestHandler.clear_all_log_handlers()
-logger = logging.getLogger()
-logger.setLevel(level=logging.INFO)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler = logging.StreamHandler()
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+if logging.getLogger().hasHandlers():
+    logging.getLogger().setLevel(logging.INFO)
+else:
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+# logger = logging.getLogger()
+# logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+# logger.setLevel(level=logging.INFO)
+# formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# handler = logging.StreamHandler()
+# handler.setFormatter(formatter)
+# logger.addHandler(handler)
 
 app = App(
     process_before_response=not LOCAL_DEVELOPMENT,
