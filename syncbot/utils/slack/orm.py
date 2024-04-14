@@ -1,6 +1,8 @@
 import json
-from typing import Any, List, Dict
 from dataclasses import dataclass, field
+from typing import Any, Dict, List
+
+
 from utils.helpers import safe_get
 
 
@@ -481,3 +483,21 @@ class BlockView:
             view["private_metadata"] = json.dumps(parent_metadata)
 
         client.views_update(view_id=view_id, view=view)
+
+
+@dataclass
+class ImageBlock(BaseBlock):
+    image_url: str = None
+    alt_text: str = None
+
+    def as_form_field(self):
+        j = {
+            "type": "image",
+            "image_url": self.image_url,
+            "alt_text": self.alt_text,
+        }
+        if self.action:
+            j["block_id"] = self.action
+        if self.label:
+            j["title"] = self.make_label_field()
+        return j
