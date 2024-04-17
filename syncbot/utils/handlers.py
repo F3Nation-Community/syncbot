@@ -1,5 +1,6 @@
 import os
-import time
+
+# import time
 import uuid
 from logging import Logger
 
@@ -55,6 +56,7 @@ def respond_to_message_event(
     team_id = helpers.safe_get(body, "team_id")
     channel_id = helpers.safe_get(body, "event", "channel")
     msg_text = helpers.safe_get(body, "event", "text") or helpers.safe_get(body, "event", "message", "text")
+    msg_text = " " if (msg_text or "") == "" else msg_text
     mentioned_users = helpers.parse_mentioned_users(msg_text, client)
     user_id = helpers.safe_get(body, "event", "user") or helpers.safe_get(body, "event", "message", "user")
     thread_ts = helpers.safe_get(body, "event", "thread_ts")
@@ -119,12 +121,15 @@ def respond_to_message_event(
                             region_name=region_name,
                             blocks=photo_blocks,
                         )
-                        if photos != []:
-                            time.sleep(3)  # required so the next step catches the latest ts
-                            posts = client.conversations_history(channel=sync_channel.channel_id, limit=1)
-                            ts = posts["messages"][0]["ts"]
-                        else:
-                            ts = helpers.safe_get(res, "ts") or helpers.safe_get(body, "event", "ts")
+                        # if photos != []:
+                        #     time.sleep(3)  # required so the next step catches the latest ts
+                        #     posts = client.conversations_history(channel=sync_channel.channel_id, limit=1)
+                        #     print(posts["messages"][0]["ts"])
+                        #     # ts = posts["messages"][0]["ts"]
+                        #     ts = helpers.safe_get(res, "ts") or helpers.safe_get(body, "event", "ts")
+                        # else:
+                        #     ts = helpers.safe_get(res, "ts") or helpers.safe_get(body, "event", "ts")
+                        ts = helpers.safe_get(res, "ts") or helpers.safe_get(body, "event", "ts")
                     post_list.append(
                         schemas.PostMeta(
                             post_id=post_uuid,

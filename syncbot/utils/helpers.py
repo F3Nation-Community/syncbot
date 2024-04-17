@@ -262,7 +262,7 @@ def upload_photos(files: List[dict], client: WebClient, logger: Logger) -> List[
 
 def parse_mentioned_users(msg_text: str, client: WebClient) -> List[Dict]:
 
-    user_ids = re.findall(r"<@(\w+)>", msg_text)
+    user_ids = re.findall(r"<@(\w+)>", msg_text or "")
 
     if user_ids != []:
         try:
@@ -285,6 +285,7 @@ def parse_mentioned_users(msg_text: str, client: WebClient) -> List[Dict]:
 def apply_mentioned_users(msg_text: str, client: WebClient, mentioned_user_info: List[Dict]) -> List[Dict]:
 
     email_list = [user["email"] for user in mentioned_user_info]
+    msg_text = msg_text or ""
 
     if email_list == []:
         return msg_text
