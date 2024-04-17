@@ -14,13 +14,6 @@ if logging.getLogger().hasHandlers():
     logging.getLogger().setLevel(logging.INFO)
 else:
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-# logger = logging.getLogger()
-# logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-# logger.setLevel(level=logging.INFO)
-# formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-# handler = logging.StreamHandler()
-# handler.setFormatter(formatter)
-# logger.addHandler(handler)
 
 app = App(
     process_before_response=not LOCAL_DEVELOPMENT,

@@ -1,8 +1,9 @@
-from utils import handlers, builders
+from utils import announcements, builders, handlers
 from utils.slack import actions
 
 COMMAND_MAPPER = {
     "/config-syncbot": builders.build_config_form,
+    "/send-syncbot-announcement": announcements.send,
 }
 
 ACTION_MAPPER = {
