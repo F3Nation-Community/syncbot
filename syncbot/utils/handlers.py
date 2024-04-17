@@ -121,7 +121,7 @@ def respond_to_message_event(
                         )
                         if photos != []:
                             time.sleep(3)  # required so the next step catches the latest ts
-                            posts = client.conversations_historyS(channel=sync_channel.channel_id, limit=1)
+                            posts = client.conversations_history(channel=sync_channel.channel_id, limit=1)
                             ts = posts["messages"][0]["ts"]
                         else:
                             ts = helpers.safe_get(res, "ts") or helpers.safe_get(body, "event", "ts")
