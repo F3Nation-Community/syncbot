@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from logging import Logger
 from typing import Dict, List, Tuple
 
@@ -257,3 +258,53 @@ def upload_photos(files: List[dict], client: WebClient, logger: Logger) -> List[
         except Exception as e:
             logger.error(f"Error uploading file: {e}")
     return uploaded_photos
+
+
+def parse_mentioned_users(msg_text: str, client: WebClient) -> List[Dict]:
+
+    user_ids = re.findall(r"<@(\w+)>", msg_text)
+
+    if user_ids != []:
+        try:
+            members = client.users_list()["members"]
+        except slack_sdk.errors.SlackApiError:
+            # TODO: rate limited, use client.user_info() to get individual user info
+            members = []
+        member_dict = {}
+        for member in members:
+            user_name = (
+                member["profile"]["real_name"]
+                if member["profile"]["display_name"] != ""
+                else member["profile"]["display_name"]
+            )
+            member_dict.update({member["id"]: {"user_name": user_name, "email": safe_get(member, "profile", "email")}})
+
+    return [member_dict[user_id] for user_id in user_ids]
+
+
+def apply_mentioned_users(msg_text: str, client: WebClient, mentioned_user_info: List[Dict]) -> List[Dict]:
+
+    email_list = [user["email"] for user in mentioned_user_info]
+
+    if email_list == []:
+        return msg_text
+    else:
+        try:
+            members = client.users_list()["members"]
+        except slack_sdk.errors.SlackApiError:
+            # TODO: rate limited, use client.user_info() to get individual user info
+            members = []
+        member_dict = {
+            member["profile"].get("email"): member["id"] for member in members if member["profile"].get("email")
+        }
+
+        replace_list = []
+        for index, email in enumerate(email_list):
+            user_id = member_dict.get(email)
+            if user_id:
+                replace_list.append(f"<@{user_id}>")
+            else:
+                replace_list.append(f"@{mentioned_user_info[index]['user_name']}")
+
+        pattern = r"<@\w+>"
+        return re.sub(pattern, "{}", msg_text).format(*replace_list)

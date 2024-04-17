@@ -55,6 +55,7 @@ def respond_to_message_event(
     team_id = helpers.safe_get(body, "team_id")
     channel_id = helpers.safe_get(body, "event", "channel")
     msg_text = helpers.safe_get(body, "event", "text") or helpers.safe_get(body, "event", "message", "text")
+    mentioned_users = helpers.parse_mentioned_users(msg_text, client)
     user_id = helpers.safe_get(body, "event", "user") or helpers.safe_get(body, "event", "message", "user")
     thread_ts = helpers.safe_get(body, "event", "thread_ts")
     ts = (
@@ -108,6 +109,7 @@ def respond_to_message_event(
                     if sync_channel.channel_id == channel_id:
                         ts = helpers.safe_get(body, "event", "ts")
                     else:
+                        msg_text = helpers.apply_mentioned_users(msg_text, client, mentioned_users)
                         res = helpers.post_message(
                             bot_token=region.bot_token,
                             channel_id=sync_channel.channel_id,
@@ -147,6 +149,7 @@ def respond_to_message_event(
                     if sync_channel.channel_id == channel_id:
                         ts = helpers.safe_get(body, "event", "ts")
                     else:
+                        msg_text = helpers.apply_mentioned_users(msg_text, client, mentioned_users)
                         res = helpers.post_message(
                             bot_token=region.bot_token,
                             channel_id=sync_channel.channel_id,
@@ -178,6 +181,7 @@ def respond_to_message_event(
                 if sync_channel.channel_id == channel_id:
                     continue
                 else:
+                    msg_text = helpers.apply_mentioned_users(msg_text, client, mentioned_users)
                     res = helpers.post_message(
                         bot_token=region.bot_token,
                         channel_id=sync_channel.channel_id,
