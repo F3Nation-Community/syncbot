@@ -93,13 +93,13 @@ def post_message(
     if blocks:
         # msg_block = orm.SectionBlock(label=msg_text).as_form_field()
         msg_block = {"type": "section", "text": {"type": "mrkdwn", "text": msg_text}}
-        blocks.insert(0, msg_block)
+        all_blocks = [msg_block] + blocks
     if update_ts:
         res = slack_client.chat_update(
             channel=channel_id,
             text=msg_text,
             ts=update_ts,
-            blocks=blocks,
+            blocks=all_blocks,
         )
     else:
         res = slack_client.chat_postMessage(
@@ -108,7 +108,7 @@ def post_message(
             username=f"{user_name} {posted_from}",
             icon_url=user_profile_url,
             thread_ts=thread_ts,
-            blocks=blocks,
+            blocks=all_blocks,
         )
     return res
 
