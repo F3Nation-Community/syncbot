@@ -94,6 +94,8 @@ def post_message(
         # msg_block = orm.SectionBlock(label=msg_text).as_form_field()
         msg_block = {"type": "section", "text": {"type": "mrkdwn", "text": msg_text}}
         all_blocks = [msg_block] + blocks
+    else:
+        all_blocks = []
     if update_ts:
         res = slack_client.chat_update(
             channel=channel_id,
