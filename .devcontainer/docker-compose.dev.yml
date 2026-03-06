@@ -1,0 +1,42 @@
+services:
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: syncbot
+      MYSQL_ROOT_HOST: "%"
+    ports:
+      - "3306:3306"
+    volumes:
+      - syncbot-db:/var/lib/mysql
+      - ../db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: sleep infinity
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      # Overrides that are always fixed for local dev
+      LOCAL_DEVELOPMENT: "true"
+      DATABASE_HOST: db
+      ADMIN_DATABASE_USER: root
+      ADMIN_DATABASE_PASSWORD: rootpass
+      ADMIN_DATABASE_SCHEMA: syncbot
+    volumes:
+      - ..:/app:cached
+    ports:
+      - "3000:3000"
+
+volumes:
+  syncbot-db:

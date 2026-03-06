@@ -1,8 +1,11 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: syncbot-build-template
+Description: >
+  SyncBot - Slack app that syncs posts and replies across workspaces.
+  Free-tier compatible: Lambda, API Gateway, RDS db.t3.micro, S3.
+  All infrastructure resources (RDS, VPC, S3 buckets) can optionally
+  point at existing instances so multiple apps can share one account.
 
-# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
     Timeout: 10
@@ -10,86 +13,458 @@ Globals:
     Tracing: Active
   Api:
     TracingEnabled: true
+    MethodSettings:
+      - ResourcePath: "/*"
+        HttpMethod: "*"
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
+# ================================================================
+# Parameters
+# ================================================================
 
 Parameters:
-  SlackToken:
-    Description: Slack token that is passed by the bot
-    Type: String
-    Default: "123"
-  SlackSigningSecret:
-    Description: Auth token used to pass to the controller to get the commands
-    Type: String
-    Default: "123"
-  SlackClientSecret:
-    Description: Auth token used to pass to the controller to get the commands
-    Type: String
-    Default: "123"
-  SlackOauthScopes:
-    Description: Auth token used to pass to the controller to get the commands
-    Type: String
-    Default: "app_mentions:read,channels:history,channels:join,chat:write,chat:write.customize,commands,files:read,files:write,team:read,users:read,channels:manage,users:read.email,reactions:read,reactions:write"
   Stage:
-    Description: Parameter for getting the deployment stage
+    Description: Deployment stage
     Type: String
     Default: staging
-  DatabaseHost:
-    Description: RDS Database Host
+    AllowedValues:
+      - staging
+      - prod
+
+  # --- Slack ---
+
+  SlackSigningSecret:
+    Description: Slack signing secret for request verification
     Type: String
+    NoEcho: true
     Default: "123"
+
+  SlackClientSecret:
+    Description: Slack OAuth client secret
+    Type: String
+    NoEcho: true
+    Default: "123"
+
+  SlackOauthScopes:
+    Description: Comma-separated list of Slack OAuth scopes
+    Type: String
+    Default: "app_mentions:read,channels:history,channels:join,chat:write,chat:write.customize,commands,files:read,files:write,team:read,users:read,channels:manage,users:read.email,reactions:read,reactions:write"
+
+  # --- Database (RDS) ---
+
+  ExistingDatabaseHost:
+    Description: >
+      Endpoint of an existing RDS instance (e.g. mydb.xxxx.us-east-2.rds.amazonaws.com).
+      Leave EMPTY to create a new RDS instance. When set, all VPC and RDS
+      resources are skipped.
+    Type: String
+    Default: ""
+
   DatabaseUser:
-    Description: RDS Database User
+    Description: Database username (master user if creating new RDS, or an existing user)
     Type: String
-    Default: "moneyball"
+
   DatabasePassword:
-    Description: RDS Database Password
+    Description: Database password
     Type: String
-    Default: "123"
+    NoEcho: true
+    MinLength: 8
+
   DatabaseSchema:
-    Description: RDS Database Schema
+    Description: >
+      MySQL database/schema name. Each app sharing an RDS instance
+      should use a different schema name.
     Type: String
     Default: "syncbot"
-  PasswordEncryptKey:
-    Description: Hash encrypt key for decrypting email passwords
+
+  DatabaseInstanceClass:
+    Description: "RDS instance class (db.t3.micro is free-tier eligible). Ignored when using an existing database."
     Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.t4g.micro
+      - db.t4g.small
+
+  AllowedDBCidr:
+    Description: >
+      CIDR allowed to reach the database (e.g. your IP as x.x.x.x/32).
+      Ignored when using an existing database.
+    Type: String
+    Default: "0.0.0.0/0"
+
+  VpcCidr:
+    Description: CIDR block for the VPC. Ignored when using an existing database.
+    Type: String
+    Default: "10.0.0.0/16"
+
+  # --- S3 Buckets ---
+
+  ExistingSlackStateBucket:
+    Description: >
+      Name of an existing S3 bucket for Slack OAuth state.
+      Leave EMPTY to create a new bucket.
+    Type: String
+    Default: ""
+
+  ExistingInstallationBucket:
+    Description: >
+      Name of an existing S3 bucket for Slack installation data.
+      Leave EMPTY to create a new bucket.
+    Type: String
+    Default: ""
+
+  ExistingImagesBucket:
+    Description: >
+      Name of an existing S3 bucket for synced images.
+      Leave EMPTY to create a new bucket. The bucket must allow
+      public reads if you want images to render in Slack.
+    Type: String
+    Default: ""
+
+  # --- Security ---
+
+  PasswordEncryptKey:
+    Description: Encryption key for sensitive data
+    Type: String
+    NoEcho: true
     Default: "123"
+
+  RequireAdmin:
+    Description: >
+      When "true" (default), only workspace admins and owners can
+      configure SyncBot.  Set to "false" to allow any user.
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+# ================================================================
+# Conditions
+# ================================================================
+
+Conditions:
+  CreateDatabase: !Equals [!Ref ExistingDatabaseHost, ""]
+  CreateSlackStateBucket: !Equals [!Ref ExistingSlackStateBucket, ""]
+  CreateInstallationBucket: !Equals [!Ref ExistingInstallationBucket, ""]
+  CreateImagesBucket: !Equals [!Ref ExistingImagesBucket, ""]
 
 Mappings:
   StagesMap:
     staging:
       SlackClientID: "1966318390773.6037875913205"
-      SlackStateS3Bucket: "slack-state-bucket"
-      SlackInstallS3Bucket: "slack-installation-bucket"
       KeepWarmName: "SyncBotKeepWarmTest"
     prod:
       SlackClientID: "1990266264068.6053437451057"
-      SlackStateS3Bucket: "slack-state-bucket"
-      SlackInstallS3Bucket: "slack-installation-bucket"
       KeepWarmName: "SyncBotKeepWarmProd"
 
 Resources:
+  # ============================================================
+  # Networking
+  #
+  # Minimal VPC for RDS (AWS requires RDS to live in a VPC).
+  # Only public subnets — no NAT Gateway, no private subnets.
+  # Lambda runs OUTSIDE the VPC and connects to RDS over its
+  # public endpoint, keeping the architecture free-tier friendly.
+  #
+  # Skipped entirely when ExistingDatabaseHost is provided.
+  # ============================================================
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Condition: CreateDatabase
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: CreateDatabase
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-igw"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateDatabase
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: CreateDatabase
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 4, 8]]
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-public-1"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: CreateDatabase
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 4, 8]]
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-public-2"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateDatabase
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-public-rt"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Condition: CreateDatabase
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateDatabase
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateDatabase
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ============================================================
+  # Security Groups (skipped when using existing database)
+  # ============================================================
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateDatabase
+    Properties:
+      GroupDescription: Controls access to the SyncBot RDS instance
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: !Ref AllowedDBCidr
+          Description: "MySQL access (Lambda connects over public internet)"
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-rds-sg"
+
+  # ============================================================
+  # RDS MySQL Database (free-tier: db.t3.micro, 20 GB gp2)
+  #
+  # Skipped entirely when ExistingDatabaseHost is provided.
+  # ============================================================
+
+  RDSParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Condition: CreateDatabase
+    Properties:
+      Family: mysql8.0
+      Description: !Sub "SyncBot ${Stage} - enforces SSL connections"
+      Parameters:
+        require_secure_transport: "1"
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-db-params"
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Condition: CreateDatabase
+    Properties:
+      DBSubnetGroupDescription: Subnet group for SyncBot RDS
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-db-subnet-group"
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Condition: CreateDatabase
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub "syncbot-${Stage}"
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      Engine: mysql
+      EngineVersion: "8.0"
+      MasterUsername: !Ref DatabaseUser
+      MasterUserPassword: !Ref DatabasePassword
+      DBName: !Ref DatabaseSchema
+      AllocatedStorage: 20
+      StorageType: gp2
+      StorageEncrypted: true
+      PubliclyAccessible: true
+      MultiAZ: false
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBParameterGroupName: !Ref RDSParameterGroup
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: "03:00-04:00"
+      PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
+      DeletionProtection: true
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-db"
+
+  # ============================================================
+  # S3 Buckets (free-tier: 5 GB total, 20 000 GET, 2 000 PUT)
+  #
+  # Each bucket is skipped when an existing bucket name is provided.
+  # ============================================================
+
+  SlackStateBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateSlackStateBucket
+    Properties:
+      BucketName: !Sub "syncbot-${Stage}-slack-state-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOAuthState
+            Status: Enabled
+            ExpirationInDays: 1
+
+  SlackInstallationBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateInstallationBucket
+    Properties:
+      BucketName: !Sub "syncbot-${Stage}-slack-installations-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  SyncBotImagesBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateImagesBucket
+    Properties:
+      BucketName: !Sub "syncbot-${Stage}-images-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldImages
+            Status: Enabled
+            ExpirationInDays: 90
+
+  SyncBotImagesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: CreateImagesBucket
+    Properties:
+      Bucket: !Ref SyncBotImagesBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: "s3:GetObject"
+            Resource: !Sub "${SyncBotImagesBucket.Arn}/*"
+
+  # ============================================================
+  # Lambda Function (free-tier: 1M requests, 400 000 GB-s)
+  #
+  # Runs OUTSIDE the VPC so it can reach the Slack API and RDS
+  # public endpoint without a NAT Gateway.
+  #
+  # Each app gets its own Lambda function — this is inherent to
+  # the serverless model and doesn't affect free-tier billing
+  # (the 1M request quota is shared across ALL functions).
+  # ============================================================
+
   SyncBotFunction:
-    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Type: AWS::Serverless::Function
     Properties:
       CodeUri: syncbot/
       Handler: app.handler
       Runtime: python3.11
       Architectures:
         - x86_64
+      Timeout: 30
+      MemorySize: 128
       Policies:
-        - AmazonS3FullAccess
-        - AWSLambdaRole
-        - AmazonEventBridgeFullAccess
-      Timeout: 400
+        - S3CrudPolicy:
+            BucketName: !If
+              - CreateSlackStateBucket
+              - !Ref SlackStateBucket
+              - !Ref ExistingSlackStateBucket
+        - S3CrudPolicy:
+            BucketName: !If
+              - CreateInstallationBucket
+              - !Ref SlackInstallationBucket
+              - !Ref ExistingInstallationBucket
+        - S3CrudPolicy:
+            BucketName: !If
+              - CreateImagesBucket
+              - !Ref SyncBotImagesBucket
+              - !Ref ExistingImagesBucket
       Events:
         SyncBot:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Type: Api
           Properties:
             Path: /slack/events
             Method: post
         SyncBotInstall:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Type: Api
           Properties:
             Path: /slack/install
+            Method: get
+        SyncBotOAuthRedirect:
+          Type: Api
+          Properties:
+            Path: /slack/oauth_redirect
             Method: get
         SyncBotKeepWarm:
           Type: ScheduleV2
@@ -97,41 +472,177 @@ Resources:
             ScheduleExpression: "rate(5 minutes)"
             Name: !FindInMap
               - StagesMap
-              - Ref: Stage
+              - !Ref Stage
               - KeepWarmName
       Environment:
         Variables:
-          SLACK_BOT_TOKEN: !Ref SlackToken
+          SLACK_BOT_TOKEN: "123"
           SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
           ENV_SLACK_CLIENT_SECRET: !Ref SlackClientSecret
           ENV_SLACK_SCOPES: !Ref SlackOauthScopes
-          DATABASE_HOST: !Ref DatabaseHost
+          ENV_SLACK_CLIENT_ID: !FindInMap
+            - StagesMap
+            - !Ref Stage
+            - SlackClientID
+          ENV_SLACK_STATE_S3_BUCKET_NAME: !If
+            - CreateSlackStateBucket
+            - !Ref SlackStateBucket
+            - !Ref ExistingSlackStateBucket
+          ENV_SLACK_INSTALLATION_S3_BUCKET_NAME: !If
+            - CreateInstallationBucket
+            - !Ref SlackInstallationBucket
+            - !Ref ExistingInstallationBucket
+          DATABASE_HOST: !If
+            - CreateDatabase
+            - !GetAtt RDSInstance.Endpoint.Address
+            - !Ref ExistingDatabaseHost
           ADMIN_DATABASE_USER: !Ref DatabaseUser
           ADMIN_DATABASE_PASSWORD: !Ref DatabasePassword
           ADMIN_DATABASE_SCHEMA: !Ref DatabaseSchema
-          ENV_SLACK_CLIENT_ID: !FindInMap
-            - StagesMap
-            - Ref: Stage
-            - SlackClientID
-          ENV_SLACK_STATE_S3_BUCKET_NAME: !FindInMap
-            - StagesMap
-            - Ref: Stage
-            - SlackStateS3Bucket
-          ENV_SLACK_INSTALLATION_S3_BUCKET_NAME: !FindInMap
-            - StagesMap
-            - Ref: Stage
-            - SlackInstallS3Bucket
+          PASSWORD_ENCRYPT_KEY: !Ref PasswordEncryptKey
+          REQUIRE_ADMIN: !Ref RequireAdmin
+          S3_IMAGE_BUCKET: !If
+            - CreateImagesBucket
+            - !Ref SyncBotImagesBucket
+            - !Ref ExistingImagesBucket
+          S3_IMAGE_URL: !If
+            - CreateImagesBucket
+            - !Sub "https://${SyncBotImagesBucket}.s3.amazonaws.com/"
+            - !Sub "https://${ExistingImagesBucket}.s3.amazonaws.com/"
+
+  # ============================================================
+  # CloudWatch Alarms (free-tier: 10 alarms)
+  #
+  # Basic operational alarms that surface problems before users
+  # notice.  All alarms use the free-tier standard-resolution
+  # (60-second) metrics already published by Lambda and API GW.
+  # ============================================================
+
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "syncbot-${Stage}-lambda-errors"
+      AlarmDescription: >
+        Fires when the SyncBot Lambda function produces 3 or more
+        errors within a 5-minute window.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SyncBotFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  LambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "syncbot-${Stage}-lambda-throttles"
+      AlarmDescription: >
+        Fires when the SyncBot Lambda function is throttled,
+        indicating a concurrency limit has been reached.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SyncBotFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "syncbot-${Stage}-lambda-duration"
+      AlarmDescription: >
+        Fires when average Lambda duration exceeds 10 seconds,
+        indicating potential performance degradation.
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SyncBotFunction
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  ApiGateway5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "syncbot-${Stage}-api-5xx"
+      AlarmDescription: >
+        Fires when the API Gateway returns 5 or more 5xx errors
+        within a 5-minute window.
+      Namespace: AWS/ApiGateway
+      MetricName: 5XXError
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref ServerlessRestApi
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+# ================================================================
+# Outputs
+# ================================================================
 
 Outputs:
-  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
-  # Find out more about other implicit resources you can reference within SAM
-  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-  SyncBotApi:
-    Description: API Gateway endpoint URL for Prod stage for SyncBot function
+  SyncBotApiUrl:
+    Description: API Gateway endpoint URL
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/slack/events/"
-  SyncBotFunction:
-    Description: SyncBot Lambda Function ARN
+
+  SyncBotInstallUrl:
+    Description: Slack app installation URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/slack/install"
+
+  SyncBotFunctionArn:
+    Description: SyncBot Lambda function ARN
     Value: !GetAtt SyncBotFunction.Arn
-  SyncBotFunctionIamRole:
-    Description: Implicit IAM Role created for Hello World function
-    Value: !GetAtt SyncBotFunctionRole.Arn
+
+  DatabaseHostInUse:
+    Description: Database host the Lambda is configured to connect to
+    Value: !If
+      - CreateDatabase
+      - !GetAtt RDSInstance.Endpoint.Address
+      - !Ref ExistingDatabaseHost
+
+  RDSEndpoint:
+    Condition: CreateDatabase
+    Description: RDS MySQL endpoint address (only when RDS is created by this stack)
+    Value: !GetAtt RDSInstance.Endpoint.Address
+
+  RDSPort:
+    Condition: CreateDatabase
+    Description: RDS MySQL port (only when RDS is created by this stack)
+    Value: !GetAtt RDSInstance.Endpoint.Port
+
+  VpcId:
+    Condition: CreateDatabase
+    Description: VPC ID (only when VPC is created by this stack)
+    Value: !Ref VPC
+
+  ImagesBucketName:
+    Description: S3 bucket name for synced images
+    Value: !If
+      - CreateImagesBucket
+      - !Ref SyncBotImagesBucket
+      - !Ref ExistingImagesBucket
+
+  ImagesBucketUrl:
+    Description: Public URL for synced images
+    Value: !If
+      - CreateImagesBucket
+      - !Sub "https://${SyncBotImagesBucket}.s3.amazonaws.com/"
+      - !Sub "https://${ExistingImagesBucket}.s3.amazonaws.com/"

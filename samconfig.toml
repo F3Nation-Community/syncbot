@@ -1,0 +1,28 @@
+# SAM CLI configuration for local deployment
+# Usage:
+#   sam build --use-container
+#   sam deploy                          # uses [default.deploy.parameters]
+#   sam deploy --config-env prod        # uses [prod.deploy.parameters]
+
+version = 0.1
+
+[default.build.parameters]
+use_container = true
+
+[default.deploy.parameters]
+stack_name = "syncbot-staging"
+resolve_s3 = true
+s3_prefix = "syncbot-staging"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+parameter_overrides = "Stage=staging"
+
+[prod.deploy.parameters]
+stack_name = "syncbot-prod"
+resolve_s3 = true
+s3_prefix = "syncbot-prod"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+parameter_overrides = "Stage=prod"

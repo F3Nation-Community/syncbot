@@ -1,9 +1,11 @@
 import json
+import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
+from helpers import safe_get
 
-from utils.helpers import safe_get
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -76,13 +78,32 @@ class SectionBlock(BaseBlock):
         return self.element.get_selected_value(input_data, self.action, **kwargs)
 
     def as_form_field(self):
-        block = {"type": "section", "block_id": self.action, "text": self.make_label_field()}
+        block = {"type": "section", "text": self.make_label_field()}
+        if self.action:
+            block["block_id"] = self.action
         if self.element:
             block.update({"accessory": self.element.as_form_field(action=self.action)})
         return block
 
     def make_label_field(self, text=None):
         return {"type": "mrkdwn", "text": text or self.label or ""}
+
+
+@dataclass
+class HeaderBlock(BaseBlock):
+    """A ``header`` block — renders as large bold text."""
+
+    text: str = None
+
+    def as_form_field(self):
+        return {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": self.text or self.label or "",
+                "emoji": True,
+            },
+        }
 
 
 @dataclass
@@ -114,8 +135,8 @@ class SelectorOption:
     value: str
 
 
-def as_selector_options(names: List[str], values: List[str] = []) -> List[SelectorOption]:
-    if values == []:
+def as_selector_options(names: list[str], values: list[str] | None = None) -> list[SelectorOption]:
+    if values is None:
         selectors = [SelectorOption(name=x, value=x) for x in names]
     else:
         selectors = [SelectorOption(name=x, value=y) for x, y in zip(names, values)]
@@ -125,7 +146,7 @@ def as_selector_options(names: List[str], values: List[str] = []) -> List[Select
 @dataclass
 class StaticSelectElement(BaseElement):
     initial_value: str = None
-    options: List[SelectorOption] = None
+    options: list[SelectorOption] = None
 
     # def with_options(self, options: List[SelectorOption]):
     #   return SelectorElement(self.label, self.action, options)
@@ -159,7 +180,7 @@ class StaticSelectElement(BaseElement):
 @dataclass
 class RadioButtonsElement(BaseElement):
     initial_value: str = None
-    options: List[SelectorOption] = None
+    options: list[SelectorOption] = None
 
     def get_selected_value(self, input_data, action):
         return safe_get(input_data, action, action, "selected_option", "value")
@@ -258,6 +279,32 @@ class ChannelsSelectElement(BaseElement):
 
 
 @dataclass
+class ConversationsSelectElement(BaseElement):
+    """Channel picker that includes both public and private channels."""
+
+    initial_value: str = None
+
+    def get_selected_value(self, input_data, action):
+        return safe_get(input_data, action, action, "selected_conversation")
+
+    def as_form_field(self, action: str):
+        j = {
+            "type": "conversations_select",
+            "action_id": action,
+            "filter": {
+                "include": ["public", "private"],
+                "exclude_bot_users": True,
+                "exclude_external_shared_channels": True,
+            },
+        }
+        if self.placeholder:
+            j.update(self.make_placeholder_field())
+        if self.initial_value:
+            j["initial_conversation"] = self.initial_value
+        return j
+
+
+@dataclass
 class DatepickerElement(BaseElement):
     initial_value: str = None
 
@@ -316,7 +363,7 @@ class UsersSelectElement(BaseElement):
 
 @dataclass
 class MultiUsersSelectElement(BaseElement):
-    initial_value: List[str] = None
+    initial_value: list[str] = None
 
     def get_selected_value(self, input_data, action):
         return safe_get(input_data, action, action, "selected_users")
@@ -336,6 +383,7 @@ class MultiUsersSelectElement(BaseElement):
 @dataclass
 class ContextBlock(BaseBlock):
     element: BaseElement = None
+    elements: list = None
     initial_value: str = ""
 
     def get_selected_value(self, input_data, action):
@@ -346,10 +394,43 @@ class ContextBlock(BaseBlock):
 
     def as_form_field(self):
         j = {"type": "context"}
-        j.update({"elements": [self.element.as_form_field()]})
+        if self.elements:
+            j["elements"] = [e.as_form_field() for e in self.elements]
+        elif self.element:
+            j["elements"] = [self.element.as_form_field()]
         if self.action:
             j["block_id"] = self.action
         return j
+
+
+@dataclass
+class ImageContextElement(BaseElement):
+    """An image element for use inside a ContextBlock."""
+
+    image_url: str = None
+    alt_text: str = "icon"
+
+    def as_form_field(self):
+        return {
+            "type": "image",
+            "image_url": self.image_url,
+            "alt_text": self.alt_text,
+        }
+
+
+@dataclass
+class ImageAccessoryElement(BaseElement):
+    """An image element for use as a SectionBlock accessory."""
+
+    image_url: str = None
+    alt_text: str = "icon"
+
+    def as_form_field(self, action: str = None):
+        return {
+            "type": "image",
+            "image_url": self.image_url,
+            "alt_text": self.alt_text,
+        }
 
 
 @dataclass
@@ -372,7 +453,7 @@ class DividerBlock(BaseBlock):
 
 @dataclass
 class ActionsBlock(BaseBlock):
-    elements: List[BaseAction] = field(default_factory=list)
+    elements: list[BaseAction] = field(default_factory=list)
 
     def as_form_field(self):
         j = {
@@ -386,7 +467,7 @@ class ActionsBlock(BaseBlock):
 
 @dataclass
 class BlockView:
-    blocks: List[BaseBlock]
+    blocks: list[BaseBlock]
 
     def delete_block(self, action: str):
         self.blocks = [b for b in self.blocks if b.action != action]
@@ -399,12 +480,12 @@ class BlockView:
             if block.action in values:
                 block.element.initial_value = values[block.action]
 
-    def set_options(self, options: Dict[str, List[SelectorOption]]):
+    def set_options(self, options: dict[str, list[SelectorOption]]):
         for block in self.blocks:
             if block.action in options:
                 block.element.options = options[block.action]
 
-    def as_form_field(self) -> List[dict]:
+    def as_form_field(self) -> list[dict]:
         return [b.as_form_field() for b in self.blocks]
 
     def get_selected_values(self, body) -> dict:
@@ -454,8 +535,16 @@ class BlockView:
             elif new_or_add == "add":
                 client.views_push(trigger_id=trigger_id, view=view)
         except Exception as e:
-            print(e)
-            print(json.dumps(view, indent=2))
+            logger.error(f"Failed to open/push modal view: {e}")
+            logger.debug(f"View payload: {json.dumps(view, indent=2)}")
+
+    def publish_home_tab(self, client: Any, user_id: str):
+        """Publish a Home tab view for the given user."""
+        blocks = self.as_form_field()
+        client.views_publish(
+            user_id=user_id,
+            view={"type": "home", "blocks": blocks},
+        )
 
     def update_modal(
         self,
@@ -474,15 +563,39 @@ class BlockView:
             "type": "modal",
             "callback_id": callback_id,
             "title": {"type": "plain_text", "text": title_text},
-            "submit": {"type": "plain_text", "text": submit_button_text},
             "close": {"type": "plain_text", "text": close_button_text},
             "notify_on_close": notify_on_close,
             "blocks": blocks,
         }
+        if submit_button_text != "None":
+            view["submit"] = {"type": "plain_text", "text": submit_button_text}
         if parent_metadata:
             view["private_metadata"] = json.dumps(parent_metadata)
 
         client.views_update(view_id=view_id, view=view)
+
+    def as_ack_update(
+        self,
+        title_text: str,
+        callback_id: str,
+        submit_button_text: str = "Submit",
+        parent_metadata: dict = None,
+        close_button_text: str = "Close",
+    ) -> dict:
+        """Build a modal view dict suitable for ack(response_action="update")."""
+        blocks = self.as_form_field()
+        view: dict = {
+            "type": "modal",
+            "callback_id": callback_id,
+            "title": {"type": "plain_text", "text": title_text},
+            "close": {"type": "plain_text", "text": close_button_text},
+            "blocks": blocks,
+        }
+        if submit_button_text != "None":
+            view["submit"] = {"type": "plain_text", "text": submit_button_text}
+        if parent_metadata:
+            view["private_metadata"] = json.dumps(parent_metadata)
+        return view
 
 
 @dataclass
