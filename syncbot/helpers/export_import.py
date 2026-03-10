@@ -233,10 +233,10 @@ def build_migration_export(workspace_id: int, include_source_instance: bool = Tr
         ],
     )
     groups_data = []
-    for m in memberships:
-        g = DbManager.get_record(schemas.WorkspaceGroup, m.group_id)
+    for membership in memberships:
+        g = DbManager.get_record(schemas.WorkspaceGroup, membership.group_id)
         if g:
-            groups_data.append({"name": g.name, "role": m.role})
+            groups_data.append({"name": g.name, "role": membership.role})
 
     # Syncs that have at least one SyncChannel for W
     sync_channels_w = DbManager.find_records(
@@ -246,7 +246,7 @@ def build_migration_export(workspace_id: int, include_source_instance: bool = Tr
             schemas.SyncChannel.deleted_at.is_(None),
         ],
     )
-    sync_ids = {sc.sync_id for sc in sync_channels_w}
+    sync_ids = {sync_channel.sync_id for sync_channel in sync_channels_w}
     syncs_data = []
     sync_channels_data = []
     post_meta_by_key = {}
@@ -258,9 +258,9 @@ def build_migration_export(workspace_id: int, include_source_instance: bool = Tr
         pub_team = None
         tgt_team = None
         if sync.publisher_workspace_id:
-            pw = DbManager.get_record(schemas.Workspace, sync.publisher_workspace_id)
-            if pw:
-                pub_team = pw.team_id
+            publisher_ws = DbManager.get_record(schemas.Workspace, sync.publisher_workspace_id)
+            if publisher_ws:
+                pub_team = publisher_ws.team_id
         if sync.target_workspace_id:
             tw = DbManager.get_record(schemas.Workspace, sync.target_workspace_id)
             if tw:
@@ -272,20 +272,20 @@ def build_migration_export(workspace_id: int, include_source_instance: bool = Tr
             "target_team_id": tgt_team,
             "is_publisher": sync.publisher_workspace_id == workspace_id,
         })
-        for sc in sync_channels_w:
-            if sc.sync_id != sync_id:
+        for sync_channel in sync_channels_w:
+            if sync_channel.sync_id != sync_id:
                 continue
             sync_channels_data.append({
                 "sync_title": sync.title,
-                "channel_id": sc.channel_id,
-                "status": sc.status or "active",
+                "channel_id": sync_channel.channel_id,
+                "status": sync_channel.status or "active",
             })
-            key = f"{sync.title}:{sc.channel_id}"
+            key = f"{sync.title}:{sync_channel.channel_id}"
             post_metas = DbManager.find_records(
                 schemas.PostMeta,
-                [schemas.PostMeta.sync_channel_id == sc.id],
+                [schemas.PostMeta.sync_channel_id == sync_channel.id],
             )
-            post_meta_by_key[key] = [{"post_id": pm.post_id, "ts": float(pm.ts)} for pm in post_metas]
+            post_meta_by_key[key] = [{"post_id": post_meta.post_id, "ts": float(post_meta.ts)} for post_meta in post_metas]
 
     # user_directory for W
     ud_records = DbManager.find_records(
@@ -416,14 +416,14 @@ def import_migration_data(
             ],
         )
         now = datetime.now(UTC)
-        for sc in channels_to_remove:
+        for sync_channel in channels_to_remove:
             DbManager.delete_records(
                 schemas.PostMeta,
-                [schemas.PostMeta.sync_channel_id == sc.id],
+                [schemas.PostMeta.sync_channel_id == sync_channel.id],
             )
             DbManager.update_records(
                 schemas.SyncChannel,
-                [schemas.SyncChannel.id == sc.id],
+                [schemas.SyncChannel.id == sync_channel.id],
                 {schemas.SyncChannel.deleted_at: now},
             )
 
@@ -463,20 +463,20 @@ def import_migration_data(
         sync_id = title_to_sync.get(sync_title)
         if not sync_id:
             continue
-        new_sc = schemas.SyncChannel(
+        new_sync_channel = schemas.SyncChannel(
             sync_id=sync_id,
             workspace_id=workspace_id,
             channel_id=channel_id,
             status=status,
             created_at=datetime.now(UTC),
         )
-        DbManager.create_record(new_sc)
+        DbManager.create_record(new_sync_channel)
         key = f"{sync_title}:{channel_id}"
-        for pm in post_meta_export.get(key, []):
+        for post_meta in post_meta_export.get(key, []):
             DbManager.create_record(schemas.PostMeta(
-                post_id=pm["post_id"],
-                sync_channel_id=new_sc.id,
-                ts=Decimal(str(pm["ts"])),
+                post_id=post_meta["post_id"],
+                sync_channel_id=new_sync_channel.id,
+                ts=Decimal(str(post_meta["ts"])),
             ))
 
     # user_directory for W (replace: remove existing for this workspace then insert)

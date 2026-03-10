@@ -26,7 +26,6 @@ from slack_bolt import App
 from slack_bolt.adapter.aws_lambda import SlackRequestHandler
 
 from constants import (
-    DANGER_DROP_AND_INIT_DB,
     FEDERATION_ENABLED,
     HAS_REAL_BOT_TOKEN,
     LOCAL_DEVELOPMENT,
@@ -68,10 +67,6 @@ def _redact_sensitive(obj, _depth=0):
 
 SlackRequestHandler.clear_all_log_handlers()
 configure_logging()
-
-if os.environ.get(DANGER_DROP_AND_INIT_DB, "").strip().lower() == "true":
-    from db import drop_and_init_db
-    drop_and_init_db()
 
 validate_config()
 

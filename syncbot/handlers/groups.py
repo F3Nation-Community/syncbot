@@ -47,25 +47,25 @@ def _activate_group_membership(
         ],
     )
 
-    partner_clients: list[tuple[WebClient, int]] = []
+    member_clients: list[tuple[WebClient, int]] = []
 
     for member in members:
         if not member.workspace_id:
             continue
-        partner = helpers.get_workspace_by_id(member.workspace_id)
-        if not partner or not partner.bot_token or partner.deleted_at:
+        member_ws = helpers.get_workspace_by_id(member.workspace_id)
+        if not member_ws or not member_ws.bot_token or member_ws.deleted_at:
             continue
 
         try:
-            partner_client = WebClient(token=helpers.decrypt_bot_token(partner.bot_token))
-            helpers._refresh_user_directory(partner_client, partner.id)
-            partner_clients.append((partner_client, partner.id))
+            member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
+            helpers._refresh_user_directory(member_client, member_ws.id)
+            member_clients.append((member_client, member_ws.id))
         except Exception as e:
-            _logger.warning(f"Failed to refresh user directory for workspace {partner.id}: {e}")
+            _logger.warning(f"Failed to refresh user directory for workspace {member_ws.id}: {e}")
 
         try:
-            helpers.seed_user_mappings(workspace_record.id, partner.id, group_id=group.id)
-            helpers.seed_user_mappings(partner.id, workspace_record.id, group_id=group.id)
+            helpers.seed_user_mappings(workspace_record.id, member_ws.id, group_id=group.id)
+            helpers.seed_user_mappings(member_ws.id, workspace_record.id, group_id=group.id)
         except Exception as e:
             _logger.warning(f"Failed to seed user mappings: {e}")
 
@@ -74,11 +74,11 @@ def _activate_group_membership(
     except Exception as e:
         _logger.warning(f"Auto-match failed for workspace {workspace_record.id}: {e}")
 
-    for p_client, p_id in partner_clients:
+    for member_client, member_ws_id in member_clients:
         try:
-            helpers.run_auto_match_for_workspace(p_client, p_id)
+            helpers.run_auto_match_for_workspace(member_client, member_ws_id)
         except Exception as e:
-            _logger.warning(f"Auto-match failed for partner workspace {p_id}: {e}")
+            _logger.warning(f"Auto-match failed for member workspace {member_ws_id}: {e}")
 
 
 def handle_create_group(
@@ -329,16 +329,16 @@ def handle_join_group_submit(
     for m in other_members:
         if not m.workspace_id:
             continue
-        partner = helpers.get_workspace_by_id(m.workspace_id)
-        if not partner or not partner.bot_token or partner.deleted_at:
+        member_ws = helpers.get_workspace_by_id(m.workspace_id)
+        if not member_ws or not member_ws.bot_token or member_ws.deleted_at:
             continue
         try:
-            partner_client = WebClient(token=helpers.decrypt_bot_token(partner.bot_token))
+            member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
             helpers.notify_admins_dm(
-                partner_client,
+                member_client,
                 f":handshake: *{admin_label}* joined the group *{group.name}*.",
             )
-            builders.refresh_home_tab_for_workspace(partner, logger, context=context)
+            builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
         except Exception as e:
             _logger.warning(f"Failed to notify group member {m.workspace_id}: {e}")
 
@@ -572,7 +572,7 @@ def handle_invite_workspace_submit(
         },
     )
 
-    builders.refresh_home_tab_for_workspace(target_ws, logger, context=context)
+    builders.refresh_home_tab_for_workspace(target_ws, logger, context=None)
     builders.refresh_home_tab_for_workspace(workspace_record, logger, context=context)
 
 
@@ -639,16 +639,16 @@ def handle_accept_group_invite(
     for m in other_members:
         if not m.workspace_id:
             continue
-        partner = helpers.get_workspace_by_id(m.workspace_id)
-        if not partner or not partner.bot_token or partner.deleted_at:
+        member_ws = helpers.get_workspace_by_id(m.workspace_id)
+        if not member_ws or not member_ws.bot_token or member_ws.deleted_at:
             continue
         try:
-            partner_client = WebClient(token=helpers.decrypt_bot_token(partner.bot_token))
+            member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
             helpers.notify_admins_dm(
-                partner_client,
+                member_client,
                 f":handshake: *{ws_name}* has joined the group *{group.name}*.",
             )
-            builders.refresh_home_tab_for_workspace(partner, logger, context=context)
+            builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
         except Exception as e:
             _logger.warning(f"Failed to notify group member {m.workspace_id}: {e}")
 
@@ -717,11 +717,11 @@ def handle_decline_group_invite(
     for m in all_members:
         if not m.workspace_id:
             continue
-        partner = helpers.get_workspace_by_id(m.workspace_id)
-        if not partner or not partner.bot_token or partner.deleted_at:
+        member_ws = helpers.get_workspace_by_id(m.workspace_id)
+        if not member_ws or not member_ws.bot_token or member_ws.deleted_at:
             continue
         with contextlib.suppress(Exception):
-            builders.refresh_home_tab_for_workspace(partner, logger, context=context)
+            builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
 
 
 def _update_invite_dms(

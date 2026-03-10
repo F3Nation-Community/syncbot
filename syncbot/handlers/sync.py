@@ -63,7 +63,7 @@ def handle_remove_sync(
         logger.warning(f"Failed to leave channel {sync_channel_record.channel_id}: {e}")
     builders.refresh_home_tab_for_workspace(workspace_record, logger, context=context)
 
-    partner_chs = DbManager.find_records(
+    other_sync_channels = DbManager.find_records(
         schemas.SyncChannel,
         [
             schemas.SyncChannel.sync_id == sync_channel_record.sync_id,
@@ -71,10 +71,10 @@ def handle_remove_sync(
             schemas.SyncChannel.workspace_id != workspace_record.id,
         ],
     )
-    for p_ch in partner_chs:
-        p_ws = helpers.get_workspace_by_id(p_ch.workspace_id, context=context)
-        if p_ws:
-            builders.refresh_home_tab_for_workspace(p_ws, logger, context=context)
+    for sync_channel in other_sync_channels:
+        member_ws = helpers.get_workspace_by_id(sync_channel.workspace_id, context=context)
+        if member_ws:
+            builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
 
 
 def handle_app_home_opened(
@@ -206,7 +206,7 @@ def handle_join_sync_submission(
     acting_user_id = helpers.safe_get(body, "user", "id") or user_id
     admin_name, admin_label = helpers.format_admin_label(client, acting_user_id, workspace_record)
 
-    partner_channels: list = []
+    other_sync_channels: list = []
     try:
         client.conversations_join(channel=channel_id)
         channel_sync_record = schemas.SyncChannel(
@@ -216,7 +216,7 @@ def handle_join_sync_submission(
             created_at=datetime.now(UTC),
         )
         DbManager.create_record(channel_sync_record)
-        partner_channels = DbManager.find_records(
+        other_sync_channels = DbManager.find_records(
             schemas.SyncChannel,
             [
                 schemas.SyncChannel.sync_id == sync_id,
@@ -224,38 +224,38 @@ def handle_join_sync_submission(
                 schemas.SyncChannel.workspace_id != workspace_record.id,
             ],
         )
-        if partner_channels:
-            p_ch = partner_channels[0]
-            p_ws = helpers.get_workspace_by_id(p_ch.workspace_id)
-            partner_ref = helpers.resolve_channel_name(p_ch.channel_id, p_ws)
+        if other_sync_channels:
+            first_channel = other_sync_channels[0]
+            first_ws = helpers.get_workspace_by_id(first_channel.workspace_id)
+            channel_ref = helpers.resolve_channel_name(first_channel.channel_id, first_ws)
         else:
-            partner_ref = sync_record.title or "the partner channel"
+            channel_ref = sync_record.title or "the other channel"
         client.chat_postMessage(
             channel=channel_id,
-            text=f":arrows_counterclockwise: *{admin_name}* started syncing this channel with *{partner_ref}*. Messages will be shared automatically.",
+            text=f":arrows_counterclockwise: *{admin_name}* started syncing this channel with *{channel_ref}*. Messages will be shared automatically.",
         )
 
         local_ref = helpers.resolve_channel_name(channel_id, workspace_record)
-        for p_ch in partner_channels:
+        for sync_channel in other_sync_channels:
             try:
-                p_ws = helpers.get_workspace_by_id(p_ch.workspace_id)
-                if p_ws and p_ws.bot_token:
-                    p_client = WebClient(token=helpers.decrypt_bot_token(p_ws.bot_token))
-                    p_client.chat_postMessage(
-                        channel=p_ch.channel_id,
+                member_ws = helpers.get_workspace_by_id(sync_channel.workspace_id)
+                if member_ws and member_ws.bot_token:
+                    member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
+                    member_client.chat_postMessage(
+                        channel=sync_channel.channel_id,
                         text=f":arrows_counterclockwise: *{admin_label}* started syncing *{local_ref}* with this channel. Messages will be shared automatically.",
                     )
             except Exception as exc:
-                _logger.debug(f"join_sync: failed to notify publisher channel {p_ch.channel_id}: {exc}")
+                _logger.debug(f"join_sync: failed to notify channel {sync_channel.channel_id}: {exc}")
     except Exception as e:
         logger.error(f"Failed to join sync channel {channel_id}: {e}")
 
     builders.refresh_home_tab_for_workspace(workspace_record, logger, context=context)
 
-    for p_ch in partner_channels:
-        p_ws = helpers.get_workspace_by_id(p_ch.workspace_id, context=context)
-        if p_ws:
-            builders.refresh_home_tab_for_workspace(p_ws, logger, context=context)
+    for sync_channel in other_sync_channels:
+        member_ws = helpers.get_workspace_by_id(sync_channel.workspace_id, context=context)
+        if member_ws:
+            builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
 
 
 def handle_new_sync_submission(
@@ -399,3 +399,99 @@ def check_join_sync_channel(
             title_text="Join Sync",
             callback_id=actions.CONFIG_JOIN_SYNC_SUMBIT,
         )
+
+
+# ---------------------------------------------------------------------------
+# Database Reset (gated by ENABLE_DB_RESET)
+# ---------------------------------------------------------------------------
+
+def handle_db_reset(
+    body: dict,
+    client: WebClient,
+    logger: Logger,
+    context: dict,
+) -> None:
+    """Open a confirmation modal warning the user before a full DB reset."""
+    if not constants.ENABLE_DB_RESET:
+        return
+
+    user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
+    if not user_id or not helpers.is_user_authorized(client, user_id):
+        return
+
+    trigger_id = helpers.safe_get(body, "trigger_id")
+    if not trigger_id:
+        return
+
+    modal_blocks = [
+        orm.SectionBlock(
+            label=(
+                ":rotating_light: *This will permanently delete ALL data* :rotating_light:\n\n"
+                "Every workspace, group, channel sync, user mapping, and federation connection "
+                "in this database will be erased and the schema will be reinitialized from `init.sql`.\n\n"
+                "*This action cannot be undone.*"
+            ),
+        ).as_form_field(),
+    ]
+
+    client.views_open(
+        trigger_id=trigger_id,
+        view={
+            "type": "modal",
+            "callback_id": actions.CONFIG_DB_RESET_CONFIRM,
+            "title": {"type": "plain_text", "text": "Reset Database?"},
+            "submit": {"type": "plain_text", "text": "Yes, reset everything"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": modal_blocks,
+        },
+    )
+
+
+def handle_db_reset_confirm(
+    body: dict,
+    client: WebClient,
+    logger: Logger,
+    context: dict,
+) -> None:
+    """Execute the database reset after user confirmed via modal."""
+    if not constants.ENABLE_DB_RESET:
+        return
+
+    user_id = helpers.get_user_id_from_body(body)
+    if not user_id or not helpers.is_user_authorized(client, user_id):
+        return
+
+    _logger.critical(
+        "DB_RESET triggered by user %s — dropping database and reinitializing from init.sql",
+        user_id,
+    )
+
+    from db import drop_and_init_db
+    drop_and_init_db()
+
+    helpers.clear_all_caches()
+
+    team_id = (
+        helpers.safe_get(body, "view", "team_id")
+        or helpers.safe_get(body, "team", "id")
+        or helpers.safe_get(body, "team_id")
+    )
+    if team_id and user_id:
+        try:
+            client.views_publish(
+                user_id=user_id,
+                view={
+                    "type": "home",
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": ":white_check_mark: *Database has been reset.*\nPlease reinstall the app or re-open this tab to get started fresh.",
+                            },
+                        }
+                    ],
+                },
+            )
+        except Exception as e:
+            _logger.warning("Failed to publish post-reset Home tab: %s", e)

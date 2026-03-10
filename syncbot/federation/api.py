@@ -169,15 +169,15 @@ def _resolve_channel_for_federated(
     if not records:
         return None
 
-    sc = records[0]
-    if not _federated_has_channel_access(fed_ws, sc):
+    sync_channel = records[0]
+    if not _federated_has_channel_access(fed_ws, sync_channel):
         return None
 
-    workspace = helpers.get_workspace_by_id(sc.workspace_id)
+    workspace = helpers.get_workspace_by_id(sync_channel.workspace_id)
     if not workspace or not workspace.bot_token:
         return None
 
-    return sc, workspace
+    return sync_channel, workspace
 
 
 def _get_local_workspace_ids(fed_ws: schemas.FederatedWorkspace) -> set[int]:
@@ -191,11 +191,11 @@ def _get_local_workspace_ids(fed_ws: schemas.FederatedWorkspace) -> set[int]:
         ],
     )
     ws_ids: set[int] = set()
-    for fm in fed_members:
+    for fed_member in fed_members:
         group_members = DbManager.find_records(
             schemas.WorkspaceGroupMember,
             [
-                schemas.WorkspaceGroupMember.group_id == fm.group_id,
+                schemas.WorkspaceGroupMember.group_id == fed_member.group_id,
                 schemas.WorkspaceGroupMember.workspace_id.isnot(None),
                 schemas.WorkspaceGroupMember.status == "active",
                 schemas.WorkspaceGroupMember.deleted_at.is_(None),
@@ -345,7 +345,7 @@ def handle_message(body: dict, fed_ws: schemas.FederatedWorkspace) -> tuple[int,
     resolved = _resolve_channel_for_federated(channel_id, fed_ws, require_active=True)
     if not resolved:
         return _NOT_FOUND
-    sc, workspace = resolved
+    sync_channel, workspace = resolved
 
     user_name = user.get("display_name", "Remote User")
     user_avatar = user.get("avatar_url")
@@ -358,7 +358,7 @@ def handle_message(body: dict, fed_ws: schemas.FederatedWorkspace) -> tuple[int,
                 schemas.PostMeta,
                 [
                     schemas.PostMeta.post_id == thread_post_id,
-                    schemas.PostMeta.sync_channel_id == sc.id,
+                    schemas.PostMeta.sync_channel_id == sync_channel.id,
                 ],
             )
             if post_records:
@@ -389,12 +389,12 @@ def handle_message(body: dict, fed_ws: schemas.FederatedWorkspace) -> tuple[int,
         ts = helpers.safe_get(res, "ts")
 
         if post_id and ts:
-            pm = schemas.PostMeta(
+            post_meta = schemas.PostMeta(
                 post_id=post_id if isinstance(post_id, bytes) else post_id.encode()[:100],
-                sync_channel_id=sc.id,
+                sync_channel_id=sync_channel.id,
                 ts=float(ts),
             )
-            DbManager.create_record(pm)
+            DbManager.create_record(post_meta)
 
         _logger.info(
             "federation_message_received",
@@ -426,18 +426,18 @@ def handle_message_edit(body: dict, fed_ws: schemas.FederatedWorkspace) -> tuple
     resolved = _resolve_channel_for_federated(channel_id, fed_ws)
     if not resolved:
         return _NOT_FOUND
-    sc, workspace = resolved
+    sync_channel, workspace = resolved
 
-    post_records = _find_post_records(post_id, sc.id)
+    post_records = _find_post_records(post_id, sync_channel.id)
 
     updated = 0
     ws_client = WebClient(token=helpers.decrypt_bot_token(workspace.bot_token))
-    for pm in post_records:
+    for post_meta in post_records:
         try:
-            ws_client.chat_update(channel=channel_id, ts=str(pm.ts), text=text)
+            ws_client.chat_update(channel=channel_id, ts=str(post_meta.ts), text=text)
             updated += 1
         except Exception:
-            _logger.warning("federation_edit_failed", extra={"channel_id": channel_id, "ts": str(pm.ts)})
+            _logger.warning("federation_edit_failed", extra={"channel_id": channel_id, "ts": str(post_meta.ts)})
 
     return 200, {"ok": True, "updated": updated}
 
@@ -459,18 +459,18 @@ def handle_message_delete(body: dict, fed_ws: schemas.FederatedWorkspace) -> tup
     resolved = _resolve_channel_for_federated(channel_id, fed_ws)
     if not resolved:
         return _NOT_FOUND
-    sc, workspace = resolved
+    sync_channel, workspace = resolved
 
-    post_records = _find_post_records(post_id, sc.id)
+    post_records = _find_post_records(post_id, sync_channel.id)
 
     deleted = 0
     ws_client = WebClient(token=helpers.decrypt_bot_token(workspace.bot_token))
-    for pm in post_records:
+    for post_meta in post_records:
         try:
-            ws_client.chat_delete(channel=channel_id, ts=str(pm.ts))
+            ws_client.chat_delete(channel=channel_id, ts=str(post_meta.ts))
             deleted += 1
         except Exception:
-            _logger.warning("federation_delete_failed", extra={"channel_id": channel_id, "ts": str(pm.ts)})
+            _logger.warning("federation_delete_failed", extra={"channel_id": channel_id, "ts": str(post_meta.ts)})
 
     return 200, {"ok": True, "deleted": deleted}
 
@@ -494,21 +494,21 @@ def handle_message_react(body: dict, fed_ws: schemas.FederatedWorkspace) -> tupl
     resolved = _resolve_channel_for_federated(channel_id, fed_ws)
     if not resolved:
         return _NOT_FOUND
-    sc, workspace = resolved
+    sync_channel, workspace = resolved
 
-    post_records = _find_post_records(post_id, sc.id)
+    post_records = _find_post_records(post_id, sync_channel.id)
 
     applied = 0
     ws_client = WebClient(token=helpers.decrypt_bot_token(workspace.bot_token))
-    for pm in post_records:
+    for post_meta in post_records:
         try:
             if action == "add":
-                ws_client.reactions_add(channel=channel_id, timestamp=str(pm.ts), name=reaction)
+                ws_client.reactions_add(channel=channel_id, timestamp=str(post_meta.ts), name=reaction)
             else:
-                ws_client.reactions_remove(channel=channel_id, timestamp=str(pm.ts), name=reaction)
+                ws_client.reactions_remove(channel=channel_id, timestamp=str(post_meta.ts), name=reaction)
             applied += 1
         except Exception:
-            _logger.warning("federation_react_failed", extra={"channel_id": channel_id, "ts": str(pm.ts)})
+            _logger.warning("federation_react_failed", extra={"channel_id": channel_id, "ts": str(post_meta.ts)})
 
     return 200, {"ok": True, "applied": applied}
 

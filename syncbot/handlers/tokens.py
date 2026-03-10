@@ -22,7 +22,7 @@ def handle_tokens_revoked(
     """Handle ``tokens_revoked`` event: a workspace uninstalled the app.
 
     Soft-deletes the workspace, its group memberships, and its sync channels.
-    Notifies partner workspaces in shared groups via admin DMs and channel messages.
+    Notifies other group member workspaces via admin DMs and channel messages.
     """
     team_id = helpers.safe_get(body, "team_id")
     if not team_id:
@@ -67,10 +67,10 @@ def handle_tokens_revoked(
             schemas.SyncChannel.deleted_at.is_(None),
         ],
     )
-    for ch in my_channels:
+    for sync_channel in my_channels:
         DbManager.update_records(
             schemas.SyncChannel,
-            [schemas.SyncChannel.id == ch.id],
+            [schemas.SyncChannel.id == sync_channel.id],
             {schemas.SyncChannel.deleted_at: now, schemas.SyncChannel.status: "paused"},
         )
 
@@ -88,42 +88,42 @@ def handle_tokens_revoked(
         for m in group_members:
             if not m.workspace_id or m.workspace_id in notified_ws:
                 continue
-            partner = helpers.get_workspace_by_id(m.workspace_id)
-            if not partner or not partner.bot_token or partner.deleted_at:
+            member_ws = helpers.get_workspace_by_id(m.workspace_id)
+            if not member_ws or not member_ws.bot_token or member_ws.deleted_at:
                 continue
             notified_ws.add(m.workspace_id)
 
             try:
-                partner_client = WebClient(token=helpers.decrypt_bot_token(partner.bot_token))
+                member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
 
                 helpers.notify_admins_dm(
-                    partner_client,
+                    member_client,
                     f":double_vertical_bar: *{ws_name}* has uninstalled SyncBot. "
                     f"Syncing has been paused. If they reinstall within {retention_days} days, "
                     "syncing will resume automatically.",
                 )
 
-                partner_channel_ids = []
-                for ch in my_channels:
+                member_channel_ids = []
+                for sync_channel in my_channels:
                     sibling_channels = DbManager.find_records(
                         schemas.SyncChannel,
                         [
-                            schemas.SyncChannel.sync_id == ch.sync_id,
+                            schemas.SyncChannel.sync_id == sync_channel.sync_id,
                             schemas.SyncChannel.workspace_id == m.workspace_id,
                             schemas.SyncChannel.deleted_at.is_(None),
                         ],
                     )
-                    for sc in sibling_channels:
-                        partner_channel_ids.append(sc.channel_id)
+                    for sibling in sibling_channels:
+                        member_channel_ids.append(sibling.channel_id)
 
-                if partner_channel_ids:
+                if member_channel_ids:
                     helpers.notify_synced_channels(
-                        partner_client,
-                        partner_channel_ids,
+                        member_client,
+                        member_channel_ids,
                         f":double_vertical_bar: Syncing with *{ws_name}* has been paused because they uninstalled the app.",
                     )
             except Exception as e:
-                _logger.warning(f"handle_tokens_revoked: failed to notify partner {m.workspace_id}: {e}")
+                _logger.warning(f"handle_tokens_revoked: failed to notify member {m.workspace_id}: {e}")
 
     _logger.info(
         "workspace_soft_deleted",

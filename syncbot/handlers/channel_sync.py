@@ -41,11 +41,11 @@ def _get_publishable_channel_options(client: WebClient, workspace_id: int) -> li
                 cursor=cursor or None,
             )
             chs = helpers.safe_get(resp, "channels") or []
-            for ch in chs:
-                cid = ch.get("id")
+            for slack_channel in chs:
+                cid = slack_channel.get("id")
                 if not cid or cid in synced_ids:
                     continue
-                name = ch.get("name") or cid
+                name = slack_channel.get("name") or cid
                 label = f"#{name}"
                 if len(label) > 75:
                     label = label[:72] + "..."
@@ -340,7 +340,7 @@ def handle_publish_channel_submit(
     except Exception as e:
         _logger.error(f"Failed to publish channel {channel_id}: {e}")
 
-    # Refresh Home for all admins in current workspace, then partner workspaces
+    # Refresh Home for all admins in current workspace, then other group members
     builders.refresh_home_tab_for_workspace(workspace_record, logger, context=context)
     _refresh_group_member_homes(group_id, workspace_record.id, logger, context=context)
 
@@ -391,20 +391,20 @@ def handle_unpublish_channel(
         [schemas.SyncChannel.sync_id == sync_id, schemas.SyncChannel.deleted_at.is_(None)],
     )
 
-    for ch in all_channels:
+    for sync_channel in all_channels:
         try:
-            ws = helpers.get_workspace_by_id(ch.workspace_id)
-            if ws and ws.bot_token:
-                name = admin_name if workspace_record and ch.workspace_id == workspace_record.id else admin_label
-                ws_client = WebClient(token=helpers.decrypt_bot_token(ws.bot_token))
+            member_ws = helpers.get_workspace_by_id(sync_channel.workspace_id)
+            if member_ws and member_ws.bot_token:
+                name = admin_name if workspace_record and sync_channel.workspace_id == workspace_record.id else admin_label
+                member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
                 helpers.notify_synced_channels(
-                    ws_client,
-                    [ch.channel_id],
+                    member_client,
+                    [sync_channel.channel_id],
                     f":octagonal_sign: *{name}* unpublished this channel. Syncing is no longer available.",
                 )
-                ws_client.conversations_leave(channel=ch.channel_id)
+                member_client.conversations_leave(channel=sync_channel.channel_id)
         except Exception as e:
-            _logger.warning(f"Failed to notify/leave channel {ch.channel_id}: {e}")
+            _logger.warning(f"Failed to notify/leave channel {sync_channel.channel_id}: {e}")
 
     DbManager.delete_records(schemas.Sync, [schemas.Sync.id == sync_id])
 
@@ -454,32 +454,32 @@ def _toggle_sync_status(
         [schemas.SyncChannel.sync_id == sync_id, schemas.SyncChannel.deleted_at.is_(None)],
     )
 
-    for ch in all_channels:
+    for sync_channel in all_channels:
         DbManager.update_records(
             schemas.SyncChannel,
-            [schemas.SyncChannel.id == ch.id],
+            [schemas.SyncChannel.id == sync_channel.id],
             {schemas.SyncChannel.status: target_status},
         )
 
     ws_cache: dict[int, schemas.Workspace | None] = {}
-    for ch in all_channels:
+    for sync_channel in all_channels:
         try:
-            ws = ws_cache.get(ch.workspace_id) or helpers.get_workspace_by_id(ch.workspace_id)
-            ws_cache[ch.workspace_id] = ws
-            if ws and ws.bot_token:
-                name = admin_name if workspace_record and ch.workspace_id == workspace_record.id else admin_label
-                partner_chs = [c for c in all_channels if c.workspace_id != ch.workspace_id]
-                if partner_chs:
-                    p_ws = ws_cache.get(partner_chs[0].workspace_id) or helpers.get_workspace_by_id(partner_chs[0].workspace_id)
-                    ws_cache[partner_chs[0].workspace_id] = p_ws
-                    partner_ref = helpers.resolve_channel_name(partner_chs[0].channel_id, p_ws)
-                    msg = f":{emoji}: *{name}* {verb} syncing with *{partner_ref}*."
+            channel_ws = ws_cache.get(sync_channel.workspace_id) or helpers.get_workspace_by_id(sync_channel.workspace_id)
+            ws_cache[sync_channel.workspace_id] = channel_ws
+            if channel_ws and channel_ws.bot_token:
+                name = admin_name if workspace_record and sync_channel.workspace_id == workspace_record.id else admin_label
+                other_channels = [c for c in all_channels if c.workspace_id != sync_channel.workspace_id]
+                if other_channels:
+                    other_ws = ws_cache.get(other_channels[0].workspace_id) or helpers.get_workspace_by_id(other_channels[0].workspace_id)
+                    ws_cache[other_channels[0].workspace_id] = other_ws
+                    channel_ref = helpers.resolve_channel_name(other_channels[0].channel_id, other_ws)
+                    msg = f":{emoji}: *{name}* {verb} syncing with *{channel_ref}*."
                 else:
                     msg = f":{emoji}: *{name}* {verb} channel syncing."
-                ws_client = WebClient(token=helpers.decrypt_bot_token(ws.bot_token))
-                helpers.notify_synced_channels(ws_client, [ch.channel_id], msg)
+                ws_client = WebClient(token=helpers.decrypt_bot_token(channel_ws.bot_token))
+                helpers.notify_synced_channels(ws_client, [sync_channel.channel_id], msg)
         except Exception as e:
-            _logger.warning(f"Failed to notify channel {ch.channel_id} about {verb}: {e}")
+            _logger.warning(f"Failed to notify channel {sync_channel.channel_id} about {verb}: {e}")
 
     _logger.info(log_event, extra={"sync_id": sync_id, "channels": len(all_channels)})
 
@@ -594,15 +594,15 @@ def handle_stop_sync_confirm(
     my_channel = next((c for c in all_channels if c.workspace_id == workspace_record.id), None)
     other_channels = [c for c in all_channels if c.workspace_id != workspace_record.id]
 
-    for ch in all_channels:
+    for sync_channel in all_channels:
         try:
-            ws = helpers.get_workspace_by_id(ch.workspace_id)
-            if ws and ws.bot_token:
-                if ch.workspace_id == workspace_record.id and other_channels:
-                    p_ws = helpers.get_workspace_by_id(other_channels[0].workspace_id)
-                    partner_ref = helpers.resolve_channel_name(other_channels[0].channel_id, p_ws)
-                    msg = f":octagonal_sign: *{admin_name}* stopped syncing with *{partner_ref}*."
-                elif ch.workspace_id != workspace_record.id:
+            channel_ws = helpers.get_workspace_by_id(sync_channel.workspace_id)
+            if channel_ws and channel_ws.bot_token:
+                if sync_channel.workspace_id == workspace_record.id and other_channels:
+                    other_ws = helpers.get_workspace_by_id(other_channels[0].workspace_id)
+                    channel_ref = helpers.resolve_channel_name(other_channels[0].channel_id, other_ws)
+                    msg = f":octagonal_sign: *{admin_name}* stopped syncing with *{channel_ref}*."
+                elif sync_channel.workspace_id != workspace_record.id:
                     my_ref = (
                         helpers.resolve_channel_name(my_channel.channel_id, workspace_record)
                         if my_channel
@@ -611,10 +611,10 @@ def handle_stop_sync_confirm(
                     msg = f":octagonal_sign: *{admin_label}* stopped syncing with *{my_ref}*."
                 else:
                     msg = f":octagonal_sign: *{admin_name}* stopped channel syncing."
-                ws_client = WebClient(token=helpers.decrypt_bot_token(ws.bot_token))
-                helpers.notify_synced_channels(ws_client, [ch.channel_id], msg)
+                ws_client = WebClient(token=helpers.decrypt_bot_token(channel_ws.bot_token))
+                helpers.notify_synced_channels(ws_client, [sync_channel.channel_id], msg)
         except Exception as e:
-            _logger.warning(f"Failed to notify channel {ch.channel_id}: {e}")
+            _logger.warning(f"Failed to notify channel {sync_channel.channel_id}: {e}")
 
     if my_channel:
         DbManager.delete_records(schemas.PostMeta, [schemas.PostMeta.sync_channel_id == my_channel.id])
@@ -785,12 +785,12 @@ def handle_subscribe_channel_submit(
             if publisher_channels:
                 pub_ch = publisher_channels[0]
                 pub_ws = helpers.get_workspace_by_id(pub_ch.workspace_id)
-                partner_ref = helpers.resolve_channel_name(pub_ch.channel_id, pub_ws)
+                channel_ref = helpers.resolve_channel_name(pub_ch.channel_id, pub_ws)
             else:
-                partner_ref = sync_record.title or "the partner channel"
+                channel_ref = sync_record.title or "the other channel"
             client.chat_postMessage(
                 channel=channel_id,
-                text=f":arrows_counterclockwise: *{admin_name}* started syncing this channel with *{partner_ref}*. Messages will be shared automatically.",
+                text=f":arrows_counterclockwise: *{admin_name}* started syncing this channel with *{channel_ref}*. Messages will be shared automatically.",
             )
         except Exception as exc:
             _logger.debug(f"subscribe_channel: failed to notify subscriber channel {channel_id}: {exc}")
@@ -833,15 +833,15 @@ def _refresh_group_member_homes(
 ) -> None:
     """Refresh the Home tab for all group members except the acting workspace.
 
-    Uses context=None when refreshing partners so admin lookups are always
+    Uses context=None when refreshing other members so admin lookups are always
     fresh for each workspace (avoids request-scoped cache from the acting ws).
     """
     members = _get_group_members(group_id)
     refreshed: set[int] = set()
-    for m in members:
-        if not m.workspace_id or m.workspace_id == exclude_workspace_id or m.workspace_id in refreshed:
+    for member in members:
+        if not member.workspace_id or member.workspace_id == exclude_workspace_id or member.workspace_id in refreshed:
             continue
-        ws = helpers.get_workspace_by_id(m.workspace_id, context=context)
-        if ws:
-            builders.refresh_home_tab_for_workspace(ws, logger, context=None)
-            refreshed.add(m.workspace_id)
+        member_ws = helpers.get_workspace_by_id(member.workspace_id, context=context)
+        if member_ws:
+            builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
+            refreshed.add(member.workspace_id)

@@ -70,13 +70,13 @@ def _get_groups_for_workspace(workspace_id: int) -> list[tuple[WorkspaceGroup, W
         ],
     )
     results: list[tuple[WorkspaceGroup, WorkspaceGroupMember]] = []
-    for m in members:
+    for member in members:
         groups = DbManager.find_records(
             WorkspaceGroup,
-            [WorkspaceGroup.id == m.group_id, WorkspaceGroup.status == "active"],
+            [WorkspaceGroup.id == member.group_id, WorkspaceGroup.status == "active"],
         )
         if groups:
-            results.append((groups[0], m))
+            results.append((groups[0], member))
     return results
 
 

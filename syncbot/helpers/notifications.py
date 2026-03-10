@@ -200,22 +200,22 @@ def purge_stale_soft_deletes() -> int:
                     schemas.WorkspaceGroupMember.deleted_at.is_(None),
                 ],
             )
-            for m in other_members:
-                if not m.workspace_id or m.workspace_id in notified_ws:
+            for member in other_members:
+                if not member.workspace_id or member.workspace_id in notified_ws:
                     continue
-                partner = get_workspace_by_id(m.workspace_id)
-                if not partner or not partner.bot_token or partner.deleted_at is not None:
+                member_ws = get_workspace_by_id(member.workspace_id)
+                if not member_ws or not member_ws.bot_token or member_ws.deleted_at is not None:
                     continue
-                notified_ws.add(m.workspace_id)
+                notified_ws.add(member.workspace_id)
                 try:
-                    partner_client = WebClient(token=decrypt_bot_token(partner.bot_token))
+                    member_client = WebClient(token=decrypt_bot_token(member_ws.bot_token))
                     notify_admins_dm(
-                        partner_client,
+                        member_client,
                         f":wastebasket: *{ws_name}* has been permanently removed "
                         f"after {retention_days} days of inactivity.",
                     )
                 except Exception as e:
-                    _logger.warning(f"purge: failed to notify partner {m.workspace_id}: {e}")
+                    _logger.warning(f"purge: failed to notify member {member.workspace_id}: {e}")
 
         DbManager.delete_records(schemas.Workspace, [schemas.Workspace.id == ws.id])
         purged += 1

@@ -197,7 +197,7 @@ This document outlines the improvements made to the SyncBot application and addi
   - A workspace "publishes" one of its channels to a specific paired workspace, making it available for syncing
   - The paired workspace "subscribes" by selecting one of their own channels to receive messages
   - Each publish is scoped to exactly one pairing — publishing to workspace B and workspace C are separate operations
-  - Channel Sync modal shows: published channels (with Unpublish buttons), available channels from partner (with Subscribe buttons), and a Publish Channel button
+  - Channel Sync modal shows: published channels (with Unpublish buttons), available channels from other group members (with Subscribe buttons), and a Publish Channel button
   - Welcome messages are posted in both channels when a subscription is established
   - Unpublishing cleans up both sides (soft-deletes SyncChannels, bot leaves channels)
 - **Database changes** — added `pairing_id` column to `syncs` table (FK to `workspace_pairings`, `ON DELETE CASCADE`), removed UNIQUE constraint on `syncs.title` (same channel can be published to multiple pairings)
@@ -239,11 +239,11 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Automatic reinstall recovery** — if the workspace reinstalls within the retention period, all pairings and sync channels are automatically restored
 - **Lifecycle notifications** — consistent notification model using channel messages and admin DMs:
   - **Started** — new pairing activated: admin DMs in both workspaces
-  - **Paused** — workspace uninstalls: admin DMs + channel messages in partner workspace
-  - **Resumed** — workspace reinstalls: admin DMs + channel messages in partner workspace
-  - **Stopped** — manual removal: admin DMs + channel messages in partner workspace
-  - **Purged** — auto-cleanup after retention period: admin DMs to partner workspace
-- **Paused indicator** — Home tab and pairing form show `:double_vertical_bar: Paused (uninstalled)` for soft-deleted partner workspaces with no action buttons
+  - **Paused** — workspace uninstalls: admin DMs + channel messages in member workspaces
+  - **Resumed** — workspace reinstalls: admin DMs + channel messages in member workspaces
+  - **Stopped** — manual removal: admin DMs + channel messages in member workspaces
+  - **Purged** — auto-cleanup after retention period: admin DMs to member workspaces
+- **Paused indicator** — Home tab and pairing form show `:double_vertical_bar: Paused (uninstalled)` for soft-deleted member workspaces with no action buttons
 - **Configurable retention** — `SOFT_DELETE_RETENTION_DAYS` env var (default 30 days) controls how long soft-deleted data is kept before permanent purge
 - **Lazy daily purge** — stale soft-deleted workspaces are hard-deleted via `ON DELETE CASCADE` during the first `app_home_opened` event each day
 - **Manifest updated** — added `tokens_revoked` to bot events, `im:write` to OAuth scopes
@@ -302,7 +302,7 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Sync lifecycle controls** — individual channel syncs can be paused, resumed, or stopped from the Home tab
 - **`status` column** on `sync_channels` — supports `active` and `paused` states
 - **Paused syncs** — messages, threads, edits, deletes, and reactions are not processed for paused channels; the handler checks `status` before dispatching
-- **Stop with confirmation** — stopping a sync shows a confirmation modal before soft-deleting; the bot leaves the channel and notifies the partner workspace
+- **Stop with confirmation** — stopping a sync shows a confirmation modal before soft-deleting; the bot leaves the channel and notifies other member workspaces
 - **Admin attribution** — pause/resume/stop actions are attributed to the admin who performed them in notification messages
 - **Home tab indicators** — paused syncs show a `:double_vertical_bar: Paused` status on the Home tab with a Resume button
 
@@ -318,8 +318,8 @@ This document outlines the improvements made to the SyncBot application and addi
 
 ### 36. Direct Pairing Requests (Completed)
 - **Request-based pairing** — admins can send a direct pairing request to another workspace instead of manually sharing codes
-- **DM notifications** — the partner workspace's admins receive a DM with Accept/Decline buttons and context about the requesting workspace
-- **Home tab notification** — pending inbound pairing requests are shown on the partner's Home tab with Accept/Decline buttons
+- **DM notifications** — the target workspace's admins receive a DM with Accept/Decline buttons and context about the requesting workspace
+- **Home tab notification** — pending inbound pairing requests are shown on the target workspace's Home tab with Accept/Decline buttons
 - **Bidirectional activation** — accepting a request activates the pairing on both sides, refreshes user directories, runs auto-matching, and updates both Home tabs
 - **DM cleanup** — pairing request DMs are replaced with updated status messages when accepted, declined, or cancelled
 
@@ -328,7 +328,7 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Message count** — each sync displays the number of tracked messages from `PostMeta` (e.g., "Synced since: February 18, 2026 · 42 messages tracked")
 - **Remote channel deep links** — target channel names in the Home tab and subscription modals are rendered as deep links using `slack://channel?team=T...&id=C...` URLs
 - **Consolidated published channels** — all synced channels across pairings are shown in a single sorted list on the Home tab
-- **Partner Home tab refresh** — all mutations (publish, unpublish, subscribe, pause, resume, stop, pairing changes) automatically re-publish the partner workspace's Home tab
+- **Member Home tab refresh** — all mutations (publish, unpublish, subscribe, pause, resume, stop, pairing changes) automatically re-publish every affected group member's Home tab
 
 ### 38. User Mapping Screen Redesign (Completed)
 - **Dedicated Home tab screen** — user mapping is now a full-screen Home tab view instead of a nested modal, providing more space and a better experience
@@ -414,7 +414,7 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Cached built blocks** — After a full refresh, the built Block Kit payload is cached (in-process, keyed by team/user and optionally group for User Mapping). When the hash matches, the app re-publishes that cached view with one `views.publish` instead of re-running all DB and Slack calls.
 - **60-second cooldown** — If the user clicks Refresh again within 60 seconds and the hash is unchanged, the app re-publishes the cached view with a context message: "No new data. Wait __ seconds before refreshing again." The displayed seconds are the current remaining time from the last refresh (recomputed on each click). Cooldown constant: `REFRESH_COOLDOWN_SECONDS` (default 60) in `constants.py`.
 - **Request-scoped caching** — `get_workspace_by_id(workspace_id, context=None)` and `get_admin_ids(client, team_id=None, context=None)` use the request `context` dict when provided: one DB read per distinct workspace, one `users.list` per distinct team per request. Reduces duplicate lookups when building the Home tab or when multiple workspaces' Home tabs are refreshed in one invocation.
-- **Context through push-refresh paths** — When a change in one workspace triggers Home tab refreshes in others (e.g. publish channel, join group, user mapping refresh), the handler's `context` is passed into `_refresh_group_member_homes` and `refresh_home_tab_for_workspace`, so all `build_home_tab` calls in that request share the same request-scoped cache. Call sites updated in `channel_sync.py`, `group_manage.py`, `users.py`, `groups.py`, and `sync.py`.
+- **Context isolation for cross-workspace refreshes** — When a change in one workspace triggers Home tab refreshes in other group members, `context=None` is passed to `refresh_home_tab_for_workspace` to prevent the acting workspace's request-scoped cache (bot token, admin IDs) from leaking into other workspaces' refresh paths. The acting workspace's own refresh still uses `context=context`.
 - **User Mapping Refresh** — Same pattern applied to the User Mapping screen: content hash, cached blocks, 60s cooldown with message, and `build_user_mapping_screen(..., context=..., return_blocks=True)` for caching. Request-scoped `get_workspace_by_id` used when building the screen.
 
 ### 45. Backup, Restore, and Data Migration (Completed)
@@ -422,6 +422,20 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Full-instance backup** — All tables exported as JSON with `version`, `exported_at`, `encryption_key_hash` (SHA-256 of `PASSWORD_ENCRYPT_KEY`), and HMAC over canonical JSON. Restore inserts in FK order; intended for empty/fresh DB (e.g. after AWS rebuild). On HMAC or encryption-key mismatch, payload stored in cache and confirmation modal pushed; after restore, Home tab caches invalidated for all workspaces.
 - **Workspace migration export/import** — Export produces workspace-scoped JSON (syncs, sync channels, post meta, user directory, user mappings) with optional `source_instance` (webhook_url, instance_id, public_key, one-time connection code). Ed25519 signature for tampering detection. Import verifies signature, resolves or creates federated group (using `source_instance` when present), replace mode (remove then create SyncChannels/PostMeta/user_directory/user_mappings), optional tampering confirmation; Home tab and sync-list caches invalidated after import.
 - **Instance A detection** — Federated pair request accepts optional `team_id` and `workspace_name`; stored as `primary_team_id` and `primary_workspace_name` on `federated_workspaces`. If a local workspace with that `team_id` exists, it is soft-deleted so the federated connection is the only representation of that workspace on the instance.
+
+### 46. Code Quality & Documentation Restructure (Completed)
+- **Database reset via UI** — Renamed `DANGER_DROP_AND_INIT_DB` (auto-drop on startup) to `ENABLE_DB_RESET` (boolean env var). When enabled, a red "Reset Database" button appears in a "Danger Zone" section at the bottom of the Home tab. Clicking it opens a confirmation modal; confirming drops and reinitializes the database from `db/init.sql`, clears all caches, and publishes a confirmation message. No longer runs automatically on startup.
+- **Variable naming convention audit** — Standardized variable names across 14 files to align with the domain model:
+  - `partner` / `p_ws` / `p_ch` / `p_client` → `member_ws` / `sync_channel` / `member_client` (maps to `workspace_group_members` table)
+  - `sc` (SyncChannel) → `sync_channel`; `ch` (ambiguous) → `sync_channel` or `slack_channel` depending on type
+  - `pm` → `post_meta` (PostMeta) or `pending_member` (WorkspaceGroupMember) to resolve ambiguity
+  - `fm` → `fed_member`; `pw` → `pending_ws` or `publisher_ws`; `och` → `other_channel`
+  - `m` in multi-line loops → `member`, `membership`, or `fed_member` as appropriate
+  - All log messages and comments updated to match
+- **Naming convention established** — `_SCREAMING_CASE` for private module-level constants (true constants set once at import time); `_lowercase` for private functions, mutable state, and implementation-detail values; no-prefix `SCREAMING_CASE` for public constants
+- **Cross-workspace context bug fix** — Fixed all handlers that were passing the acting workspace's `context` dict into other group members' Home tab refreshes. The `context` contains workspace-specific state (bot token, admin ID cache) that could contaminate other workspaces' builds. Now `context=None` for all cross-workspace refreshes.
+- **README restructured** — Reduced README from ~580 lines to ~220 lines, keeping only install/deploy/run instructions. Moved end-user guide, backup/migration, CI/CD, shared infrastructure, and API reference into `docs/` folder (`USER_GUIDE.md`, `BACKUP_AND_MIGRATION.md`, `DEPLOYMENT.md`, `API_REFERENCE.md`).
+- **Documentation consistency** — Updated `IMPROVEMENTS.md` and all doc files to use new domain terminology (group members instead of partners).
 
 ## Remaining Recommendations
 
@@ -432,7 +446,7 @@ This document outlines the improvements made to the SyncBot application and addi
    - Review and update other dependencies
 
 2. **Database Migrations**
-   - Consider adopting Alembic for formal migration management
+   - Currently using `db/init.sql` as the single source of truth (pre-release); consider adopting Alembic for formal migration management post-release
 
 3. **Advanced Testing**
    - Add integration tests for database operations
@@ -464,4 +478,6 @@ This document outlines the improvements made to the SyncBot application and addi
 - File downloads are streamed with timeouts and size caps to prevent DoS
 - Fernet key derivation is cached for performance; bot identity is resolved in a single API call
 - Duplicated code has been consolidated into shared helpers throughout handlers and federation modules
-- Home and User Mapping Refresh buttons use content hash, cached blocks, and a 60s cooldown to minimize RDS and Slack API usage when nothing has changed; request-scoped caching and context passing through push-refresh paths keep multi-workspace updates lightweight
+- Home and User Mapping Refresh buttons use content hash, cached blocks, and a 60s cooldown to minimize RDS and Slack API usage when nothing has changed; request-scoped caching keeps builds lightweight, and cross-workspace refreshes use `context=None` to prevent cache contamination
+- Variable naming follows a consistent domain-model convention: `member_ws`/`member_client` for group members, `sync_channel` for ORM records, `slack_channel` for raw API dicts
+- Pre-release schema management uses `db/init.sql` as the single source of truth (no separate migration scripts)

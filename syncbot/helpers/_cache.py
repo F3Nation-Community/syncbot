@@ -36,3 +36,10 @@ def _cache_delete_prefix(prefix: str) -> int:
     for k in to_remove:
         _CACHE.pop(k, None)
     return len(to_remove)
+
+
+def clear_all_caches() -> int:
+    """Remove every entry from the in-process cache. Returns count removed."""
+    count = len(_CACHE)
+    _CACHE.clear()
+    return count

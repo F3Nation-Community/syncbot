@@ -62,6 +62,8 @@ from handlers.messages import (
 from handlers.sync import (
     check_join_sync_channel,
     handle_app_home_opened,
+    handle_db_reset,
+    handle_db_reset_confirm,
     handle_join_sync_submission,
     handle_member_joined_channel,
     handle_new_sync_submission,
@@ -95,6 +97,8 @@ __all__ = [
     "handle_data_migration_confirm_submit",
     "handle_data_migration_export",
     "handle_data_migration_submit",
+    "handle_db_reset",
+    "handle_db_reset_confirm",
     "handle_accept_group_invite",
     "handle_create_group",
     "handle_create_group_submit",

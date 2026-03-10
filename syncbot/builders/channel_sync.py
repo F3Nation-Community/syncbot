@@ -78,9 +78,9 @@ def _build_inline_channel_sync(
         # Workspace names for bracket: local first, then others
         local_name = helpers.resolve_workspace_name(workspace_record) or f"Workspace {workspace_record.id}"
         other_names: list[str] = []
-        for och in other_chs:
-            och_ws = helpers.get_workspace_by_id(och.workspace_id, context=context)
-            other_names.append(helpers.resolve_workspace_name(och_ws) if och_ws else f"Workspace {och.workspace_id}")
+        for other_channel in other_chs:
+            other_ws = helpers.get_workspace_by_id(other_channel.workspace_id, context=context)
+            other_names.append(helpers.resolve_workspace_name(other_ws) if other_ws else f"Workspace {other_channel.workspace_id}")
         all_ws_names = [local_name] + other_names
 
         if sync.sync_mode == "direct":
@@ -156,9 +156,9 @@ def _build_inline_channel_sync(
         publisher_ws = helpers.get_workspace_by_id(other_chs[0].workspace_id, context=context) if other_chs else None
         publisher_name = helpers.resolve_workspace_name(publisher_ws) if publisher_ws else "another workspace"
         sub_names_avail: list[str] = []
-        for och in other_chs:
-            och_ws = helpers.get_workspace_by_id(och.workspace_id, context=context)
-            sub_names_avail.append(helpers.resolve_workspace_name(och_ws) if och_ws else f"Workspace {och.workspace_id}")
+        for other_channel in other_chs:
+            other_ws = helpers.get_workspace_by_id(other_channel.workspace_id, context=context)
+            sub_names_avail.append(helpers.resolve_workspace_name(other_ws) if other_ws else f"Workspace {other_channel.workspace_id}")
         if sync.sync_mode == "direct":
             mode_tag = f" _[1-to-1: {sub_names_avail[0]}]_" if sub_names_avail else ""
         else:

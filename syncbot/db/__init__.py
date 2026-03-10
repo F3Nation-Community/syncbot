@@ -64,13 +64,13 @@ def _build_base_url(include_schema: bool = False) -> tuple[str, dict]:
 def drop_and_init_db() -> None:
     """Drop the database and reinitialize from db/init.sql. All data is lost.
 
-    Only run when DANGER_DROP_AND_INIT_DB is set to true. Caller must check.
+    Called from the "Reset Database" UI button (gated by ENABLE_DB_RESET).
     Resets GLOBAL_ENGINE and GLOBAL_SESSION so the next get_engine() uses a fresh DB.
     """
     global GLOBAL_ENGINE, GLOBAL_SESSION, GLOBAL_SCHEMA
 
-    _logger.warning(
-        "DANGER_DROP_AND_INIT_DB is set: dropping database and reinitializing from init.sql. All data will be lost."
+    _logger.critical(
+        "DB RESET: dropping database and reinitializing from init.sql. All data will be lost."
     )
 
     schema = os.environ.get(constants.ADMIN_DATABASE_SCHEMA, "syncbot")

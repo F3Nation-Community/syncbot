@@ -39,6 +39,7 @@ ACTION_MAPPER = {
     actions.CONFIG_BACKUP_DOWNLOAD: handlers.handle_backup_download,
     actions.CONFIG_DATA_MIGRATION: handlers.handle_data_migration,
     actions.CONFIG_DATA_MIGRATION_EXPORT: handlers.handle_data_migration_export,
+    actions.CONFIG_DB_RESET: handlers.handle_db_reset,
     actions.CONFIG_GENERATE_FEDERATION_CODE: handlers.handle_generate_federation_code,
     actions.CONFIG_ENTER_FEDERATION_CODE: handlers.handle_enter_federation_code,
     actions.CONFIG_REMOVE_FEDERATION_CONNECTION: handlers.handle_remove_federation_connection,
@@ -75,6 +76,7 @@ VIEW_MAPPER = {
     actions.CONFIG_BACKUP_RESTORE_CONFIRM: handlers.handle_backup_restore_confirm_submit,
     actions.CONFIG_DATA_MIGRATION_SUBMIT: handlers.handle_data_migration_submit,
     actions.CONFIG_DATA_MIGRATION_CONFIRM: handlers.handle_data_migration_confirm_submit,
+    actions.CONFIG_DB_RESET_CONFIRM: handlers.handle_db_reset_confirm,
 }
 """View submission ``callback_id`` -> handler."""
 

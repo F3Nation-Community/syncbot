@@ -12,6 +12,7 @@ from helpers._cache import (
     _cache_delete_prefix,
     _cache_get,
     _cache_set,
+    clear_all_caches,
 )
 from helpers.core import (
     format_admin_label,
@@ -90,6 +91,7 @@ __all__ = [
     "_cache_delete_prefix",
     "_cache_get",
     "_cache_set",
+    "clear_all_caches",
     "_get_user_profile",
     "_normalize_name",
     "_refresh_user_directory",

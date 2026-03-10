@@ -204,3 +204,13 @@ CONFIG_FEDERATION_LABEL_INPUT = "federation_label_input"
 
 CONFIG_REMOVE_FEDERATION_CONNECTION = "remove_federation_connection"
 """Action: user clicked "Remove Connection" on an external connection (prefix-matched)."""
+
+# ---------------------------------------------------------------------------
+# Database Reset (dev/admin tool, gated by ENABLE_DB_RESET env var)
+# ---------------------------------------------------------------------------
+
+CONFIG_DB_RESET = "db_reset"
+"""Action: user clicked "Reset Database" on the Home tab."""
+
+CONFIG_DB_RESET_CONFIRM = "db_reset_confirm"
+"""Callback: user confirmed database reset in the warning modal."""

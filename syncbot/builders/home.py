@@ -70,15 +70,15 @@ def _home_tab_content_hash(workspace_record: Workspace) -> str:
                 ],
             )
             channel_sig = tuple(
-                (sc.workspace_id, sc.channel_id, sc.status or "active")
-                for sc in sorted(channels, key=lambda c: (c.workspace_id, c.channel_id))
+                (sync_channel.workspace_id, sync_channel.channel_id, sync_channel.status or "active")
+                for sync_channel in sorted(channels, key=lambda c: (c.workspace_id, c.channel_id))
             )
             sync_channel_tuples.append((sync.id, channel_sig))
         sync_channel_tuples.sort(key=lambda x: x[0])
         # Per-member channel_count and mapped_count (shown in group section)
         member_sigs: list[tuple] = []
-        for m in members:
-            ws_id = m.workspace_id or 0
+        for member in members:
+            ws_id = member.workspace_id or 0
             ch_count = 0
             if ws_id and sync_ids:
                 ch_count = len(
@@ -234,6 +234,23 @@ def build_home_tab(
     if constants.FEDERATION_ENABLED:
         _build_federation_section(blocks, workspace_record)
 
+    # ── Database Reset (dev tool) ─────────────────────────────
+    if constants.ENABLE_DB_RESET:
+        blocks.append(divider())
+        blocks.append(section(":warning: *Danger Zone*"))
+        blocks.append(block_context("Reset the database to its initial state. _All data will be permanently lost._"))
+        blocks.append(
+            orm.ActionsBlock(
+                elements=[
+                    orm.ButtonElement(
+                        label=":bomb: Reset Database",
+                        action=actions.CONFIG_DB_RESET,
+                        style="danger",
+                    ),
+                ]
+            )
+        )
+
     block_dicts = orm.BlockView(blocks=blocks).as_form_field()
     if return_blocks:
         return block_dicts
@@ -268,10 +285,10 @@ def _build_pending_invite_section(
         ],
     )
     inviter_names = []
-    for m in inviting_members:
-        if m.workspace_id:
-            ws = helpers.get_workspace_by_id(m.workspace_id, context=context)
-            inviter_names.append(helpers.resolve_workspace_name(ws) if ws else f"Workspace {m.workspace_id}")
+    for member in inviting_members:
+        if member.workspace_id:
+            ws = helpers.get_workspace_by_id(member.workspace_id, context=context)
+            inviter_names.append(helpers.resolve_workspace_name(ws) if ws else f"Workspace {member.workspace_id}")
 
     from_label = f" from {', '.join(inviter_names)}" if inviter_names else ""
 
@@ -310,7 +327,7 @@ def _build_group_section(
     blocks.append(divider())
 
     all_members = _get_group_members(group.id)
-    other_members = [m for m in all_members if m.workspace_id != workspace_record.id]
+    other_members = [member for member in all_members if member.workspace_id != workspace_record.id]
 
     role_tag = " _(creator)_" if my_membership.role == "creator" else ""
     icon = ":link:" if len(other_members) > 0 else ":handshake:"
@@ -321,21 +338,21 @@ def _build_group_section(
     syncs_for_group = DbManager.find_records(Sync, [Sync.group_id == group.id])
     sync_ids = [s.id for s in syncs_for_group]
 
-    for m in all_members:
-        if m.workspace_id:
-            ws = helpers.get_workspace_by_id(m.workspace_id, context=context)
-            name = helpers.resolve_workspace_name(ws) if ws else f"Workspace {m.workspace_id}"
-            if m.workspace_id == workspace_record.id:
+    for member in all_members:
+        if member.workspace_id:
+            member_ws = helpers.get_workspace_by_id(member.workspace_id, context=context)
+            name = helpers.resolve_workspace_name(member_ws) if member_ws else f"Workspace {member.workspace_id}"
+            if member.workspace_id == workspace_record.id:
                 name += " _(you)_"
-        elif m.federated_workspace_id:
-            fed_ws = DbManager.get_record(FederatedWorkspace, id=m.federated_workspace_id)
+        elif member.federated_workspace_id:
+            fed_ws = DbManager.get_record(FederatedWorkspace, id=member.federated_workspace_id)
             name = f":globe_with_meridians: {fed_ws.name}" if fed_ws and fed_ws.name else "External"
         else:
             name = "Unknown"
 
-        joined_str = f"{m.joined_at:%B %d, %Y}" if m.joined_at else "Unknown"
+        joined_str = f"{member.joined_at:%B %d, %Y}" if member.joined_at else "Unknown"
 
-        ws_id = m.workspace_id
+        ws_id = member.workspace_id
         channel_count = 0
         if ws_id and sync_ids:
             channels = DbManager.find_records(
@@ -375,10 +392,10 @@ def _build_group_section(
             WorkspaceGroupMember.deleted_at.is_(None),
         ],
     )
-    for pm in pending_members:
-        if pm.workspace_id:
-            pw = helpers.get_workspace_by_id(pm.workspace_id, context=context)
-            pname = helpers.resolve_workspace_name(pw) if pw else f"Workspace {pm.workspace_id}"
+    for pending_member in pending_members:
+        if pending_member.workspace_id:
+            pending_ws = helpers.get_workspace_by_id(pending_member.workspace_id, context=context)
+            pname = helpers.resolve_workspace_name(pending_ws) if pending_ws else f"Workspace {pending_member.workspace_id}"
         else:
             pname = "Unknown"
         blocks.append(block_context(f":hourglass_flowing_sand: *{pname}* — _Pending invite_"))
@@ -387,8 +404,8 @@ def _build_group_section(
                 elements=[
                     orm.ButtonElement(
                         label="Cancel Invite",
-                        action=f"{actions.CONFIG_CANCEL_GROUP_REQUEST}_{pm.id}",
-                        value=str(pm.id),
+                        action=f"{actions.CONFIG_CANCEL_GROUP_REQUEST}_{pending_member.id}",
+                        value=str(pending_member.id),
                     ),
                 ]
             )
@@ -463,16 +480,16 @@ def _build_federation_section(
     )
 
     shown_fed: set[int] = set()
-    for fm in fed_members:
-        if not fm.federated_workspace_id or fm.federated_workspace_id in shown_fed:
+    for fed_member in fed_members:
+        if not fed_member.federated_workspace_id or fed_member.federated_workspace_id in shown_fed:
             continue
         my_groups = _get_groups_for_workspace(workspace_record.id)
         my_group_ids = {g.id for g, _ in my_groups}
-        if fm.group_id not in my_group_ids:
+        if fed_member.group_id not in my_group_ids:
             continue
 
-        shown_fed.add(fm.federated_workspace_id)
-        fed_ws = DbManager.get_record(FederatedWorkspace, id=fm.federated_workspace_id)
+        shown_fed.add(fed_member.federated_workspace_id)
+        fed_ws = DbManager.get_record(FederatedWorkspace, id=fed_member.federated_workspace_id)
         if not fed_ws:
             continue
 
@@ -489,9 +506,9 @@ def _build_federation_section(
                 elements=[
                     orm.ButtonElement(
                         label="Remove Connection",
-                        action=f"{actions.CONFIG_REMOVE_FEDERATION_CONNECTION}_{fm.id}",
+                        action=f"{actions.CONFIG_REMOVE_FEDERATION_CONNECTION}_{fed_member.id}",
                         style="danger",
-                        value=str(fm.id),
+                        value=str(fed_member.id),
                     ),
                 ]
             )

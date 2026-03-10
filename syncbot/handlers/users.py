@@ -89,9 +89,9 @@ def handle_user_profile_changed(
         members = _get_group_members(group.id)
         for m in members:
             if m.workspace_id and m.workspace_id != workspace_record.id and m.workspace_id not in notified_ws:
-                partner = helpers.get_workspace_by_id(m.workspace_id, context=context)
-                if partner:
-                    builders.refresh_home_tab_for_workspace(partner, logger, context=context)
+                member_ws = helpers.get_workspace_by_id(m.workspace_id, context=context)
+                if member_ws:
+                    builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
                     notified_ws.add(m.workspace_id)
 
     _logger.info(
@@ -175,27 +175,27 @@ def handle_user_mapping_refresh(
         for group, _ in _get_groups_for_workspace(workspace_record.id):
             members.extend(_get_group_members(group.id))
 
-    partner_clients: list[tuple[WebClient, int]] = []
+    member_clients: list[tuple[WebClient, int]] = []
 
     for m in members:
         if not m.workspace_id or m.workspace_id == workspace_record.id:
             continue
         try:
             helpers._CACHE.pop(f"dir_refresh:{m.workspace_id}", None)
-            partner_ws = helpers.get_workspace_by_id(m.workspace_id, context=context)
-            if partner_ws and partner_ws.bot_token:
-                partner_client = WebClient(token=helpers.decrypt_bot_token(partner_ws.bot_token))
-                helpers._refresh_user_directory(partner_client, m.workspace_id)
-                partner_clients.append((partner_client, m.workspace_id))
+            member_ws = helpers.get_workspace_by_id(m.workspace_id, context=context)
+            if member_ws and member_ws.bot_token:
+                member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
+                helpers._refresh_user_directory(member_client, m.workspace_id)
+                member_clients.append((member_client, m.workspace_id))
             helpers.seed_user_mappings(m.workspace_id, workspace_record.id, group_id=gid_opt)
             helpers.seed_user_mappings(workspace_record.id, m.workspace_id, group_id=gid_opt)
         except Exception:
             pass
 
     helpers.run_auto_match_for_workspace(client, workspace_record.id)
-    for p_client, p_id in partner_clients:
+    for member_client, member_ws_id in member_clients:
         try:
-            helpers.run_auto_match_for_workspace(p_client, p_id)
+            helpers.run_auto_match_for_workspace(member_client, member_ws_id)
         except Exception:
             pass
 

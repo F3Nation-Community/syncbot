@@ -163,10 +163,10 @@ def handle_leave_group_confirm(
 
     from datetime import UTC, datetime
     now = datetime.now(UTC)
-    for m in members:
+    for member in members:
         DbManager.update_records(
             schemas.WorkspaceGroupMember,
-            [schemas.WorkspaceGroupMember.id == m.id],
+            [schemas.WorkspaceGroupMember.id == member.id],
             {
                 schemas.WorkspaceGroupMember.status: "inactive",
                 schemas.WorkspaceGroupMember.deleted_at: now,
@@ -191,20 +191,20 @@ def handle_leave_group_confirm(
         DbManager.delete_records(schemas.WorkspaceGroup, [schemas.WorkspaceGroup.id == group_id])
         _logger.info("group_deleted_empty", extra={"group_id": group_id})
     else:
-        for m in remaining_members:
-            if not m.workspace_id:
+        for member in remaining_members:
+            if not member.workspace_id:
                 continue
-            partner = helpers.get_workspace_by_id(m.workspace_id)
-            if not partner or not partner.bot_token or partner.deleted_at:
+            member_ws = helpers.get_workspace_by_id(member.workspace_id)
+            if not member_ws or not member_ws.bot_token or member_ws.deleted_at:
                 continue
             try:
-                partner_client = WebClient(token=helpers.decrypt_bot_token(partner.bot_token))
+                member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
                 helpers.notify_admins_dm(
-                    partner_client,
+                    member_client,
                     f":wave: *{admin_label}* left the group *{group.name}*.",
                 )
-                builders.refresh_home_tab_for_workspace(partner, logger, context=context)
+                builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
             except Exception as e:
-                _logger.warning(f"Failed to notify group member {m.workspace_id}: {e}")
+                _logger.warning(f"Failed to notify group member {member.workspace_id}: {e}")
 
     builders.refresh_home_tab_for_workspace(workspace_record, logger, context=context)

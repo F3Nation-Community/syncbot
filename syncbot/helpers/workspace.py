@@ -217,12 +217,12 @@ def _restore_workspace(
                 schemas.SyncChannel.deleted_at.isnot(None),
             ],
         )
-        for ch in my_soft_channels:
-            sync = DbManager.get_record(schemas.Sync, id=ch.sync_id)
+        for sync_channel in my_soft_channels:
+            sync = DbManager.get_record(schemas.Sync, id=sync_channel.sync_id)
             if sync and sync.group_id in restored_group_ids:
                 DbManager.update_records(
                     schemas.SyncChannel,
-                    [schemas.SyncChannel.id == ch.id],
+                    [schemas.SyncChannel.id == sync_channel.id],
                     {schemas.SyncChannel.deleted_at: None, schemas.SyncChannel.status: "active"},
                 )
 
@@ -240,23 +240,23 @@ def _restore_workspace(
         for m in members:
             if not m.workspace_id or m.workspace_id in notified_ws:
                 continue
-            partner = get_workspace_by_id(m.workspace_id)
-            if not partner or not partner.bot_token or partner.deleted_at is not None:
+            member_ws = get_workspace_by_id(m.workspace_id)
+            if not member_ws or not member_ws.bot_token or member_ws.deleted_at is not None:
                 continue
             notified_ws.add(m.workspace_id)
             try:
-                partner_client = WebClient(token=decrypt_bot_token(partner.bot_token))
+                member_client = WebClient(token=decrypt_bot_token(member_ws.bot_token))
                 notify_admins_dm(
-                    partner_client,
+                    member_client,
                     f":arrow_forward: *{ws_name}* has been restored. Group syncing will resume.",
                 )
 
                 syncs_in_group = DbManager.find_records(
                     schemas.Sync, [schemas.Sync.group_id == group_id],
                 )
-                partner_ch_ids = []
+                other_channel_ids = []
                 for sync in syncs_in_group:
-                    partner_channels = DbManager.find_records(
+                    other_sync_channels = DbManager.find_records(
                         schemas.SyncChannel,
                         [
                             schemas.SyncChannel.sync_id == sync.id,
@@ -264,16 +264,16 @@ def _restore_workspace(
                             schemas.SyncChannel.deleted_at.is_(None),
                         ],
                     )
-                    for sc in partner_channels:
-                        partner_ch_ids.append(sc.channel_id)
-                if partner_ch_ids:
+                    for sync_channel in other_sync_channels:
+                        other_channel_ids.append(sync_channel.channel_id)
+                if other_channel_ids:
                     notify_synced_channels(
-                        partner_client,
-                        partner_ch_ids,
+                        member_client,
+                        other_channel_ids,
                         f":arrow_forward: Syncing with *{ws_name}* has been resumed.",
                     )
             except Exception as e:
-                _logger.warning(f"_restore_workspace: failed to notify partner {m.workspace_id}: {e}")
+                _logger.warning(f"_restore_workspace: failed to notify member {m.workspace_id}: {e}")
 
     _logger.info(
         "workspace_restored",

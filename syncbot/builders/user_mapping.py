@@ -149,10 +149,10 @@ def build_user_mapping_screen(
     _avatar_lookup: dict[tuple[int, str], str] = {}
     for source_ws_id in linked_workspace_ids:
         ws = helpers.get_workspace_by_id(source_ws_id, context=context)
-        partner_client = None
+        member_client = None
         if ws and ws.bot_token:
             with contextlib.suppress(Exception):
-                partner_client = WebClient(token=helpers.decrypt_bot_token(ws.bot_token))
+                member_client = WebClient(token=helpers.decrypt_bot_token(ws.bot_token))
         dir_entries = DbManager.find_records(
             UserDirectory,
             [UserDirectory.workspace_id == source_ws_id, UserDirectory.deleted_at.is_(None)],
@@ -160,9 +160,9 @@ def build_user_mapping_screen(
         for entry in dir_entries:
             if entry.email:
                 _email_lookup[(source_ws_id, entry.slack_user_id)] = entry.email
-            if partner_client:
+            if member_client:
                 with contextlib.suppress(Exception):
-                    _, avatar_url = helpers.get_user_info(partner_client, entry.slack_user_id)
+                    _, avatar_url = helpers.get_user_info(member_client, entry.slack_user_id)
                     if avatar_url:
                         _avatar_lookup[(source_ws_id, entry.slack_user_id)] = avatar_url
 
@@ -308,8 +308,8 @@ def build_user_mapping_edit_modal(
     avatar_accessory = None
     if source_ws and source_ws.bot_token:
         with contextlib.suppress(Exception):
-            partner_client = WebClient(token=helpers.decrypt_bot_token(source_ws.bot_token))
-            _, avatar_url = helpers.get_user_info(partner_client, mapping.source_user_id)
+            member_client = WebClient(token=helpers.decrypt_bot_token(source_ws.bot_token))
+            _, avatar_url = helpers.get_user_info(member_client, mapping.source_user_id)
             if avatar_url:
                 avatar_accessory = orm.ImageAccessoryElement(image_url=avatar_url, alt_text=display)
 

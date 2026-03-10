@@ -33,8 +33,8 @@ ADMIN_DATABASE_USER = "ADMIN_DATABASE_USER"
 ADMIN_DATABASE_PASSWORD = "ADMIN_DATABASE_PASSWORD"
 ADMIN_DATABASE_SCHEMA = "ADMIN_DATABASE_SCHEMA"
 
-# When set to "true", app startup drops the database and reinitializes from db/init.sql. All data is lost.
-DANGER_DROP_AND_INIT_DB = "DANGER_DROP_AND_INIT_DB"
+# When set to "true", a red "Reset Database" button appears on the Home tab.
+ENABLE_DB_RESET = os.environ.get("ENABLE_DB_RESET", "false").lower() == "true"
 
 LOCAL_DEVELOPMENT = os.environ.get("LOCAL_DEVELOPMENT", "false").lower() == "true"
 
