@@ -183,6 +183,10 @@ _configured = False
 def configure_logging(level: int = logging.INFO) -> None:
     """Replace the root logger's handlers with a single structured-JSON handler.
 
+    The effective level is determined by the ``LOG_LEVEL`` environment variable
+    (e.g. ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``, ``CRITICAL``).  If the
+    variable is unset or invalid the *level* parameter is used as a fallback.
+
     Uses :class:`DevFormatter` (human-readable, colorized) when
     ``LOCAL_DEVELOPMENT`` is enabled, otherwise :class:`StructuredFormatter`
     (single-line JSON for CloudWatch).
@@ -196,8 +200,13 @@ def configure_logging(level: int = logging.INFO) -> None:
         return
     _configured = True
 
+    env_level = os.environ.get("LOG_LEVEL", "").strip().upper()
+    effective_level = getattr(logging, env_level, None) if env_level else None
+    if not isinstance(effective_level, int):
+        effective_level = level
+
     root = logging.getLogger()
-    root.setLevel(level)
+    root.setLevel(effective_level)
 
     # Remove any existing handlers (e.g. Slack Bolt's defaults).
     for h in list(root.handlers):
