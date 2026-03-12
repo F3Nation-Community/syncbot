@@ -159,6 +159,9 @@ CONFIG_BACKUP_RESTORE_SUBMIT = "backup_restore_submit"
 CONFIG_BACKUP_RESTORE_CONFIRM = "backup_restore_confirm"
 """Callback: Confirm restore when HMAC or encryption key mismatch."""
 
+CONFIG_BACKUP_RESTORE_PROCEED = "backup_restore_proceed"
+"""Action: danger button to proceed with restore despite warnings."""
+
 CONFIG_BACKUP_DOWNLOAD = "backup_download"
 """Action: user clicked Download backup in Backup/Restore modal."""
 
@@ -173,6 +176,9 @@ CONFIG_DATA_MIGRATION_SUBMIT = "data_migration_submit"
 
 CONFIG_DATA_MIGRATION_CONFIRM = "data_migration_confirm"
 """Callback: Confirm import when signature check failed."""
+
+CONFIG_DATA_MIGRATION_PROCEED = "data_migration_proceed"
+"""Action: danger button to proceed with import despite warnings."""
 
 CONFIG_DATA_MIGRATION_EXPORT = "data_migration_export"
 """Action: user clicked Export in Data Migration modal."""
@@ -213,4 +219,7 @@ CONFIG_DB_RESET = "db_reset"
 """Action: user clicked "Reset Database" on the Home tab."""
 
 CONFIG_DB_RESET_CONFIRM = "db_reset_confirm"
+
+CONFIG_DB_RESET_PROCEED = "db_reset_proceed"
+"""Action: danger button to confirm database reset."""
 """Callback: user confirmed database reset in the warning modal."""

@@ -157,6 +157,15 @@ def _handle_new_post(
 
     sync_records = helpers.get_sync_list(team_id, channel_id)
     if not sync_records:
+        any_sync_channel = DbManager.find_records(
+            schemas.SyncChannel,
+            [
+                schemas.SyncChannel.channel_id == channel_id,
+                schemas.SyncChannel.deleted_at.is_(None),
+            ],
+        )
+        if any_sync_channel:
+            return
         if user_id:
             try:
                 client.chat_postMessage(
@@ -581,11 +590,12 @@ def _handle_reaction(
     ws_name = helpers.resolve_workspace_name(source_ws) if source_ws else None
     posted_from = f"({ws_name})" if ws_name else "(via SyncBot)"
 
+    post_uuid = uuid.uuid4().hex
+    post_list: list[schemas.PostMeta] = []
+
     synced = 0
     failed = 0
     for post_meta, sync_channel, workspace in reacted_records:
-        if sync_channel.channel_id == channel_id:
-            continue
         try:
             if fed_ws and workspace.id != source_workspace_id:
                 payload = federation.build_reaction_payload(
@@ -611,23 +621,21 @@ def _handle_reaction(
                 display_name = target_display_name or user_name or user_id or "Someone"
 
                 permalink = None
-                is_thread_reply = False
                 try:
                     plink_resp = target_client.chat_getPermalink(
                         channel=sync_channel.channel_id,
                         message_ts=target_msg_ts,
                     )
                     permalink = helpers.safe_get(plink_resp, "permalink")
-                    is_thread_reply = permalink and "thread_ts=" in permalink
                 except Exception:
                     pass
 
-                if is_thread_reply and permalink:
+                if permalink:
                     msg_text = f"reacted with :{reaction}: to <{permalink}|this message>"
                 else:
                     msg_text = f"reacted with :{reaction}:"
 
-                target_client.chat_postMessage(
+                resp = target_client.chat_postMessage(
                     channel=sync_channel.channel_id,
                     text=msg_text,
                     username=f"{display_name} {posted_from}",
@@ -636,10 +644,16 @@ def _handle_reaction(
                     unfurl_links=False,
                     unfurl_media=False,
                 )
+                ts = helpers.safe_get(resp, "ts")
+                if ts:
+                    post_list.append(schemas.PostMeta(post_id=post_uuid, sync_channel_id=sync_channel.id, ts=float(ts)))
             synced += 1
         except Exception as exc:
             failed += 1
             _logger.error(f"Failed to sync reaction to channel {sync_channel.channel_id}: {exc}")
+
+    if post_list:
+        DbManager.create_records(post_list)
 
     emit_metric("messages_synced", value=synced, sync_type="reaction_add")
     if failed:

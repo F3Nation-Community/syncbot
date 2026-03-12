@@ -181,7 +181,7 @@ def restore_full_backup(
                 else:
                     kwargs[k] = v
             rec = cls(**kwargs)
-            DbManager.create_record(rec)
+            DbManager.merge_record(rec)
             if table_name == "workspaces" and rec.team_id:
                 team_ids.append(rec.team_id)
     return team_ids

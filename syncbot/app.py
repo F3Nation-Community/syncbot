@@ -40,9 +40,19 @@ from logger import (
     set_correlation_id,
 )
 from routing import MAIN_MAPPER
-from slack.actions import CONFIG_PUBLISH_CHANNEL_SUBMIT, CONFIG_PUBLISH_MODE_SUBMIT
+from slack.actions import (
+    CONFIG_BACKUP_RESTORE_SUBMIT,
+    CONFIG_DATA_MIGRATION_SUBMIT,
+    CONFIG_PUBLISH_CHANNEL_SUBMIT,
+    CONFIG_PUBLISH_MODE_SUBMIT,
+)
 
-_DEFERRED_ACK_VIEWS = frozenset({CONFIG_PUBLISH_MODE_SUBMIT, CONFIG_PUBLISH_CHANNEL_SUBMIT})
+_DEFERRED_ACK_VIEWS = frozenset({
+    CONFIG_PUBLISH_MODE_SUBMIT,
+    CONFIG_PUBLISH_CHANNEL_SUBMIT,
+    CONFIG_BACKUP_RESTORE_SUBMIT,
+    CONFIG_DATA_MIGRATION_SUBMIT,
+})
 """view_submission callback_ids whose handlers control their own ack response."""
 
 _SENSITIVE_KEYS = frozenset({
@@ -153,9 +163,12 @@ def main_response(body: dict, logger, client, ack, context: dict) -> None:
     run_function = MAIN_MAPPER.get(request_type, {}).get(request_id)
     if run_function:
         try:
-            run_function(body, client, logger, context)
+            result = run_function(body, client, logger, context)
             if defer_ack and not ack_called:
-                ack()
+                if isinstance(result, dict):
+                    ack(**result)
+                else:
+                    ack()
             emit_metric(
                 "request_handled",
                 duration_ms=round(get_request_duration_ms(), 1),

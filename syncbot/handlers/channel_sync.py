@@ -467,6 +467,12 @@ def _toggle_sync_status(
             channel_ws = ws_cache.get(sync_channel.workspace_id) or helpers.get_workspace_by_id(sync_channel.workspace_id)
             ws_cache[sync_channel.workspace_id] = channel_ws
             if channel_ws and channel_ws.bot_token:
+                ws_client = WebClient(token=helpers.decrypt_bot_token(channel_ws.bot_token))
+                if target_status == "active":
+                    try:
+                        ws_client.conversations_join(channel=sync_channel.channel_id)
+                    except Exception:
+                        pass
                 name = admin_name if workspace_record and sync_channel.workspace_id == workspace_record.id else admin_label
                 other_channels = [c for c in all_channels if c.workspace_id != sync_channel.workspace_id]
                 if other_channels:
@@ -476,7 +482,6 @@ def _toggle_sync_status(
                     msg = f":{emoji}: *{name}* {verb} syncing with *{channel_ref}*."
                 else:
                     msg = f":{emoji}: *{name}* {verb} channel syncing."
-                ws_client = WebClient(token=helpers.decrypt_bot_token(channel_ws.bot_token))
                 helpers.notify_synced_channels(ws_client, [sync_channel.channel_id], msg)
         except Exception as e:
             _logger.warning(f"Failed to notify channel {sync_channel.channel_id} about {verb}: {e}")

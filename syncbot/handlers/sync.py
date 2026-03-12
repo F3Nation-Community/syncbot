@@ -343,8 +343,14 @@ def handle_member_joined_channel(
     if user_id != own_user_id:
         return
 
-    sync_records = helpers.get_sync_list(team_id, channel_id)
-    if sync_records:
+    any_sync_channel = DbManager.find_records(
+        schemas.SyncChannel,
+        [
+            schemas.SyncChannel.channel_id == channel_id,
+            schemas.SyncChannel.deleted_at.is_(None),
+        ],
+    )
+    if any_sync_channel:
         return
 
     try:
@@ -405,6 +411,7 @@ def check_join_sync_channel(
 # Database Reset (gated by ENABLE_DB_RESET)
 # ---------------------------------------------------------------------------
 
+
 def handle_db_reset(
     body: dict,
     client: WebClient,
@@ -423,31 +430,42 @@ def handle_db_reset(
     if not trigger_id:
         return
 
-    modal_blocks = [
-        orm.SectionBlock(
-            label=(
-                ":rotating_light: *This will permanently delete ALL data* :rotating_light:\n\n"
-                "Every workspace, group, channel sync, user mapping, and federation connection "
-                "in this database will be erased and the schema will be reinitialized from `init.sql`.\n\n"
-                "*This action cannot be undone.*"
-            ),
-        ).as_form_field(),
-    ]
-
     client.views_open(
         trigger_id=trigger_id,
         view={
             "type": "modal",
-            "callback_id": actions.CONFIG_DB_RESET_CONFIRM,
             "title": {"type": "plain_text", "text": "Reset Database?"},
-            "submit": {"type": "plain_text", "text": "Yes, reset everything"},
             "close": {"type": "plain_text", "text": "Cancel"},
-            "blocks": modal_blocks,
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            ":rotating_light: *This will permanently delete ALL data* :rotating_light:\n\n"
+                            "Every workspace, group, channel sync, user mapping, and federation connection "
+                            "in this database will be erased and the schema will be reinitialized from `init.sql`.\n\n"
+                            "*This action cannot be undone.*"
+                        ),
+                    },
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Yes, Reset Everything!"},
+                            "style": "danger",
+                            "action_id": actions.CONFIG_DB_RESET_PROCEED,
+                        },
+                    ],
+                },
+            ],
         },
     )
 
 
-def handle_db_reset_confirm(
+def handle_db_reset_proceed(
     body: dict,
     client: WebClient,
     logger: Logger,
@@ -467,6 +485,7 @@ def handle_db_reset_confirm(
     )
 
     from db import drop_and_init_db
+
     drop_and_init_db()
 
     helpers.clear_all_caches()

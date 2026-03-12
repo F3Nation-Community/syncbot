@@ -77,10 +77,9 @@ def drop_and_init_db() -> None:
     url_no_db, connect_args = _build_base_url(include_schema=False)
     engine_no_db = create_engine(url_no_db, connect_args=connect_args, pool_pre_ping=True)
 
-    with engine_no_db.connect() as conn:
+    with engine_no_db.begin() as conn:
         conn.execute(text(f"DROP DATABASE IF EXISTS `{schema}`"))
         conn.execute(text(f"CREATE DATABASE `{schema}` CHARACTER SET utf8mb4"))
-        conn.commit()
 
     engine_no_db.dispose()
 
@@ -106,11 +105,10 @@ def drop_and_init_db() -> None:
     combined = " ".join(lines)
     statements = [s.strip() for s in combined.split(";") if s.strip()]
 
-    with engine_with_db.connect() as conn:
+    with engine_with_db.begin() as conn:
         for stmt in statements:
             if stmt:
                 conn.execute(text(stmt))
-        conn.commit()
 
     engine_with_db.dispose()
 
@@ -319,6 +317,23 @@ class DbManager:
         finally:
             close_session(session)
         return record
+
+    @staticmethod
+    @_with_retry
+    def merge_record(record: BaseClass, schema=None) -> BaseClass:
+        """Insert or update a record based on its primary key."""
+        session = get_session(schema=schema)
+        try:
+            merged = session.merge(record)
+            session.flush()
+            session.expunge(merged)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            close_session(session)
+        return merged
 
     @staticmethod
     @_with_retry

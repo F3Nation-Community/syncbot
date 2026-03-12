@@ -14,7 +14,7 @@ from db import DbManager
 from db.schemas import PostMeta, Sync, SyncChannel, Workspace, WorkspaceGroup, WorkspaceGroupMember
 from helpers import safe_get
 from slack import actions, orm
-from slack.blocks import context, section
+from slack.blocks import context as block_context, section
 
 _logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def _build_inline_channel_sync(
     if not published_syncs and not waiting_syncs and not available_syncs:
         return
 
-    blocks.append(context("*Synced Channels*"))
+    blocks.append(block_context("*Synced Channels*"))
 
     for sync, my_ch, other_chs, is_paused in published_syncs:
         my_ref = _format_channel_ref(my_ch.channel_id, workspace_record, is_local=True)
@@ -118,7 +118,7 @@ def _build_inline_channel_sync(
         context_parts.append(f"{msg_count} message{'s' if msg_count != 1 else ''} tracked")
 
         if context_parts:
-            blocks.append(context("  ·  ".join(context_parts)))
+            blocks.append(block_context("  ·  ".join(context_parts)))
         blocks.append(
             orm.ActionsBlock(
                 elements=[

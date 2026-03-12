@@ -162,23 +162,6 @@ def build_home_tab(
 
     blocks: list[orm.BaseBlock] = []
 
-    blocks.append(header("SyncBot Configuration"))
-    blocks.append(
-        orm.ActionsBlock(
-            elements=[
-                orm.ButtonElement(
-                    label=":arrows_counterclockwise: Refresh",
-                    action=actions.CONFIG_REFRESH_HOME,
-                ),
-                orm.ButtonElement(
-                    label=":floppy_disk: Backup/Restore",
-                    action=actions.CONFIG_BACKUP_RESTORE,
-                ),
-            ]
-        )
-    )
-    blocks.append(divider())
-
     if not is_admin:
         blocks.append(block_context(":lock: Only workspace admins and owners can configure SyncBot."))
         block_dicts = orm.BlockView(blocks=blocks).as_form_field()
@@ -186,6 +169,28 @@ def build_home_tab(
             return block_dicts
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": block_dicts})
         return None
+
+    blocks.append(header("SyncBot Configuration"))
+    top_buttons = [
+        orm.ButtonElement(
+            label=":arrows_counterclockwise: Refresh",
+            action=actions.CONFIG_REFRESH_HOME,
+        ),
+        orm.ButtonElement(
+            label=":floppy_disk: Backup/Restore",
+            action=actions.CONFIG_BACKUP_RESTORE,
+        ),
+    ]
+    if constants.ENABLE_DB_RESET:
+        top_buttons.append(
+            orm.ButtonElement(
+                label=":bomb: Reset Database",
+                action=actions.CONFIG_DB_RESET,
+                style="danger",
+            ),
+        )
+    blocks.append(orm.ActionsBlock(elements=top_buttons))
+    blocks.append(divider())
 
     # Compute hash for admin view so we can update cache after publish (manual or automatic)
     current_hash = _home_tab_content_hash(workspace_record)
@@ -234,22 +239,6 @@ def build_home_tab(
     if constants.FEDERATION_ENABLED:
         _build_federation_section(blocks, workspace_record)
 
-    # ── Database Reset (dev tool) ─────────────────────────────
-    if constants.ENABLE_DB_RESET:
-        blocks.append(divider())
-        blocks.append(section(":warning: *Danger Zone*"))
-        blocks.append(block_context("Reset the database to its initial state. _All data will be permanently lost._"))
-        blocks.append(
-            orm.ActionsBlock(
-                elements=[
-                    orm.ButtonElement(
-                        label=":bomb: Reset Database",
-                        action=actions.CONFIG_DB_RESET,
-                        style="danger",
-                    ),
-                ]
-            )
-        )
 
     block_dicts = orm.BlockView(blocks=blocks).as_form_field()
     if return_blocks:
@@ -290,11 +279,11 @@ def _build_pending_invite_section(
             ws = helpers.get_workspace_by_id(member.workspace_id, context=context)
             inviter_names.append(helpers.resolve_workspace_name(ws) if ws else f"Workspace {member.workspace_id}")
 
-    from_label = f" from {', '.join(inviter_names)}" if inviter_names else ""
+    inviter_label = ", ".join(inviter_names) if inviter_names else "Another workspace"
 
     blocks.append(divider())
     blocks.append(
-        section(f":envelope: *{group.name}*{from_label}\n_You've been invited to join this group_")
+        section(f":handshake: *{inviter_label}* has invited your workspace to join the group *{group.name}*.")
     )
     blocks.append(
         orm.ActionsBlock(

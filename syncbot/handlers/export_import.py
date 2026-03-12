@@ -7,6 +7,7 @@ from logging import Logger
 
 from slack_sdk.web import WebClient
 
+import builders
 import constants
 import helpers
 from db import DbManager, schemas
@@ -20,9 +21,16 @@ def _is_admin(client: WebClient, user_id: str, body: dict) -> bool:
     return helpers.is_user_authorized(client, user_id)
 
 
+def _open_dm_channel(client: WebClient, user_id: str) -> str:
+    """Open (or reopen) a DM with *user_id* and return the channel ID."""
+    resp = client.conversations_open(users=[user_id])
+    return resp["channel"]["id"]
+
+
 # ---------------------------------------------------------------------------
 # Backup/Restore
 # ---------------------------------------------------------------------------
+
 
 def handle_backup_restore(
     body: dict,
@@ -40,32 +48,38 @@ def handle_backup_restore(
 
     from slack import orm
 
-    blocks = [
-        orm.SectionBlock(label="*Download backup*\nGenerate a full-instance backup (JSON) and receive it in your DM."),
+    download_blocks = [
+        orm.SectionBlock(label="*Backup*\nSend a JSON backup file as a SyncBot DM."),
         orm.ActionsBlock(
             elements=[
                 orm.ButtonElement(
-                    label=":floppy_disk: Download backup",
+                    label=":floppy_disk: Send Backup File",
                     action=actions.CONFIG_BACKUP_DOWNLOAD,
                 ),
             ],
         ),
         orm.DividerBlock(),
         orm.SectionBlock(
-            label="*Restore from backup*\nPaste the backup JSON below. You will be asked to confirm if the encryption key or integrity check does not match.",
-        ),
-        orm.InputBlock(
-            label="Backup JSON",
-            action=actions.CONFIG_BACKUP_RESTORE_JSON_INPUT,
-            element=orm.PlainTextInputElement(
-                placeholder='Paste backup JSON here (e.g. {"version": 1, ...})',
-                multiline=True,
-                max_length=3000,
-            ),
+            label="*Restore*\nUpload a JSON backup file. The integrity of the file will be checked.",
         ),
     ]
 
-    view = orm.BlockView(blocks=blocks)
+    restore_block = {
+        "type": "input",
+        "block_id": actions.CONFIG_BACKUP_RESTORE_JSON_INPUT,
+        "label": {"type": "plain_text", "text": " "},
+        "element": {
+            "type": "file_input",
+            "action_id": actions.CONFIG_BACKUP_RESTORE_JSON_INPUT,
+            "filetypes": ["json"],
+            "max_files": 1,
+        },
+    }
+
+    view = orm.BlockView(blocks=download_blocks)
+    modal_blocks = view.as_form_field()
+    modal_blocks.append(restore_block)
+
     client.views_open(
         trigger_id=trigger_id,
         view={
@@ -74,7 +88,7 @@ def handle_backup_restore(
             "title": {"type": "plain_text", "text": "Backup / Restore"},
             "submit": {"type": "plain_text", "text": "Restore"},
             "close": {"type": "plain_text", "text": "Cancel"},
-            "blocks": view.as_form_field(),
+            "blocks": modal_blocks,
         },
     )
 
@@ -92,22 +106,37 @@ def handle_backup_download(
     try:
         payload = ei.build_full_backup()
         json_str = json.dumps(payload, default=ei._json_serializer, indent=2)
-        client.files_upload(
+        dm_channel = _open_dm_channel(client, user_id)
+        client.files_upload_v2(
             content=json_str,
             filename=f"syncbot-backup-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.json",
-            channels=user_id,
+            channel=dm_channel,
             initial_comment="Your SyncBot full-instance backup. Keep this file secure.",
         )
     except Exception as e:
         _logger.exception("backup_download failed: %s", e)
         return
-    # Optionally update the modal to say "Backup sent to your DM"
-    response_url = helpers.safe_get(body, "response_url")
-    if response_url:
+
+    view_id = helpers.safe_get(body, "view", "id")
+    if view_id:
         try:
-            from slack_sdk.webhook import WebhookClient
-            w = WebhookClient(response_url)
-            w.send(text=":white_check_mark: Backup sent to your DM.")
+            client.views_update(
+                view_id=view_id,
+                view={
+                    "type": "modal",
+                    "title": {"type": "plain_text", "text": "Backup / Restore"},
+                    "close": {"type": "plain_text", "text": "Close"},
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": ":white_check_mark: *Backup Sent!*\n\nCheck your SyncBot DMs to download the backup file.",
+                            },
+                        },
+                    ],
+                },
+            )
         except Exception:
             pass
 
@@ -124,22 +153,53 @@ def handle_backup_restore_submit(
         return None
 
     values = helpers.safe_get(body, "view", "state", "values") or {}
-    json_text = ""
-    for _block_id, block_data in values.items():
-        for action_id, action_data in block_data.items():
-            if action_id == actions.CONFIG_BACKUP_RESTORE_JSON_INPUT:
-                json_text = (action_data.get("value") or "").strip()
+    file_data = helpers.safe_get(
+        values, actions.CONFIG_BACKUP_RESTORE_JSON_INPUT, actions.CONFIG_BACKUP_RESTORE_JSON_INPUT
+    )
+    files = file_data.get("files") if file_data else None
 
-    if not json_text:
-        return {"response_action": "errors", "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: "Paste backup JSON to restore."}}
+    if not files:
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: "Upload a JSON backup file to restore."},
+        }
+
+    file_info = files[0]
+    file_url = file_info.get("url_private_download") or file_info.get("url_private")
+    if not file_url:
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: "Could not retrieve the uploaded file."},
+        }
+
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(file_url, headers={"Authorization": f"Bearer {client.token}"})
+        with urllib.request.urlopen(req) as resp:
+            json_text = resp.read().decode("utf-8")
+    except Exception as e:
+        _logger.exception("backup_restore: failed to download uploaded file: %s", e)
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: "Failed to download the uploaded file."},
+        }
 
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError as e:
-        return {"response_action": "errors", "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: f"Invalid JSON: {e}"}}
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: f"Invalid JSON in uploaded file: {e}"},
+        }
 
     if data.get("version") != ei.BACKUP_VERSION:
-        return {"response_action": "errors", "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: f"Unsupported backup version (expected {ei.BACKUP_VERSION})."}}
+        return {
+            "response_action": "errors",
+            "errors": {
+                actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: f"Unsupported backup version (expected {ei.BACKUP_VERSION})."
+            },
+        }
 
     hmac_ok = ei.verify_backup_hmac(data)
     key_ok = ei.verify_backup_encryption_key(data)
@@ -147,74 +207,97 @@ def handle_backup_restore_submit(
     # If warnings needed, store payload in cache and show confirmation modal
     if not hmac_ok or not key_ok:
         from helpers._cache import _cache_set
+
         cache_key = f"restore_pending:{user_id}"
         _cache_set(cache_key, data, ttl=600)
         return {
             "response_action": "push",
             "view": {
                 "type": "modal",
-                "callback_id": actions.CONFIG_BACKUP_RESTORE_CONFIRM,
-                "title": {"type": "plain_text", "text": "Confirm restore"},
-                "submit": {"type": "plain_text", "text": "Proceed anyway"},
+                "title": {"type": "plain_text", "text": "Confirm Restore"},
                 "close": {"type": "plain_text", "text": "Cancel"},
-                "private_metadata": user_id,
                 "blocks": [
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
                             "text": (
-                                ("*Integrity check failed.* The file may have been modified or could be malicious. Only proceed if you intentionally edited the file.\n\n" if not hmac_ok else "")
-                                + ("*Encryption key mismatch.* Restored bot tokens will not be usable; workspaces must reinstall the app to re-authorize.\n\n" if not key_ok else "")
-                                + "Do you want to proceed with restore anyway?"
+                                (
+                                    "*WARNING: Integrity Check Failed!* The file has been tampered with. Only proceed if you intentionally edited the file.\n\n"
+                                    if not hmac_ok
+                                    else ""
+                                )
+                                + (
+                                    "*WARNING: Encryption Key Mismatch!* Restored bot tokens will not be usable. Workspaces will have to reinstall the app.\n\n"
+                                    if not key_ok
+                                    else ""
+                                )
+                                + "Do you want to proceed with the restore anyway?"
                             ),
                         },
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Proceed Anyway"},
+                                "style": "danger",
+                                "action_id": actions.CONFIG_BACKUP_RESTORE_PROCEED,
+                                "value": user_id,
+                            },
+                        ],
                     },
                 ],
             },
         }
 
+    context["ack"]()
     _do_restore(data, client, user_id)
     return None
 
 
-def handle_backup_restore_confirm_submit(
+def handle_backup_restore_proceed(
     body: dict,
     client: WebClient,
     logger: Logger,
     context: dict,
-) -> dict | None:
-    """Second-step restore when user confirmed warnings."""
+) -> None:
+    """Proceed with restore after user clicked the danger button despite warnings."""
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
     if not _is_admin(client, user_id, body):
-        return None
-    private_metadata = (helpers.safe_get(body, "view", "private_metadata") or "").strip()
-    if not private_metadata:
-        return {"response_action": "errors", "errors": {"": "Missing state."}}
+        return
     from helpers._cache import _cache_get
-    data = _cache_get(f"restore_pending:{private_metadata}")
+
+    data = _cache_get(f"restore_pending:{user_id}")
     if not data:
-        return {"response_action": "errors", "errors": {"": "Restore data expired. Please paste the backup JSON again and submit."}}
+        _logger.warning("backup_restore_proceed: restore data expired for user %s", user_id)
+        return
     _do_restore(data, client, user_id)
-    return None
 
 
 def _do_restore(data: dict, client: WebClient, user_id: str) -> None:
-    """Run restore and invalidate caches."""
+    """Run restore, invalidate caches, and refresh the Home tab for all restored workspaces."""
     try:
         team_ids = ei.restore_full_backup(data, skip_hmac_check=True, skip_encryption_key_check=True)
         ei.invalidate_home_tab_caches_for_all_teams(team_ids)
     except Exception as e:
         _logger.exception("restore failed: %s", e)
         raise
-    # Refresh home for user
-    team_id = helpers.safe_get(client, "team_id")  # not on client
-    # We don't have team_id here easily; the next time user opens Home they'll get fresh data due to cache clear.
+
+    for tid in team_ids:
+        ws = DbManager.find_records(schemas.Workspace, [schemas.Workspace.team_id == tid])
+        if ws:
+            try:
+                builders.refresh_home_tab_for_workspace(ws[0], _logger)
+            except Exception as e:
+                _logger.warning("_do_restore: failed to refresh home tab for %s: %s", tid, e)
 
 
 # ---------------------------------------------------------------------------
 # Data Migration
 # ---------------------------------------------------------------------------
+
 
 def handle_data_migration(
     body: dict,
@@ -234,7 +317,7 @@ def handle_data_migration(
 
     from slack import orm
 
-    blocks = [
+    export_blocks = [
         orm.SectionBlock(
             label="*Export*\nDownload your workspace data for migration to another instance. You will receive a JSON file in your DM.",
         ),
@@ -248,20 +331,26 @@ def handle_data_migration(
         ),
         orm.DividerBlock(),
         orm.SectionBlock(
-            label="*Import*\nPaste a migration file JSON below. Existing sync channels in the federated group will be replaced.",
-        ),
-        orm.InputBlock(
-            label="Migration JSON",
-            action=actions.CONFIG_DATA_MIGRATION_JSON_INPUT,
-            element=orm.PlainTextInputElement(
-                placeholder='Paste migration JSON here (e.g. {"version": 1, "workspace": {...}, ...})',
-                multiline=True,
-                max_length=3000,
-            ),
+            label="*Import*\nUpload a migration JSON file. Existing sync channels in the federated group will be replaced.",
         ),
     ]
 
-    view = orm.BlockView(blocks=blocks)
+    import_block = {
+        "type": "input",
+        "block_id": actions.CONFIG_DATA_MIGRATION_JSON_INPUT,
+        "label": {"type": "plain_text", "text": " "},
+        "element": {
+            "type": "file_input",
+            "action_id": actions.CONFIG_DATA_MIGRATION_JSON_INPUT,
+            "filetypes": ["json"],
+            "max_files": 1,
+        },
+    }
+
+    view = orm.BlockView(blocks=export_blocks)
+    modal_blocks = view.as_form_field()
+    modal_blocks.append(import_block)
+
     client.views_open(
         trigger_id=trigger_id,
         view={
@@ -270,7 +359,7 @@ def handle_data_migration(
             "title": {"type": "plain_text", "text": "Data Migration"},
             "submit": {"type": "plain_text", "text": "Import"},
             "close": {"type": "plain_text", "text": "Cancel"},
-            "blocks": view.as_form_field(),
+            "blocks": modal_blocks,
         },
     )
 
@@ -294,10 +383,11 @@ def handle_data_migration_export(
     try:
         payload = ei.build_migration_export(workspace_record.id, include_source_instance=True)
         json_str = json.dumps(payload, default=ei._json_serializer, indent=2)
-        client.files_upload(
+        dm_channel = _open_dm_channel(client, user_id)
+        client.files_upload_v2(
             content=json_str,
             filename=f"syncbot-migration-{workspace_record.team_id}-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.json",
-            channels=user_id,
+            channel=dm_channel,
             initial_comment="Your SyncBot workspace migration file. Use it on the new instance after connecting via federation.",
         )
     except Exception as e:
@@ -319,31 +409,70 @@ def handle_data_migration_submit(
         return None
 
     values = helpers.safe_get(body, "view", "state", "values") or {}
-    json_text = ""
-    for _block_id, block_data in values.items():
-        for action_id, action_data in block_data.items():
-            if action_id == actions.CONFIG_DATA_MIGRATION_JSON_INPUT:
-                json_text = (action_data.get("value") or "").strip()
+    file_data = helpers.safe_get(
+        values, actions.CONFIG_DATA_MIGRATION_JSON_INPUT, actions.CONFIG_DATA_MIGRATION_JSON_INPUT
+    )
+    files = file_data.get("files") if file_data else None
 
-    if not json_text:
-        return {"response_action": "errors", "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Paste migration JSON to import."}}
+    if not files:
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Upload a migration JSON file to import."},
+        }
+
+    file_info = files[0]
+    file_url = file_info.get("url_private_download") or file_info.get("url_private")
+    if not file_url:
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Could not retrieve the uploaded file."},
+        }
+
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(file_url, headers={"Authorization": f"Bearer {client.token}"})
+        with urllib.request.urlopen(req) as resp:
+            json_text = resp.read().decode("utf-8")
+    except Exception as e:
+        _logger.exception("data_migration_submit: failed to download uploaded file: %s", e)
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Failed to download the uploaded file."},
+        }
 
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError as e:
-        return {"response_action": "errors", "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: f"Invalid JSON: {e}"}}
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: f"Invalid JSON in uploaded file: {e}"},
+        }
 
     if data.get("version") != ei.MIGRATION_VERSION:
-        return {"response_action": "errors", "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: f"Unsupported migration version (expected {ei.MIGRATION_VERSION})."}}
+        return {
+            "response_action": "errors",
+            "errors": {
+                actions.CONFIG_DATA_MIGRATION_JSON_INPUT: f"Unsupported migration version (expected {ei.MIGRATION_VERSION})."
+            },
+        }
 
     workspace_payload = data.get("workspace", {})
     export_team_id = workspace_payload.get("team_id")
     if not export_team_id:
-        return {"response_action": "errors", "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Migration file missing workspace.team_id."}}
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Migration file missing workspace.team_id."},
+        }
 
     workspace_record = helpers.get_workspace_record(team_id, body, context, client)
     if not workspace_record or workspace_record.team_id != export_team_id:
-        return {"response_action": "errors", "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "This migration file is for a different workspace. Open the app from the workspace that matches the migration file."}}
+        return {
+            "response_action": "errors",
+            "errors": {
+                actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "This migration file is for a different workspace. Open the app from the workspace that matches the migration file."
+            },
+        }
 
     # Build team_id -> workspace_id on B
     team_id_to_workspace_id = {workspace_record.team_id: workspace_record.id}
@@ -357,6 +486,7 @@ def handle_data_migration_submit(
     if source and source.get("connection_code"):
         import secrets
         from federation import core as federation
+
         result = federation.initiate_federation_connect(
             source["webhook_url"],
             source["connection_code"],
@@ -395,20 +525,24 @@ def handle_data_migration_submit(
                     created_by_workspace_id=workspace_record.id,
                 )
                 DbManager.create_record(new_group)
-                DbManager.create_record(schemas.WorkspaceGroupMember(
-                    group_id=new_group.id,
-                    workspace_id=workspace_record.id,
-                    status="active",
-                    role="creator",
-                    joined_at=now,
-                ))
-                DbManager.create_record(schemas.WorkspaceGroupMember(
-                    group_id=new_group.id,
-                    federated_workspace_id=fed_ws.id,
-                    status="active",
-                    role="member",
-                    joined_at=now,
-                ))
+                DbManager.create_record(
+                    schemas.WorkspaceGroupMember(
+                        group_id=new_group.id,
+                        workspace_id=workspace_record.id,
+                        status="active",
+                        role="creator",
+                        joined_at=now,
+                    )
+                )
+                DbManager.create_record(
+                    schemas.WorkspaceGroupMember(
+                        group_id=new_group.id,
+                        federated_workspace_id=fed_ws.id,
+                        status="active",
+                        role="member",
+                        joined_at=now,
+                    )
+                )
 
     # Resolve federated group (W + connection to source instance)
     my_groups = helpers.get_groups_for_workspace(workspace_record.id)
@@ -424,28 +558,35 @@ def handle_data_migration_submit(
     candidate_groups = [fm.group_id for fm in fed_members if fm.group_id in my_group_ids]
     group_id = candidate_groups[0] if candidate_groups else None
     if not group_id:
-        return {"response_action": "errors", "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "No federation connection found. Connect to the other instance first (Enter Connection Code), then import."}}
+        return {
+            "response_action": "errors",
+            "errors": {
+                actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "No federation connection found. Connect to the other instance first (Enter Connection Code), then import."
+            },
+        }
 
     sig_ok = ei.verify_migration_signature(data)
     if not sig_ok and source:
         # Store in cache and show confirmation modal (private_metadata size limit)
         from helpers._cache import _cache_set
+
         cache_key = f"migration_import_pending:{user_id}"
-        _cache_set(cache_key, {
-            "data": data,
-            "group_id": group_id,
-            "workspace_id": workspace_record.id,
-            "team_id_to_workspace_id": team_id_to_workspace_id,
-        }, ttl=600)
+        _cache_set(
+            cache_key,
+            {
+                "data": data,
+                "group_id": group_id,
+                "workspace_id": workspace_record.id,
+                "team_id_to_workspace_id": team_id_to_workspace_id,
+            },
+            ttl=600,
+        )
         return {
             "response_action": "push",
             "view": {
                 "type": "modal",
-                "callback_id": actions.CONFIG_DATA_MIGRATION_CONFIRM,
-                "title": {"type": "plain_text", "text": "Confirm import"},
-                "submit": {"type": "plain_text", "text": "Proceed anyway"},
+                "title": {"type": "plain_text", "text": "Confirm Import"},
                 "close": {"type": "plain_text", "text": "Cancel"},
-                "private_metadata": user_id,
                 "blocks": [
                     {
                         "type": "section",
@@ -454,10 +595,23 @@ def handle_data_migration_submit(
                             "text": "*Integrity check failed.* The file may have been modified or could be malicious. Only proceed if you intentionally edited the file.\n\nProceed with import anyway?",
                         },
                     },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Proceed Anyway"},
+                                "style": "danger",
+                                "action_id": actions.CONFIG_DATA_MIGRATION_PROCEED,
+                                "value": user_id,
+                            },
+                        ],
+                    },
                 ],
             },
         }
 
+    context["ack"]()
     ei.import_migration_data(
         data,
         workspace_record.id,
@@ -468,35 +622,34 @@ def handle_data_migration_submit(
     return None
 
 
-def handle_data_migration_confirm_submit(
+def handle_data_migration_proceed(
     body: dict,
     client: WebClient,
     logger: Logger,
     context: dict,
-) -> dict | None:
-    """Second-step import when user confirmed tampering warning."""
+) -> None:
+    """Proceed with import after user clicked the danger button despite warnings."""
     if not constants.FEDERATION_ENABLED:
-        return None
+        return
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
     if not _is_admin(client, user_id, body):
-        return None
-    private_metadata = (helpers.safe_get(body, "view", "private_metadata") or "").strip()
-    if not private_metadata:
-        return {"response_action": "errors", "errors": {"": "Missing state."}}
+        return
     from helpers._cache import _cache_get
-    meta = _cache_get(f"migration_import_pending:{private_metadata}")
+
+    meta = _cache_get(f"migration_import_pending:{user_id}")
     if not meta:
-        return {"response_action": "errors", "errors": {"": "Import data expired. Please paste the migration JSON again and submit."}}
+        _logger.warning("data_migration_proceed: import data expired for user %s", user_id)
+        return
     data = meta.get("data")
     group_id = meta.get("group_id")
     workspace_id = meta.get("workspace_id")
     team_id_to_workspace_id = meta.get("team_id_to_workspace_id", {})
     if not data or not group_id or not workspace_id:
-        return {"response_action": "errors", "errors": {"": "Missing import data."}}
+        return
 
     workspace_record = DbManager.get_record(schemas.Workspace, workspace_id)
     if not workspace_record:
-        return {"response_action": "errors", "errors": {"": "Workspace not found."}}
+        return
 
     ei.import_migration_data(
         data,
@@ -505,4 +658,3 @@ def handle_data_migration_confirm_submit(
         team_id_to_workspace_id=team_id_to_workspace_id,
     )
     ei.invalidate_home_tab_caches_for_team(workspace_record.team_id)
-    return None
