@@ -374,9 +374,18 @@ def handle_invite_workspace(
     if not group:
         return
 
+    team_id = helpers.safe_get(body, "team", "id") or helpers.safe_get(body, "view", "team_id")
+    workspace_record = helpers.get_workspace_record(team_id, body, context, client) if team_id else None
+    current_workspace_id = workspace_record.id if workspace_record else None
+
+    # Only active members count as "already in the group"; pending invites can be re-invited
     current_members = DbManager.find_records(
         schemas.WorkspaceGroupMember,
-        [schemas.WorkspaceGroupMember.group_id == group_id],
+        [
+            schemas.WorkspaceGroupMember.group_id == group_id,
+            schemas.WorkspaceGroupMember.status == "active",
+            schemas.WorkspaceGroupMember.deleted_at.is_(None),
+        ],
     )
     member_ws_ids = {m.workspace_id for m in current_members if m.workspace_id}
 
@@ -386,7 +395,9 @@ def handle_invite_workspace(
     )
     eligible = [ws for ws in all_workspaces if ws.id not in member_ws_ids and ws.bot_token]
 
-    if not eligible and not constants.FEDERATION_ENABLED:
+    # Show Oops only when there are no other installed workspaces at all (not when everyone is already in the group)
+    other_installed = [ws for ws in all_workspaces if ws.bot_token and ws.id != current_workspace_id]
+    if not other_installed and not constants.FEDERATION_ENABLED:
         msg_blocks = [
             section(
                 "At least one other Slack Workspace needs to install this SyncBot app, or "
