@@ -11,8 +11,6 @@ from logging import Logger
 import requests
 from slack_sdk import WebClient
 
-import constants
-
 _logger = logging.getLogger(__name__)
 
 _DOWNLOAD_TIMEOUT = 30  # seconds
@@ -60,79 +58,6 @@ def _download_to_file(url: str, file_path: str, headers: dict | None = None) -> 
         with contextlib.suppress(OSError):
             os.remove(file_path)
         raise
-
-
-def _get_s3_client():
-    """Return a reusable boto3 S3 client (created once per call-site)."""
-    import boto3
-
-    if constants.LOCAL_DEVELOPMENT:
-        return boto3.client(
-            "s3",
-            aws_access_key_id=os.environ[constants.AWS_ACCESS_KEY_ID],
-            aws_secret_access_key=os.environ[constants.AWS_SECRET_ACCESS_KEY],
-        )
-    return boto3.client("s3")
-
-
-def upload_photos(files: list[dict], client: WebClient, logger: Logger) -> list[dict]:
-    """Download file attachments from Slack and upload them to S3.
-
-    Images are optionally converted from HEIC to PNG.
-    """
-    uploaded: list[dict] = []
-    s3_client = _get_s3_client()
-    auth_headers = {"Authorization": f"Bearer {client.token}"}
-
-    for f in files:
-        try:
-            is_image = f.get("mimetype", "").startswith("image")
-
-            if is_image:
-                download_url = (
-                    f.get("thumb_480") or f.get("thumb_360")
-                    or f.get("thumb_80") or f.get("url_private")
-                )
-            else:
-                download_url = f.get("url_private")
-            if not download_url:
-                continue
-
-            safe_id, safe_ext, file_name = _safe_file_parts(f)
-            file_path = f"/tmp/{file_name}"
-            file_mimetype = f.get("mimetype", "application/octet-stream")
-
-            _download_to_file(download_url, file_path, headers=auth_headers)
-
-            if is_image and f.get("filetype") == "heic":
-                from PIL import Image
-                from pillow_heif import register_heif_opener
-
-                register_heif_opener()
-                heic_img = Image.open(file_path)
-                x, y = heic_img.size
-                coeff = min(constants.MAX_HEIF_SIZE / max(x, y), 1)
-                heic_img = heic_img.resize((int(x * coeff), int(y * coeff)))
-                heic_img.save(file_path.replace(".heic", ".png"), quality=95, optimize=True, format="PNG")
-                os.remove(file_path)
-                file_path = file_path.replace(".heic", ".png")
-                file_name = file_name.replace(".heic", ".png")
-                file_mimetype = "image/png"
-
-            with open(file_path, "rb") as fh:
-                s3_client.upload_fileobj(
-                    fh, constants.S3_IMAGE_BUCKET, file_name, ExtraArgs={"ContentType": file_mimetype}
-                )
-                uploaded.append(
-                    {
-                        "url": f"{constants.S3_IMAGE_URL}{file_name}",
-                        "name": file_name,
-                        "path": file_path,
-                    }
-                )
-        except Exception as e:
-            logger.error(f"Error uploading file: {e}")
-    return uploaded
 
 
 def download_public_file(url: str, logger: Logger) -> dict | None:

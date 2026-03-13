@@ -26,7 +26,6 @@ sequenceDiagram
     participant AG as API Gateway
     participant L as Lambda (SyncBot)
     participant DB as RDS MySQL
-    participant S3 as S3 (Images)
     participant SB as Slack API (Workspace B)
 
     U->>S: Posts message in #general
@@ -37,10 +36,10 @@ sequenceDiagram
     L->>DB: Look up sync group for channel
     DB-->>L: SyncChannel + Workspace records
 
-    alt Message has images (streamed with size cap)
-        L->>S: Download image via URL
-        S-->>L: Image bytes (streaming)
-        L->>S3: Upload (with HEIC→PNG conversion)
+    alt Message has images or files (streamed with size cap)
+        L->>S: Download file via URL
+        S-->>L: File bytes (streaming)
+        L->>SB: files_upload_v2 (direct upload to each target channel)
     end
 
     L->>S: users.info (resolve sender)
@@ -82,12 +81,6 @@ flowchart TB
             FED["federation/"]
         end
 
-        subgraph Storage["S3 Buckets"]
-            S1["OAuth State<br>(1-day TTL)"]
-            S2["Installations<br>(versioned)"]
-            S3["Images<br>(90-day TTL, public read)"]
-        end
-
         subgraph Database["RDS MySQL"]
             T1["workspaces"]
             T2["workspace_groups"]
@@ -114,8 +107,6 @@ flowchart TB
     HAND --> HELP
     HAND --> BUILD
     HELP --> FED
-    HELP --> S1 & S2
-    HELP --> S3
     HELP -->|SQLAlchemy<br>QueuePool + retry| Database
     EB -->|ScheduleV2| Lambda
     Lambda -.->|logs & metrics| Monitoring

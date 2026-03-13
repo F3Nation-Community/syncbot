@@ -27,22 +27,22 @@ from db.schemas import (
     WorkspaceGroupMember,
 )
 from slack import actions, orm
-from slack.blocks import context as block_context, divider, header, section
+from slack.blocks import context as block_context
+from slack.blocks import divider, header, section
 
 _logger = logging.getLogger(__name__)
-
-# Index of the Actions block that contains the Refresh button (after header at 0)
-_REFRESH_BUTTON_BLOCK_INDEX = 1
 
 
 def _home_tab_content_hash(workspace_record: Workspace) -> str:
     """Compute a stable hash of the data that drives the Home tab.
 
     Includes groups, members, syncs, sync channels (id/workspace/status), mapped counts,
-    and pending invite ids so the hash changes when anything visible on Home changes.
+    pending invite ids, and reset-button visibility so the hash changes when anything
+    visible on Home changes (including ENABLE_DB_RESET / team_id for the Reset button).
     """
     workspace_id = workspace_record.id
     workspace_name = (workspace_record.workspace_name or "") or ""
+    reset_visible = helpers.is_db_reset_visible_for_workspace(workspace_record.team_id)
     my_groups = _get_groups_for_workspace(workspace_id)
     group_ids = sorted(g.id for g, _ in my_groups)
     pending_invites = DbManager.find_records(
@@ -105,11 +105,16 @@ def _home_tab_content_hash(workspace_record: Workspace) -> str:
                 )
             member_sigs.append((ws_id, ch_count, mapped_count))
         member_sigs.sort(key=lambda x: x[0])
-        group_payload.append(
-            (group.id, len(members), len(syncs), tuple(sync_channel_tuples), tuple(member_sigs))
-        )
+        group_payload.append((group.id, len(members), len(syncs), tuple(sync_channel_tuples), tuple(member_sigs)))
     group_payload.sort(key=lambda x: x[0])
-    payload = (workspace_id, workspace_name, tuple(group_ids), tuple(group_payload), pending_ids)
+    payload = (
+        workspace_id,
+        workspace_name,
+        tuple(group_ids),
+        tuple(group_payload),
+        pending_ids,
+        reset_visible,
+    )
     return hashlib.sha256(repr(payload).encode()).hexdigest()
 
 
@@ -163,50 +168,28 @@ def build_home_tab(
     blocks: list[orm.BaseBlock] = []
 
     if not is_admin:
-        blocks.append(block_context(":lock: Only workspace admins and owners can configure SyncBot."))
+        blocks.append(block_context(":lock: Only Workspace Admins can configure SyncBot."))
         block_dicts = orm.BlockView(blocks=blocks).as_form_field()
         if return_blocks:
             return block_dicts
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": block_dicts})
         return None
 
-    blocks.append(header("SyncBot Configuration"))
-    top_buttons = [
-        orm.ButtonElement(
-            label=":arrows_counterclockwise: Refresh",
-            action=actions.CONFIG_REFRESH_HOME,
-        ),
-        orm.ButtonElement(
-            label=":floppy_disk: Backup/Restore",
-            action=actions.CONFIG_BACKUP_RESTORE,
-        ),
-    ]
-    if constants.ENABLE_DB_RESET:
-        top_buttons.append(
-            orm.ButtonElement(
-                label=":bomb: Reset Database",
-                action=actions.CONFIG_DB_RESET,
-                style="danger",
-            ),
-        )
-    blocks.append(orm.ActionsBlock(elements=top_buttons))
-    blocks.append(divider())
-
     # Compute hash for admin view so we can update cache after publish (manual or automatic)
     current_hash = _home_tab_content_hash(workspace_record)
 
     # ── Workspace Groups ──────────────────────────────────────
-    blocks.append(section(":busts_in_silhouette: *Workspace Groups*"))
-    blocks.append(block_context("Create or join groups to sync channels with other workspaces."))
+    blocks.append(header("Workspace Groups"))
+    blocks.append(block_context("_Groups of Workspaces that can Sync Channels._"))
     blocks.append(
         orm.ActionsBlock(
             elements=[
                 orm.ButtonElement(
-                    label=":heavy_plus_sign: Create Group",
+                    label="Create Group",
                     action=actions.CONFIG_CREATE_GROUP,
                 ),
                 orm.ButtonElement(
-                    label=":link: Join Group",
+                    label="Join Group",
                     action=actions.CONFIG_JOIN_GROUP,
                 ),
             ]
@@ -226,7 +209,9 @@ def build_home_tab(
 
     if not my_groups and not pending_invites:
         blocks.append(
-            block_context("_You are not in any groups yet. Create a new group or enter an invite code to join one._")
+            block_context(
+                "You are not in any Workspace Groups yet. Create or join a Group before you can Sync Channels with other Workspaces."
+            )
         )
     else:
         for group, my_membership in my_groups:
@@ -239,6 +224,29 @@ def build_home_tab(
     if constants.FEDERATION_ENABLED:
         _build_federation_section(blocks, workspace_record)
 
+    # ── SyncBot Configuration ────────────────────
+    blocks.append(block_context("\u200b"))
+    blocks.append(divider())
+    blocks.append(header("SyncBot Configuration"))
+    config_buttons = [
+        orm.ButtonElement(
+            label="Refresh",
+            action=actions.CONFIG_REFRESH_HOME,
+        ),
+        orm.ButtonElement(
+            label="Backup/Restore",
+            action=actions.CONFIG_BACKUP_RESTORE,
+        ),
+    ]
+    if helpers.is_db_reset_visible_for_workspace(workspace_record.team_id):
+        config_buttons.append(
+            orm.ButtonElement(
+                label=":bomb: Reset Database",
+                action=actions.CONFIG_DB_RESET,
+                style="danger",
+            ),
+        )
+    blocks.append(orm.ActionsBlock(elements=config_buttons))
 
     block_dicts = orm.BlockView(blocks=blocks).as_form_field()
     if return_blocks:
@@ -273,18 +281,30 @@ def _build_pending_invite_section(
             WorkspaceGroupMember.deleted_at.is_(None),
         ],
     )
-    inviter_names = []
+    inviter_workspace_names = []
     for member in inviting_members:
         if member.workspace_id:
             ws = helpers.get_workspace_by_id(member.workspace_id, context=context)
-            inviter_names.append(helpers.resolve_workspace_name(ws) if ws else f"Workspace {member.workspace_id}")
+            inviter_workspace_names.append(
+                helpers.resolve_workspace_name(ws) if ws else f"Workspace {member.workspace_id}"
+            )
+    workspace_label = ", ".join(inviter_workspace_names) if inviter_workspace_names else "Another Workspace"
 
-    inviter_label = ", ".join(inviter_names) if inviter_names else "Another workspace"
+    inviter_label = workspace_label
+    if getattr(invite, "invited_by_slack_user_id", None) and getattr(invite, "invited_by_workspace_id", None):
+        inviter_ws = helpers.get_workspace_by_id(invite.invited_by_workspace_id, context=context)
+        if inviter_ws and inviter_ws.bot_token:
+            try:
+                ws_client = WebClient(token=helpers.decrypt_bot_token(inviter_ws.bot_token))
+                admin_name, _ = helpers.get_user_info(ws_client, invite.invited_by_slack_user_id)
+                if admin_name:
+                    inviter_label = f"{admin_name} from {workspace_label}"
+            except Exception:
+                pass
 
     blocks.append(divider())
-    blocks.append(
-        section(f":handshake: *{inviter_label}* has invited your workspace to join the group *{group.name}*.")
-    )
+    blocks.append(header(f"{group.name}"))
+    blocks.append(section(f":punch: *{inviter_label}* has invited your Workspace to join this Group."))
     blocks.append(
         orm.ActionsBlock(
             elements=[
@@ -318,11 +338,35 @@ def _build_group_section(
     all_members = _get_group_members(group.id)
     other_members = [member for member in all_members if member.workspace_id != workspace_record.id]
 
-    role_tag = " _(creator)_" if my_membership.role == "creator" else ""
-    icon = ":link:" if len(other_members) > 0 else ":handshake:"
-    label_text = f"{icon} *{group.name}*{role_tag}"
+    blocks.append(header(f"{group.name}"))
 
-    blocks.append(section(label_text))
+    # Action buttons for this group
+    group_actions: list[orm.ButtonElement] = [
+        orm.ButtonElement(
+            label="Invite Workspace",
+            action=actions.CONFIG_INVITE_WORKSPACE,
+            value=str(group.id),
+        ),
+        orm.ButtonElement(
+            label="Sync Channel",
+            action=actions.CONFIG_PUBLISH_CHANNEL,
+            value=str(group.id),
+        ),
+        orm.ButtonElement(
+            label="User Mapping",
+            action=actions.CONFIG_MANAGE_USER_MATCHING,
+            value=str(group.id),
+        ),
+    ]
+    group_actions.append(
+        orm.ButtonElement(
+            label="Leave Group",
+            action=f"{actions.CONFIG_LEAVE_GROUP}_{group.id}",
+            style="danger",
+            value=str(group.id),
+        ),
+    )
+    blocks.append(orm.ActionsBlock(elements=group_actions))
 
     syncs_for_group = DbManager.find_records(Sync, [Sync.group_id == group.id])
     sync_ids = [s.id for s in syncs_for_group]
@@ -331,8 +375,8 @@ def _build_group_section(
         if member.workspace_id:
             member_ws = helpers.get_workspace_by_id(member.workspace_id, context=context)
             name = helpers.resolve_workspace_name(member_ws) if member_ws else f"Workspace {member.workspace_id}"
-            if member.workspace_id == workspace_record.id:
-                name += " _(you)_"
+            if member.role == "creator":
+                name += " _(Group Creator)_"
         elif member.federated_workspace_id:
             fed_ws = DbManager.get_record(FederatedWorkspace, id=member.federated_workspace_id)
             name = f":globe_with_meridians: {fed_ws.name}" if fed_ws and fed_ws.name else "External"
@@ -366,12 +410,25 @@ def _build_group_section(
             )
             mapped_count = len(mapped)
 
-        stats = (
-            f"Member since {joined_str}"
-            f"  ·  {channel_count} synced channel{'s' if channel_count != 1 else ''}"
-            f"  ·  {mapped_count} mapped user{'s' if mapped_count != 1 else ''}"
-        )
-        blocks.append(block_context(f"*{name}*\n{stats}"))
+        stats = f"Member Since: `{joined_str}`\nSynced Channels: `{channel_count}`\nMapped Users: `{mapped_count}` "
+        text = f"*{name}*\n{stats}"
+        if member.workspace_id and member_ws:
+            ws_info = _get_workspace_info(member_ws)
+            icon_url = ws_info.get("icon_url")
+            if icon_url:
+                blocks.append(
+                    orm.SectionBlock(
+                        label=text,
+                        element=orm.ImageAccessoryElement(
+                            image_url=icon_url,
+                            alt_text=name.split(" ")[0] if name else "Workspace",
+                        ),
+                    )
+                )
+            else:
+                blocks.append(block_context(text))
+        else:
+            blocks.append(block_context(text))
 
     pending_members = DbManager.find_records(
         WorkspaceGroupMember,
@@ -382,12 +439,33 @@ def _build_group_section(
         ],
     )
     for pending_member in pending_members:
+        pending_ws = None
         if pending_member.workspace_id:
             pending_ws = helpers.get_workspace_by_id(pending_member.workspace_id, context=context)
-            pname = helpers.resolve_workspace_name(pending_ws) if pending_ws else f"Workspace {pending_member.workspace_id}"
+            pname = (
+                helpers.resolve_workspace_name(pending_ws) if pending_ws else f"Workspace {pending_member.workspace_id}"
+            )
         else:
             pname = "Unknown"
-        blocks.append(block_context(f":hourglass_flowing_sand: *{pname}* — _Pending invite_"))
+        stats_pending = "Member Since: `Pending Invite`"
+        text_pending = f"*{pname}*\n{stats_pending}"
+        if pending_member.workspace_id and pending_ws:
+            ws_info = _get_workspace_info(pending_ws)
+            icon_url = ws_info.get("icon_url")
+            if icon_url:
+                blocks.append(
+                    orm.SectionBlock(
+                        label=text_pending,
+                        element=orm.ImageAccessoryElement(
+                            image_url=icon_url,
+                            alt_text=pname.split(" ")[0] if pname else "Workspace",
+                        ),
+                    )
+                )
+            else:
+                blocks.append(block_context(text_pending))
+        else:
+            blocks.append(block_context(text_pending))
         blocks.append(
             orm.ActionsBlock(
                 elements=[
@@ -395,38 +473,11 @@ def _build_group_section(
                         label="Cancel Invite",
                         action=f"{actions.CONFIG_CANCEL_GROUP_REQUEST}_{pending_member.id}",
                         value=str(pending_member.id),
+                        style="danger",
                     ),
                 ]
             )
         )
-
-    # Action buttons for this group
-    group_actions: list[orm.ButtonElement] = [
-        orm.ButtonElement(
-            label="Invite Workspace",
-            action=actions.CONFIG_INVITE_WORKSPACE,
-            value=str(group.id),
-        ),
-        orm.ButtonElement(
-            label="Publish Channel",
-            action=actions.CONFIG_PUBLISH_CHANNEL,
-            value=str(group.id),
-        ),
-        orm.ButtonElement(
-            label="User Mapping",
-            action=actions.CONFIG_MANAGE_USER_MATCHING,
-            value=str(group.id),
-        ),
-    ]
-    group_actions.append(
-        orm.ButtonElement(
-            label="Leave Group",
-            action=f"{actions.CONFIG_LEAVE_GROUP}_{group.id}",
-            style="danger",
-            value=str(group.id),
-        ),
-    )
-    blocks.append(orm.ActionsBlock(elements=group_actions))
 
     _build_inline_channel_sync(blocks, group, workspace_record, other_members, context)
 

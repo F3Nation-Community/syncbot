@@ -10,7 +10,7 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Improved error handling** in database operations
 
 ### 2. Code Quality Improvements
-- **Removed duplicate constant definitions** in `constants.py` (SLACK_STATE_S3_BUCKET_NAME, SLACK_INSTALLATION_S3_BUCKET_NAME, etc. were defined twice)
+- **Removed duplicate constant definitions** in `constants.py` where env-var names were defined twice
 - **Fixed type hints**:
   - `get_request_type()` now correctly returns `tuple[str, str]` instead of `tuple[str]`
   - `apply_mentioned_users()` now correctly returns `str` instead of `List[Dict]`
@@ -99,7 +99,7 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Connection pooling** reuses DB connections across invocations in warm Lambda containers
 
 ### 15. Infrastructure as Code
-- **AWS SAM template** (`template.yaml`) defining complete VPC, RDS, S3, Lambda, API Gateway stack
+- **AWS SAM template** (`template.yaml`) defining VPC, RDS, Lambda, API Gateway (SAM artifact S3 used for deploy packaging only)
 - **Free-tier optimized** (128 MB Lambda, db.t3.micro RDS, gp2 storage, no NAT Gateway)
 - **CI/CD pipeline** (`.github/workflows/sam-pipeline.yml`) for automated build/deploy
 - **SAM config** (`samconfig.toml`) for staging and production environments
@@ -138,7 +138,7 @@ This document outlines the improvements made to the SyncBot application and addi
 
 ### 19. Architecture Diagrams (Low Priority - Completed)
 - **Added message sync flow sequence diagram** (Mermaid) to README showing the full request path from user message through API Gateway, Lambda, DB lookup, image upload, mention re-mapping, cross-workspace posting, and metric emission
-- **Added AWS infrastructure diagram** (Mermaid) to README showing the relationships between API Gateway, Lambda, S3 buckets, RDS, EventBridge keep-warm, and CloudWatch monitoring
+- **Added AWS infrastructure diagram** (Mermaid) to ARCHITECTURE.md showing API Gateway, Lambda, RDS, EventBridge keep-warm, and CloudWatch monitoring
 
 ### 20. Admin Authorization and Security Hardening (Completed)
 - **Added admin/owner authorization** — only workspace admins and owners can run `/config-syncbot` and all related configuration actions (create sync, join sync, remove sync)
@@ -265,7 +265,7 @@ This document outlines the improvements made to the SyncBot application and addi
   - `GET /api/federation/ping` — health check / connectivity test
 - **Transparent message forwarding** — the core message handlers (`_handle_new_post`, `_handle_thread_reply`, `_handle_message_edit`, `_handle_message_delete`) detect whether a sync target is local or remote and dispatch accordingly — local channels are posted to directly, remote channels are forwarded via the federation webhook
 - **User directory exchange** — when a connection is established, both instances exchange their user directories so @mention resolution works across instances
-- **Image handling** — images use existing S3 URLs which are publicly accessible; the receiving instance uses them directly in Slack blocks
+- **Image handling** — images are forwarded as file uploads or public URLs; the receiving instance uses them in Slack blocks
 - **Retry with exponential backoff** — all outgoing federation HTTP calls retry up to 3 times with 1s/2s/4s backoff on transient failures (5xx, timeouts, connection errors)
 - **Home tab UI** — "External Connections" section on the Home tab with "Generate Connection Code" and "Enter Connection Code" buttons, active connection display with status and remove button, and pending code display with cancel button
 - **Connection label prompt** — generating a connection code prompts for a friendly name (e.g. "East Coast SyncBot") which is displayed on the Home tab and used as the remote workspace's display name
@@ -289,12 +289,10 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Slack GIF picker support** — GIFs sent via Slack's built-in `/giphy` picker or GIPHY integration are detected and synced
 - **Nested block parsing** — `_build_file_context` extracts `image_url` from nested `image` blocks within `attachments`, which is how Slack structures GIF picker messages
 - **Direct ImageBlock posting** — GIFs are always posted as `ImageBlock` elements via `chat.postMessage` using their public URLs, ensuring a proper message `ts` is captured for `PostMeta` (enabling reactions on GIFs)
-- **No S3 required** — GIF URLs are already publicly accessible; no download or S3 upload needed
+- **GIF sync** — GIF URLs are publicly accessible and posted as image blocks; no file download needed
 
 ### 32. Video & Image Direct Upload (Completed)
-- **S3 is now optional** — images and videos can be synced without S3 by using Slack's `files_upload_v2` directly
-- **`S3_IMAGE_BUCKET` defaults to empty** — when not set, all media is uploaded directly to target channels
-- **`S3_VIDEO_ENABLED` env var** — when `true` and S3 is configured, videos are also stored in S3; when `false` (default), videos always use direct upload regardless of S3 configuration
+- **Direct upload only** — images and videos are synced via Slack's `files_upload_v2` (no S3); media is downloaded from the source and uploaded to each target channel
 - **User attribution** — direct uploads include "Shared by User (Workspace)" in the `initial_comment`
 - **Fallback text** — `post_message` supports a `fallback_text` argument for messages that contain only blocks (no text), satisfying Slack's accessibility requirements
 
@@ -365,7 +363,7 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Performance — `DbManager.count_records()`**: Added `SELECT COUNT(*)` method and replaced `len(find_records(...))` calls that were fetching all rows just to count them
 - **Performance — module-level constants**: Moved `_PREFIXED_ACTIONS` tuple to module scope (avoids rebuilding on every request); cached `GetDBClass` column keys in a class-level `frozenset`
 - **DoS — file download streaming**: All `requests.get` calls for files now use `stream=True` with 30s timeout, 8 KB chunks, and a 100 MB size cap
-- **DoS — S3 client reuse**: `_get_s3_client()` creates the boto3 client once instead of per-file inside upload loops
+- **Media path** — single direct-upload path (download from Slack, re-upload via `files_upload_v2`); no runtime S3 or boto3
 - **DoS — input caps**: File attachments capped at 20 per event, mentions at 50 per message, federation user ingestion at 5,000 per request, federation images at 10 per message
 - **DoS — federation body limit**: Local dev federation HTTP server enforces 1 MB max request body
 - **DoS — connection pool safety**: `GLOBAL_ENGINE.dispose()` now only fires after all retries are exhausted, not on every transient failure (prevents disrupting other in-flight queries)
@@ -436,6 +434,12 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Cross-workspace context bug fix** — Fixed all handlers that were passing the acting workspace's `context` dict into other group members' Home tab refreshes. The `context` contains workspace-specific state (bot token, admin ID cache) that could contaminate other workspaces' builds. Now `context=None` for all cross-workspace refreshes.
 - **README restructured** — Reduced README from ~580 lines to ~220 lines, keeping only install/deploy/run instructions. Moved end-user guide, backup/migration, CI/CD, shared infrastructure, and API reference into `docs/` folder (`USER_GUIDE.md`, `BACKUP_AND_MIGRATION.md`, `DEPLOYMENT.md`, `API_REFERENCE.md`).
 - **Documentation consistency** — Updated `IMPROVEMENTS.md` and all doc files to use new domain terminology (group members instead of partners).
+
+### 47. OAuth on MySQL; Remove Runtime S3 and HEIC (Completed)
+- **OAuth in RDS** — Slack OAuth state and installation data are stored in the same MySQL database via `SQLAlchemyInstallationStore` and `SQLAlchemyOAuthStateStore`. One code path for local dev and production; no file-based or S3-backed OAuth stores.
+- **No runtime S3** — Removed all runtime S3 usage: OAuth buckets and image bucket resources, Lambda S3 policies, and env vars. Media is uploaded directly to each target Slack channel via `files_upload_v2`. SAM deploy still uses an S3 artifact bucket for packaging only.
+- **HEIC and Pillow removed** — HEIC-to-PNG conversion and `upload_photos` (S3) were removed; direct upload is the only media path. Dropped `pillow` and `pillow-heif` from dependencies.
+- **Template and docs** — `template.yaml` no longer creates OAuth or image buckets; README, DEPLOYMENT, ARCHITECTURE, USER_GUIDE, `.env.example`, and IMPROVEMENTS updated to describe MySQL OAuth and artifact-bucket-only S3.
 
 ## Remaining Recommendations
 

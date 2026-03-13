@@ -34,8 +34,6 @@ services:
       # Optional
       PASSWORD_ENCRYPT_KEY: ${PASSWORD_ENCRYPT_KEY:-123}
       REQUIRE_ADMIN: ${REQUIRE_ADMIN:-true}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     volumes:
       - ./syncbot:/app/syncbot
 

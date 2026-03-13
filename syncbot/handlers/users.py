@@ -1,5 +1,6 @@
 """User event handlers — team join, profile changes, user mapping management."""
 
+import contextlib
 import logging
 import time
 from datetime import UTC, datetime
@@ -194,10 +195,8 @@ def handle_user_mapping_refresh(
 
     helpers.run_auto_match_for_workspace(client, workspace_record.id)
     for member_client, member_ws_id in member_clients:
-        try:
+        with contextlib.suppress(Exception):
             helpers.run_auto_match_for_workspace(member_client, member_ws_id)
-        except Exception:
-            pass
 
     block_dicts = builders.build_user_mapping_screen(
         client,

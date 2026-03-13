@@ -102,7 +102,7 @@ CONFIG_DECLINE_GROUP_REQUEST = "decline_group_request"
 # ---------------------------------------------------------------------------
 
 CONFIG_PUBLISH_CHANNEL = "publish_channel"
-"""Action: user clicked "Publish Channel" button (value carries group_id)."""
+"""Action: user clicked "Sync Channel" button (value carries group_id)."""
 
 CONFIG_PUBLISH_CHANNEL_SELECT = "publish_channel_select"
 """Input: channel picker in the publish channel modal."""

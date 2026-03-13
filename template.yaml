@@ -2,9 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
   SyncBot - Slack app that syncs posts and replies across workspaces.
-  Free-tier compatible: Lambda, API Gateway, RDS db.t3.micro, S3.
-  All infrastructure resources (RDS, VPC, S3 buckets) can optionally
-  point at existing instances so multiple apps can share one account.
+  Free-tier compatible: Lambda, API Gateway, RDS db.t3.micro.
+  OAuth and app data use RDS (MySQL); media is uploaded directly to Slack.
+  SAM deploy uses an S3 artifact bucket for packaging only (not runtime).
 
 Globals:
   Function:
@@ -101,30 +101,6 @@ Parameters:
     Type: String
     Default: "10.0.0.0/16"
 
-  # --- S3 Buckets ---
-
-  ExistingSlackStateBucket:
-    Description: >
-      Name of an existing S3 bucket for Slack OAuth state.
-      Leave EMPTY to create a new bucket.
-    Type: String
-    Default: ""
-
-  ExistingInstallationBucket:
-    Description: >
-      Name of an existing S3 bucket for Slack installation data.
-      Leave EMPTY to create a new bucket.
-    Type: String
-    Default: ""
-
-  ExistingImagesBucket:
-    Description: >
-      Name of an existing S3 bucket for synced images.
-      Leave EMPTY to create a new bucket. The bucket must allow
-      public reads if you want images to render in Slack.
-    Type: String
-    Default: ""
-
   # --- Security ---
 
   PasswordEncryptKey:
@@ -149,9 +125,6 @@ Parameters:
 
 Conditions:
   CreateDatabase: !Equals [!Ref ExistingDatabaseHost, ""]
-  CreateSlackStateBucket: !Equals [!Ref ExistingSlackStateBucket, ""]
-  CreateInstallationBucket: !Equals [!Ref ExistingInstallationBucket, ""]
-  CreateImagesBucket: !Equals [!Ref ExistingImagesBucket, ""]
 
 Mappings:
   StagesMap:
@@ -337,83 +310,6 @@ Resources:
           Value: !Sub "syncbot-${Stage}-db"
 
   # ============================================================
-  # S3 Buckets (free-tier: 5 GB total, 20 000 GET, 2 000 PUT)
-  #
-  # Each bucket is skipped when an existing bucket name is provided.
-  # ============================================================
-
-  SlackStateBucket:
-    Type: AWS::S3::Bucket
-    Condition: CreateSlackStateBucket
-    Properties:
-      BucketName: !Sub "syncbot-${Stage}-slack-state-${AWS::AccountId}"
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      LifecycleConfiguration:
-        Rules:
-          - Id: ExpireOAuthState
-            Status: Enabled
-            ExpirationInDays: 1
-
-  SlackInstallationBucket:
-    Type: AWS::S3::Bucket
-    Condition: CreateInstallationBucket
-    Properties:
-      BucketName: !Sub "syncbot-${Stage}-slack-installations-${AWS::AccountId}"
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      VersioningConfiguration:
-        Status: Enabled
-
-  SyncBotImagesBucket:
-    Type: AWS::S3::Bucket
-    Condition: CreateImagesBucket
-    Properties:
-      BucketName: !Sub "syncbot-${Stage}-images-${AWS::AccountId}"
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: false
-        BlockPublicPolicy: false
-        IgnorePublicAcls: false
-        RestrictPublicBuckets: false
-      LifecycleConfiguration:
-        Rules:
-          - Id: ExpireOldImages
-            Status: Enabled
-            ExpirationInDays: 90
-
-  SyncBotImagesBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Condition: CreateImagesBucket
-    Properties:
-      Bucket: !Ref SyncBotImagesBucket
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: PublicReadGetObject
-            Effect: Allow
-            Principal: "*"
-            Action: "s3:GetObject"
-            Resource: !Sub "${SyncBotImagesBucket.Arn}/*"
-
-  # ============================================================
   # Lambda Function (free-tier: 1M requests, 400 000 GB-s)
   #
   # Runs OUTSIDE the VPC so it can reach the Slack API and RDS
@@ -434,22 +330,6 @@ Resources:
         - x86_64
       Timeout: 30
       MemorySize: 128
-      Policies:
-        - S3CrudPolicy:
-            BucketName: !If
-              - CreateSlackStateBucket
-              - !Ref SlackStateBucket
-              - !Ref ExistingSlackStateBucket
-        - S3CrudPolicy:
-            BucketName: !If
-              - CreateInstallationBucket
-              - !Ref SlackInstallationBucket
-              - !Ref ExistingInstallationBucket
-        - S3CrudPolicy:
-            BucketName: !If
-              - CreateImagesBucket
-              - !Ref SyncBotImagesBucket
-              - !Ref ExistingImagesBucket
       Events:
         SyncBot:
           Type: Api
@@ -484,14 +364,6 @@ Resources:
             - StagesMap
             - !Ref Stage
             - SlackClientID
-          ENV_SLACK_STATE_S3_BUCKET_NAME: !If
-            - CreateSlackStateBucket
-            - !Ref SlackStateBucket
-            - !Ref ExistingSlackStateBucket
-          ENV_SLACK_INSTALLATION_S3_BUCKET_NAME: !If
-            - CreateInstallationBucket
-            - !Ref SlackInstallationBucket
-            - !Ref ExistingInstallationBucket
           DATABASE_HOST: !If
             - CreateDatabase
             - !GetAtt RDSInstance.Endpoint.Address
@@ -501,14 +373,6 @@ Resources:
           ADMIN_DATABASE_SCHEMA: !Ref DatabaseSchema
           PASSWORD_ENCRYPT_KEY: !Ref PasswordEncryptKey
           REQUIRE_ADMIN: !Ref RequireAdmin
-          S3_IMAGE_BUCKET: !If
-            - CreateImagesBucket
-            - !Ref SyncBotImagesBucket
-            - !Ref ExistingImagesBucket
-          S3_IMAGE_URL: !If
-            - CreateImagesBucket
-            - !Sub "https://${SyncBotImagesBucket}.s3.amazonaws.com/"
-            - !Sub "https://${ExistingImagesBucket}.s3.amazonaws.com/"
 
   # ============================================================
   # CloudWatch Alarms (free-tier: 10 alarms)
@@ -632,17 +496,3 @@ Outputs:
     Condition: CreateDatabase
     Description: VPC ID (only when VPC is created by this stack)
     Value: !Ref VPC
-
-  ImagesBucketName:
-    Description: S3 bucket name for synced images
-    Value: !If
-      - CreateImagesBucket
-      - !Ref SyncBotImagesBucket
-      - !Ref ExistingImagesBucket
-
-  ImagesBucketUrl:
-    Description: Public URL for synced images
-    Value: !If
-      - CreateImagesBucket
-      - !Sub "https://${SyncBotImagesBucket}.s3.amazonaws.com/"
-      - !Sub "https://${ExistingImagesBucket}.s3.amazonaws.com/"

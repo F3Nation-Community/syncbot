@@ -55,16 +55,37 @@ def is_user_authorized(client, user_id: str) -> bool:
     return bool(user.get("is_admin") or user.get("is_owner"))
 
 
+def is_db_reset_visible_for_workspace(team_id: str | None) -> bool:
+    """Return True if the DB reset button/action is allowed for this workspace.
+
+    When ENABLE_DB_RESET is set to a Slack team ID, only that workspace may see
+    and use the Reset Database button; other workspaces cannot.
+    Reads ENABLE_DB_RESET from os.environ at call time so it is correct even
+    if .env was loaded after constants was first imported.
+    """
+    enabled = (os.environ.get("ENABLE_DB_RESET") or "").strip()
+    if not enabled:
+        _logger.debug("DB reset button hidden: ENABLE_DB_RESET not set")
+        return False
+    visible = (team_id or "") == enabled
+    if not visible:
+        _logger.debug(
+            "DB reset button hidden: team_id %r does not match ENABLE_DB_RESET",
+            team_id,
+        )
+    return visible
+
+
 def format_admin_label(client, user_id: str, workspace) -> tuple[str, str]:
     """Return ``(display_name, full_label)`` for an admin."""
     from .slack_api import get_user_info
     from .workspace import resolve_workspace_name
 
     display_name, _ = get_user_info(client, user_id)
-    display_name = display_name or "An admin"
+    display_name = display_name or "An Admin from another Workspace"
     ws_name = resolve_workspace_name(workspace) if workspace else None
     if ws_name:
-        return display_name, f"{display_name} ({ws_name})"
+        return display_name, f"{display_name} from {ws_name}"
     return display_name, display_name
 
 

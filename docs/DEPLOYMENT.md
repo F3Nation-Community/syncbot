@@ -7,17 +7,13 @@ If you run multiple apps in the same AWS account, you can point SyncBot at exist
 | Parameter | What it skips |
 |-----------|---------------|
 | `ExistingDatabaseHost` | VPC, subnets, security groups, RDS instance |
-| `ExistingSlackStateBucket` | Slack OAuth state S3 bucket |
-| `ExistingInstallationBucket` | Slack installation data S3 bucket |
-| `ExistingImagesBucket` | Synced-images S3 bucket |
 
-Example — deploy with an existing RDS and images bucket:
+OAuth and app data use RDS (MySQL); there are no runtime S3 buckets. Example — deploy with an existing RDS:
 
 ```bash
 sam deploy --guided \
   --parameter-overrides \
-    ExistingDatabaseHost=mydb.xxxx.us-east-2.rds.amazonaws.com \
-    ExistingImagesBucket=my-shared-images-bucket
+    ExistingDatabaseHost=mydb.xxxx.us-east-2.rds.amazonaws.com
 ```
 
 Each app sharing the same RDS should use a **different `DatabaseSchema`** (the default is `syncbot`). Create the schema and initialize the tables on the existing instance:
@@ -39,9 +35,9 @@ Pushes to `main` automatically build and deploy via `.github/workflows/sam-pipel
 
 ### One-Time Setup
 
-1. **Create an IAM user** for deployments with permissions for CloudFormation, Lambda, API Gateway, S3, IAM, and RDS. Generate an access key pair.
+1. **Create an IAM user** for deployments with permissions for CloudFormation, Lambda, API Gateway, S3 (for deploy artifacts only), IAM, and RDS. Generate an access key pair.
 
-2. **Create a SAM deployment bucket** — SAM needs an S3 bucket to upload build artifacts during deploy:
+2. **Create a SAM deployment bucket** — SAM uploads the Lambda package to an S3 bucket during deploy (packaging only; the app does not use S3 at runtime):
 
 ```bash
 aws s3 mb s3://my-sam-deploy-bucket --region us-east-2
@@ -76,6 +72,6 @@ Once configured, merge or push to `main` and the pipeline runs:
 push to main → sam build → deploy to test → (manual approval) → deploy to prod
 ```
 
-Monitor progress in your repo's **Actions** tab. The first deploy creates the full CloudFormation stack (VPC, RDS, Lambda, API Gateway, S3 buckets). Subsequent deploys update only what changed.
+Monitor progress in your repo's **Actions** tab. The first deploy creates the CloudFormation stack (VPC, RDS, Lambda, API Gateway). SAM uses the deployment bucket only for packaging; the app stores OAuth and data in RDS and uploads media directly to Slack.
 
 > **Tip:** If you prefer to do the very first deploy manually (to see the interactive prompts), run `sam deploy --guided` locally first, then let the pipeline handle all future deploys.

@@ -14,12 +14,54 @@ from decimal import Decimal
 from typing import Any
 
 import constants
-from db import DbManager, schemas
+from sqlalchemy import text
+
+from db import DbManager, get_engine, schemas
 
 _logger = logging.getLogger(__name__)
 
 BACKUP_VERSION = 1
 MIGRATION_VERSION = 1
+_RAW_BACKUP_TABLES = ("slack_bots", "slack_installations", "slack_oauth_states")
+
+
+def _dump_raw_table(table_name: str) -> list[dict]:
+    """Return all rows from a non-ORM table as dictionaries."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text(f"SELECT * FROM `{table_name}`")).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def _restore_raw_table(table_name: str, rows: list[dict]) -> None:
+    """Replace table contents for a non-ORM table from backup rows."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text(f"DELETE FROM `{table_name}`"))
+        for row in rows:
+            if not row:
+                continue
+            parsed: dict[str, Any] = {}
+            for key, value in row.items():
+                if isinstance(value, str) and key in {
+                    "bot_token_expires_at",
+                    "user_token_expires_at",
+                    "installed_at",
+                    "expire_at",
+                }:
+                    try:
+                        parsed[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    except ValueError:
+                        parsed[key] = value
+                else:
+                    parsed[key] = value
+
+            cols = ", ".join(f"`{k}`" for k in parsed.keys())
+            placeholders = ", ".join(f":{k}" for k in parsed.keys())
+            conn.execute(
+                text(f"INSERT INTO `{table_name}` ({cols}) VALUES ({placeholders})"),
+                parsed,
+            )
 
 
 def _json_serializer(obj: Any) -> Any:
@@ -100,6 +142,8 @@ def build_full_backup() -> dict:
     for table_name, cls in tables:
         records = DbManager.find_records(cls, [])
         payload[table_name] = _records_to_list(records, cls)
+    for table_name in _RAW_BACKUP_TABLES:
+        payload[table_name] = _dump_raw_table(table_name)
 
     payload["hmac"] = _compute_backup_hmac({k: v for k, v in payload.items() if k != "hmac"})
     return payload
@@ -139,6 +183,9 @@ def restore_full_backup(
     """
     team_ids: list[str] = []
     tables = [
+        "slack_bots",
+        "slack_installations",
+        "slack_oauth_states",
         "workspaces",
         "workspace_groups",
         "workspace_group_members",
@@ -165,6 +212,9 @@ def restore_full_backup(
     datetime_keys = {"created_at", "updated_at", "deleted_at", "joined_at", "matched_at"}
     for table_name in tables:
         rows = data.get(table_name, [])
+        if table_name in _RAW_BACKUP_TABLES:
+            _restore_raw_table(table_name, rows)
+            continue
         cls = table_to_schema[table_name]
         for row in rows:
             kwargs = {}

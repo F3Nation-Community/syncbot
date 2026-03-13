@@ -14,7 +14,6 @@ from builders.channel_sync import (
     _build_inline_channel_sync,
 )
 from builders.home import (
-    _REFRESH_BUTTON_BLOCK_INDEX,
     _home_tab_content_hash,
     build_home_tab,
     refresh_home_tab_for_workspace,
@@ -34,7 +33,6 @@ __all__ = [
     "_get_group_members",
     "_get_groups_for_workspace",
     "_get_workspace_info",
-    "_REFRESH_BUTTON_BLOCK_INDEX",
     "_home_tab_content_hash",
     "build_home_tab",
     "build_join_sync_form",

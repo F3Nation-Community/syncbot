@@ -1,5 +1,6 @@
 """Backup/Restore and Data Migration handlers (modals and submissions)."""
 
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -111,7 +112,7 @@ def handle_backup_download(
             content=json_str,
             filename=f"syncbot-backup-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.json",
             channel=dm_channel,
-            initial_comment="Your SyncBot full-instance backup. Keep this file secure.",
+            initial_comment=":nerd_face: Here is your SyncBot JSON backup. Keep this file secure.",
         )
     except Exception as e:
         _logger.exception("backup_download failed: %s", e)
@@ -119,7 +120,7 @@ def handle_backup_download(
 
     view_id = helpers.safe_get(body, "view", "id")
     if view_id:
-        try:
+        with contextlib.suppress(Exception):
             client.views_update(
                 view_id=view_id,
                 view={
@@ -137,8 +138,6 @@ def handle_backup_download(
                     ],
                 },
             )
-        except Exception:
-            pass
 
 
 def handle_backup_restore_submit(
@@ -319,19 +318,19 @@ def handle_data_migration(
 
     export_blocks = [
         orm.SectionBlock(
-            label="*Export*\nDownload your workspace data for migration to another instance. You will receive a JSON file in your DM.",
+            label="*Export*\nDownload your Workspace data for migration to another instance. You will receive a JSON file in your DM.",
         ),
         orm.ActionsBlock(
             elements=[
                 orm.ButtonElement(
-                    label=":outbox_tray: Export my workspace data",
+                    label=":outbox_tray: Export my Workspace data",
                     action=actions.CONFIG_DATA_MIGRATION_EXPORT,
                 ),
             ],
         ),
         orm.DividerBlock(),
         orm.SectionBlock(
-            label="*Import*\nUpload a migration JSON file. Existing sync channels in the federated group will be replaced.",
+            label="*Import*\nUpload a migration JSON file. Existing Sync Channels in the federated Group will be replaced.",
         ),
     ]
 
@@ -485,6 +484,7 @@ def handle_data_migration_submit(
     source = data.get("source_instance")
     if source and source.get("connection_code"):
         import secrets
+
         from federation import core as federation
 
         result = federation.initiate_federation_connect(

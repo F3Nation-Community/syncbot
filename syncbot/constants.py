@@ -19,8 +19,6 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SLACK_BOT_TOKEN = "SLACK_BOT_TOKEN"
-SLACK_STATE_S3_BUCKET_NAME = "ENV_SLACK_STATE_S3_BUCKET_NAME"
-SLACK_INSTALLATION_S3_BUCKET_NAME = "ENV_SLACK_INSTALLATION_S3_BUCKET_NAME"
 SLACK_CLIENT_ID = "ENV_SLACK_CLIENT_ID"
 SLACK_CLIENT_SECRET = "ENV_SLACK_CLIENT_SECRET"
 SLACK_SCOPES = "ENV_SLACK_SCOPES"
@@ -33,8 +31,8 @@ ADMIN_DATABASE_USER = "ADMIN_DATABASE_USER"
 ADMIN_DATABASE_PASSWORD = "ADMIN_DATABASE_PASSWORD"
 ADMIN_DATABASE_SCHEMA = "ADMIN_DATABASE_SCHEMA"
 
-# When set to "true", a red "Reset Database" button appears on the Home tab.
-ENABLE_DB_RESET = os.environ.get("ENABLE_DB_RESET", "false").lower() == "true"
+# Make the "Reset Database" button appear on the Home tab in a specific Workspace.
+ENABLE_DB_RESET = os.environ.get("ENABLE_DB_RESET", "").strip()
 
 LOCAL_DEVELOPMENT = os.environ.get("LOCAL_DEVELOPMENT", "false").lower() == "true"
 
@@ -51,8 +49,6 @@ HAS_REAL_BOT_TOKEN: bool = _has_real_bot_token()
 
 WARNING_BLOCK = "WARNING_BLOCK"
 
-MAX_HEIF_SIZE = 1000
-
 # ---------------------------------------------------------------------------
 # User-matching TTLs (seconds)
 #
@@ -60,11 +56,11 @@ MAX_HEIF_SIZE = 1000
 # Manual matches never expire and can only be removed via the admin UI.
 # ---------------------------------------------------------------------------
 
-MATCH_TTL_EMAIL = 30 * 24 * 3600      # 30 days for email-confirmed matches
-MATCH_TTL_NAME = 14 * 24 * 3600       # 14 days for name-based matches
-MATCH_TTL_NONE = 90 * 24 * 3600       # 90 days for no-match (team_join handles re-checks)
-USER_DIR_REFRESH_TTL = 24 * 3600      # 24 hours per workspace directory refresh
-USER_MATCHING_PAGE_SIZE = 40           # max unmatched users shown in the modal
+MATCH_TTL_EMAIL = 30 * 24 * 3600  # 30 days for email-confirmed matches
+MATCH_TTL_NAME = 14 * 24 * 3600  # 14 days for name-based matches
+MATCH_TTL_NONE = 90 * 24 * 3600  # 90 days for no-match (team_join handles re-checks)
+USER_DIR_REFRESH_TTL = 24 * 3600  # 24 hours per workspace directory refresh
+USER_MATCHING_PAGE_SIZE = 40  # max unmatched users shown in the modal
 
 # Refresh button cooldown (seconds) when content hash unchanged
 REFRESH_COOLDOWN_SECONDS = 60
@@ -78,13 +74,6 @@ SOFT_DELETE_RETENTION_DAYS = int(os.environ.get("SOFT_DELETE_RETENTION_DAYS", "3
 SYNCBOT_INSTANCE_ID = "SYNCBOT_INSTANCE_ID"
 SYNCBOT_PUBLIC_URL = "SYNCBOT_PUBLIC_URL"
 FEDERATION_ENABLED = os.environ.get("SYNCBOT_FEDERATION_ENABLED", "false").lower() == "true"
-
-AWS_ACCESS_KEY_ID = "AWS_ACCESS_KEY_ID"
-AWS_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY"
-S3_IMAGE_BUCKET = os.environ.get("S3_IMAGE_BUCKET", "")
-S3_IMAGE_URL = os.environ.get("S3_IMAGE_URL", f"https://{S3_IMAGE_BUCKET}.s3.amazonaws.com/" if S3_IMAGE_BUCKET else "")
-S3_ENABLED = bool(S3_IMAGE_BUCKET)
-S3_VIDEO_ENABLED = os.environ.get("S3_VIDEO_ENABLED", "false").lower() == "true"
 
 
 # ---------------------------------------------------------------------------
@@ -102,14 +91,12 @@ _REQUIRED_ALWAYS = [
     ADMIN_DATABASE_SCHEMA,
 ]
 
-# Required only in production (Lambda)
+# Required only in production (Lambda). OAuth uses MySQL; no S3 buckets.
 _REQUIRED_PRODUCTION = [
     SLACK_SIGNING_SECRET,
     SLACK_CLIENT_ID,
     SLACK_CLIENT_SECRET,
     SLACK_SCOPES,
-    SLACK_STATE_S3_BUCKET_NAME,
-    SLACK_INSTALLATION_S3_BUCKET_NAME,
     PASSWORD_ENCRYPT_KEY,
 ]
 

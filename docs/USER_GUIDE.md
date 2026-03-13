@@ -47,7 +47,7 @@ The Home tab and User Mapping screens have Refresh buttons. To keep API usage lo
 
 ## Media Sync
 
-Images and videos are uploaded directly to target channels (or via S3 if configured). GIFs from the Slack GIF picker or GIPHY are synced as image blocks.
+Images and videos are downloaded from the source and uploaded directly to each target channel. GIFs from the Slack GIF picker or GIPHY are synced as image blocks.
 
 ## External Connections
 

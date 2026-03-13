@@ -31,9 +31,7 @@ def _user_mapping_content_hash(workspace_record: Workspace, group_id: int | None
     gid = group_id or 0
     if gid:
         members = _get_group_members(gid)
-        linked_workspace_ids = {
-            m.workspace_id for m in members if m.workspace_id and m.workspace_id != workspace_id
-        }
+        linked_workspace_ids = {m.workspace_id for m in members if m.workspace_id and m.workspace_id != workspace_id}
     else:
         my_groups = _get_groups_for_workspace(workspace_id)
         linked_workspace_ids = set()
@@ -53,7 +51,11 @@ def _user_mapping_content_hash(workspace_record: Workspace, group_id: int | None
         )
         all_mappings.extend(mappings)
 
-    payload = (workspace_id, gid, tuple((m.id, m.match_method, m.target_user_id) for m in sorted(all_mappings, key=lambda x: x.id)))
+    payload = (
+        workspace_id,
+        gid,
+        tuple((m.id, m.match_method, m.target_user_id) for m in sorted(all_mappings, key=lambda x: x.id)),
+    )
     return hashlib.sha256(repr(payload).encode()).hexdigest()
 
 
@@ -181,12 +183,15 @@ def build_user_mapping_screen(
 
     group_val = str(group_id) if group_id else "0"
     blocks: list[orm.BaseBlock] = [
-        header(f"User Mapping — {group_name}"),
+        header(f"User Mapping for: {group_name}"),
+        block_context(
+            "_Users with the same email address between Workspaces will be mapped automatically. Other users can be mapped manually._"
+        ),
         blocks_actions(
             button(":arrow_left: Back", actions.CONFIG_USER_MAPPING_BACK, value=group_val),
-            button(":arrows_counterclockwise: Refresh", actions.CONFIG_USER_MAPPING_REFRESH, value=group_val),
+            button("Refresh", actions.CONFIG_USER_MAPPING_REFRESH, value=group_val),
         ),
-        block_context(f":busts_in_silhouette: *{len(soft_matched) + len(email_matched)} mapped*  \u00b7  *{len(unmapped)} unmapped*"),
+        block_context(f"*Mapped: {len(soft_matched) + len(email_matched)}*  \u00b7  *Unmapped: {len(unmapped)}*"),
         divider(),
     ]
 
@@ -199,26 +204,33 @@ def build_user_mapping_screen(
             blocks.append(divider())
 
     if soft_matched:
-        blocks.append(section(":pencil2: *Soft / Manual Matches*"))
+        blocks.append(section("*Soft / Manual Matches*"))
         blocks.append(block_context("\u200b"))
         for m in soft_matched:
             method_tag = "manual" if m.match_method == "manual" else "name"
-            blocks.append(_user_context_block(m, f"*{_display_for_mapping(m, _ws_name_lookup)}*  \u2192  <@{m.target_user_id}> _[{method_tag}]_"))
+            blocks.append(
+                _user_context_block(
+                    m, f"*{_display_for_mapping(m, _ws_name_lookup)}*  \u2192  <@{m.target_user_id}> _[{method_tag}]_"
+                )
+            )
             blocks.append(blocks_actions(button("Edit", f"{actions.CONFIG_USER_MAPPING_EDIT}_{m.id}", value=group_val)))
             blocks.append(divider())
 
     if email_matched:
-        blocks.append(section(":lock: *Email Matches*"))
+        blocks.append(section("*Email Matches*"))
         blocks.append(block_context("\u200b"))
         for m in email_matched:
             email_addr = _email_lookup.get((m.source_workspace_id, m.source_user_id), "")
             email_tag = f"_{email_addr}_" if email_addr else "_[email]_"
-            blocks.append(_user_context_block(m, f"*{_display_for_mapping(m, _ws_name_lookup)}*  \u2192  <@{m.target_user_id}> {email_tag}"))
+            blocks.append(
+                _user_context_block(
+                    m, f"*{_display_for_mapping(m, _ws_name_lookup)}*  \u2192  <@{m.target_user_id}> {email_tag}"
+                )
+            )
             blocks.append(divider())
 
     if not unmapped and not soft_matched and not email_matched:
-        blocks.append(block_context("_No user mappings yet. Mappings are created automatically when "
-            "workspaces join a group and users share display names or emails._"))
+        blocks.append(block_context("_No users have been mapped in this Workspace Group yet._"))
 
     block_dicts = orm.BlockView(blocks=blocks).as_form_field()
     if return_blocks:
@@ -333,8 +345,11 @@ def build_user_mapping_edit_modal(
             )
         )
     else:
-        blocks.append(block_context("_No available users to map to. All users in your workspace "
-            "are already mapped to other users._"))
+        blocks.append(
+            block_context(
+                "_No available users to map to. All users in your workspace are already mapped to other users._"
+            )
+        )
 
     meta = {"mapping_id": mapping_id, "group_id": group_id or 0}
     modal_form = orm.BlockView(blocks=blocks)

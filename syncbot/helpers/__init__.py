@@ -18,6 +18,7 @@ from helpers.core import (
     format_admin_label,
     get_request_type,
     get_user_id_from_body,
+    is_db_reset_visible_for_workspace,
     is_user_authorized,
     safe_get,
 )
@@ -27,7 +28,6 @@ from helpers.files import (
     download_public_file,
     download_slack_files,
     upload_files_to_slack,
-    upload_photos,
 )
 from helpers.notifications import (
     get_admin_ids,
@@ -40,6 +40,7 @@ from helpers.notifications import (
 from helpers.oauth import get_oauth_flow
 from helpers.refresh import (
     cooldown_message_block,
+    index_of_block_with_action,
     inject_cooldown_message,
     refresh_after_full,
     refresh_cooldown_check,
@@ -125,7 +126,9 @@ __all__ = [
     "get_user_info",
     "get_workspace_by_id",
     "get_workspace_record",
+    "index_of_block_with_action",
     "inject_cooldown_message",
+    "is_db_reset_visible_for_workspace",
     "is_user_authorized",
     "notify_admins_dm",
     "notify_admins_dm_blocks",
@@ -146,5 +149,4 @@ __all__ = [
     "slack_retry",
     "update_modal",
     "upload_files_to_slack",
-    "upload_photos",
 ]

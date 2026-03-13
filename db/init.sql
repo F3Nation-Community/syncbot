@@ -53,11 +53,15 @@ CREATE TABLE IF NOT EXISTS workspace_group_members (
     joined_at DATETIME DEFAULT NULL,
     deleted_at DATETIME DEFAULT NULL,
     dm_messages TEXT DEFAULT NULL,
+    invited_by_slack_user_id VARCHAR(32) DEFAULT NULL,
+    invited_by_workspace_id INT DEFAULT NULL,
     FOREIGN KEY (group_id) REFERENCES workspace_groups(id) ON DELETE CASCADE,
     FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
     FOREIGN KEY (federated_workspace_id) REFERENCES federated_workspaces(id) ON DELETE SET NULL,
+    FOREIGN KEY (invited_by_workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL,
     UNIQUE KEY uq_group_workspace (group_id, workspace_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- If upgrading an existing DB, run: ALTER TABLE workspace_group_members ADD COLUMN invited_by_slack_user_id VARCHAR(32) DEFAULT NULL, ADD COLUMN invited_by_workspace_id INT DEFAULT NULL, ADD CONSTRAINT fk_wgm_invited_by FOREIGN KEY (invited_by_workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS syncs (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -122,6 +126,60 @@ CREATE TABLE IF NOT EXISTS user_mappings (
     UNIQUE KEY uq_source_target (source_workspace_id, source_user_id, target_workspace_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Slack OAuth persistence tables (for SQLAlchemyInstallationStore / SQLAlchemyOAuthStateStore)
+CREATE TABLE IF NOT EXISTS slack_bots (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    client_id VARCHAR(32) NOT NULL,
+    app_id VARCHAR(32) NOT NULL,
+    enterprise_id VARCHAR(32) DEFAULT NULL,
+    enterprise_name VARCHAR(200) DEFAULT NULL,
+    team_id VARCHAR(32) DEFAULT NULL,
+    team_name VARCHAR(200) DEFAULT NULL,
+    bot_token VARCHAR(200) DEFAULT NULL,
+    bot_id VARCHAR(32) DEFAULT NULL,
+    bot_user_id VARCHAR(32) DEFAULT NULL,
+    bot_scopes VARCHAR(1000) DEFAULT NULL,
+    bot_refresh_token VARCHAR(200) DEFAULT NULL,
+    bot_token_expires_at DATETIME DEFAULT NULL,
+    is_enterprise_install BOOLEAN NOT NULL DEFAULT FALSE,
+    installed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS slack_installations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    client_id VARCHAR(32) NOT NULL,
+    app_id VARCHAR(32) NOT NULL,
+    enterprise_id VARCHAR(32) DEFAULT NULL,
+    enterprise_name VARCHAR(200) DEFAULT NULL,
+    enterprise_url VARCHAR(200) DEFAULT NULL,
+    team_id VARCHAR(32) DEFAULT NULL,
+    team_name VARCHAR(200) DEFAULT NULL,
+    bot_token VARCHAR(200) DEFAULT NULL,
+    bot_id VARCHAR(32) DEFAULT NULL,
+    bot_user_id VARCHAR(32) DEFAULT NULL,
+    bot_scopes VARCHAR(1000) DEFAULT NULL,
+    bot_refresh_token VARCHAR(200) DEFAULT NULL,
+    bot_token_expires_at DATETIME DEFAULT NULL,
+    user_id VARCHAR(32) NOT NULL,
+    user_token VARCHAR(200) DEFAULT NULL,
+    user_scopes VARCHAR(1000) DEFAULT NULL,
+    user_refresh_token VARCHAR(200) DEFAULT NULL,
+    user_token_expires_at DATETIME DEFAULT NULL,
+    incoming_webhook_url VARCHAR(200) DEFAULT NULL,
+    incoming_webhook_channel VARCHAR(200) DEFAULT NULL,
+    incoming_webhook_channel_id VARCHAR(200) DEFAULT NULL,
+    incoming_webhook_configuration_url VARCHAR(200) DEFAULT NULL,
+    is_enterprise_install BOOLEAN NOT NULL DEFAULT FALSE,
+    token_type VARCHAR(32) DEFAULT NULL,
+    installed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS slack_oauth_states (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    state VARCHAR(200) NOT NULL,
+    expire_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Indexes
 CREATE INDEX idx_sync_channels_channel_id ON sync_channels(channel_id);
 CREATE INDEX idx_sync_channels_sync_id ON sync_channels(sync_id);
@@ -137,3 +195,5 @@ CREATE INDEX idx_groups_code ON workspace_groups(invite_code, status);
 CREATE INDEX idx_group_members_group ON workspace_group_members(group_id, status);
 CREATE INDEX idx_group_members_workspace ON workspace_group_members(workspace_id, status);
 CREATE INDEX idx_syncs_group ON syncs(group_id);
+CREATE INDEX slack_bots_idx ON slack_bots(client_id, enterprise_id, team_id, installed_at);
+CREATE INDEX slack_installations_idx ON slack_installations(client_id, enterprise_id, team_id, user_id, installed_at);

@@ -25,6 +25,20 @@ def cooldown_message_block(remaining_seconds: int) -> dict:
     }
 
 
+def index_of_block_with_action(block_dicts: list, action_id: str) -> int:
+    """Return the index of the first block that contains an element with the given action_id.
+
+    Used to find the Refresh button block so the cooldown message can be inserted after it.
+    Returns len(block_dicts) - 1 if not found (inject at end).
+    """
+    for i, block in enumerate(block_dicts):
+        if block.get("type") == "actions":
+            for elt in block.get("elements") or []:
+                if elt.get("action_id") == action_id:
+                    return i
+    return max(0, len(block_dicts) - 1)
+
+
 def inject_cooldown_message(
     cached_blocks: list,
     after_block_index: int,

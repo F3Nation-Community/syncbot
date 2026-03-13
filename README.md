@@ -37,7 +37,8 @@ SyncBot ships with a full AWS SAM template (`template.yaml`) that provisions eve
 | Compute | Lambda (128 MB) | 1M requests/month free |
 | API | API Gateway v1 | 1M calls/month free |
 | Database | RDS MySQL (db.t3.micro) | 750 hrs/month free (12 months) |
-| Storage | S3 (3 buckets) | 5 GB free |
+
+OAuth and app data are stored in RDS. Media is uploaded directly to Slack (no runtime S3). SAM deploy uses an S3 artifact bucket for packaging only.
 
 ### Prerequisites
 
@@ -227,9 +228,9 @@ See [`.env.example`](.env.example) for all available options with descriptions.
 | `ENV_SLACK_CLIENT_ID` | OAuth client ID |
 | `ENV_SLACK_CLIENT_SECRET` | OAuth client secret |
 | `ENV_SLACK_SCOPES` | Comma-separated OAuth scopes |
-| `ENV_SLACK_STATE_S3_BUCKET_NAME` | S3 bucket for OAuth state |
-| `ENV_SLACK_INSTALLATION_S3_BUCKET_NAME` | S3 bucket for installations |
 | `PASSWORD_ENCRYPT_KEY` | Passphrase for Fernet bot-token encryption |
+
+OAuth state and installation data are stored in the same RDS MySQL database.
 
 ### Local Development Only
 
@@ -243,8 +244,6 @@ See [`.env.example`](.env.example) for all available options with descriptions.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `REQUIRE_ADMIN` | `true` | Only admins/owners can configure syncs |
-| `S3_IMAGE_BUCKET` | *(empty)* | S3 bucket for synced images |
-| `S3_VIDEO_ENABLED` | `false` | Store videos in S3 (when bucket is set) |
 | `SOFT_DELETE_RETENTION_DAYS` | `30` | Days before soft-deleted data is purged |
 | `SYNCBOT_FEDERATION_ENABLED` | `false` | Enable External Connections |
 | `SYNCBOT_PUBLIC_URL` | *(none)* | Public URL for external connections |

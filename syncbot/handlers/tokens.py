@@ -100,7 +100,7 @@ def handle_tokens_revoked(
                     member_client,
                     f":double_vertical_bar: *{ws_name}* has uninstalled SyncBot. "
                     f"Syncing has been paused. If they reinstall within {retention_days} days, "
-                    "syncing will resume automatically.",
+                    "Syncing will resume automatically.",
                 )
 
                 member_channel_ids = []

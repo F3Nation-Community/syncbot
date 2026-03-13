@@ -6,7 +6,6 @@ from logging import Logger
 
 from slack_sdk.web import WebClient
 
-import constants
 import federation
 import helpers
 from db import DbManager, schemas
@@ -52,15 +51,13 @@ def _parse_event_fields(body: dict, client: WebClient) -> EventContext:
 def _build_file_context(body: dict, client: WebClient, logger: Logger) -> tuple[list[dict], list[dict], list[dict]]:
     """Process files attached to a message event.
 
-    Returns ``(s3_photo_list, photo_blocks, direct_files)`` where:
+    Returns ``(photo_list, photo_blocks, direct_files)`` where:
 
-    * *s3_photo_list* — files uploaded to S3 (have a ``path`` key for
-      cleanup after syncing).
-    * *photo_blocks* — Slack Block Kit ``image`` blocks for S3-hosted
-      images, ready to include in ``chat.postMessage``.
-    * *direct_files* — files downloaded to ``/tmp`` that should be
-      uploaded directly to each target channel via
-      ``files_upload_v2``.
+    * *photo_list* — always [] (kept for cleanup API; no S3).
+    * *photo_blocks* — Slack Block Kit ``image`` blocks for inline images
+      (e.g. GIF picker URLs), ready for ``chat.postMessage``.
+    * *direct_files* — files downloaded to ``/tmp`` for direct upload to
+      each target channel via ``files_upload_v2``.
     """
     event = body.get("event", {})
     files = (helpers.safe_get(event, "files") or helpers.safe_get(event, "message", "files") or [])[:20]
@@ -69,31 +66,13 @@ def _build_file_context(body: dict, client: WebClient, logger: Logger) -> tuple[
     images = [f for f in files if f.get("mimetype", "").startswith("image")]
     videos = [f for f in files if f.get("mimetype", "").startswith("video")]
 
-    s3_photo_list: list[dict] = []
     photo_blocks: list[dict] = []
     direct_files: list[dict] = []
 
     is_edit = event_subtype in ("message_changed", "message_deleted")
 
-    if constants.S3_ENABLED:
-        if is_edit:
-            photo_names = [
-                f"{p['id']}.png" if p.get("filetype") == "heic" else f"{p['id']}.{p.get('filetype', 'png')}"
-                for p in images
-            ]
-            s3_photo_list = [{"url": f"{constants.S3_IMAGE_URL}{name}", "name": name} for name in photo_names]
-        else:
-            s3_photo_list = helpers.upload_photos(files=images, client=client, logger=logger)
-
-        photo_blocks = [orm.ImageBlock(image_url=p["url"], alt_text=p["name"]).as_form_field() for p in s3_photo_list]
-
-        if constants.S3_VIDEO_ENABLED and not is_edit:
-            s3_photo_list.extend(helpers.upload_photos(files=videos, client=client, logger=logger))
-        elif not is_edit:
-            direct_files.extend(helpers.download_slack_files(videos, client, logger))
-    else:
-        if not is_edit:
-            direct_files = helpers.download_slack_files(images + videos, client, logger)
+    if not is_edit:
+        direct_files = helpers.download_slack_files(images + videos, client, logger)
 
     # Handle GIFs/images from attachments (e.g. GIPHY bot, Slack GIF picker,
     # unfurled URLs) when no file attachments are present.  We always use
@@ -128,7 +107,7 @@ def _build_file_context(body: dict, client: WebClient, logger: Logger) -> tuple[
             name = att.get("fallback") or "attachment.gif"
             photo_blocks.append(orm.ImageBlock(image_url=img_url, alt_text=name).as_form_field())
 
-    return s3_photo_list, photo_blocks, direct_files
+    return [], photo_blocks, direct_files
 
 
 def _get_workspace_name(records: list, channel_id: str, workspace_index: int) -> str | None:
@@ -170,7 +149,7 @@ def _handle_new_post(
             try:
                 client.chat_postMessage(
                     channel=channel_id,
-                    text=":wave: Hello! I'm SyncBot. I was added to this channel, but this channel "
+                    text=":wave: Hello! I'm SyncBot. I was added to this Channel, but this Channel "
                     "doesn't seem to be part of a Sync. I'm leaving now. Please open the SyncBot Home "
                     "tab to configure me.",
                 )

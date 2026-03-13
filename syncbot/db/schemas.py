@@ -94,9 +94,15 @@ class WorkspaceGroupMember(BaseClass, GetDBClass):
     joined_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True, default=None)
     dm_messages = Column(Text, nullable=True)
+    invited_by_slack_user_id = Column(String(32), nullable=True)
+    invited_by_workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=True)
 
     group = relationship("WorkspaceGroup", backref="members")
-    workspace = relationship("Workspace", backref="group_memberships")
+    workspace = relationship(
+        "Workspace",
+        backref="group_memberships",
+        foreign_keys=[workspace_id],
+    )
 
     def get_id():
         return WorkspaceGroupMember.id

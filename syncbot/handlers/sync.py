@@ -119,8 +119,11 @@ def handle_refresh_home(
     cooldown_sec = getattr(constants, "REFRESH_COOLDOWN_SECONDS", 60)
 
     if action == "cooldown" and cached_blocks is not None and remaining is not None:
+        refresh_idx = helpers.index_of_block_with_action(
+            cached_blocks, actions.CONFIG_REFRESH_HOME
+        )
         blocks_with_message = helpers.inject_cooldown_message(
-            cached_blocks, builders._REFRESH_BUTTON_BLOCK_INDEX, remaining
+            cached_blocks, refresh_idx, remaining
         )
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks_with_message})
         return
@@ -229,10 +232,10 @@ def handle_join_sync_submission(
             first_ws = helpers.get_workspace_by_id(first_channel.workspace_id)
             channel_ref = helpers.resolve_channel_name(first_channel.channel_id, first_ws)
         else:
-            channel_ref = sync_record.title or "the other channel"
+            channel_ref = sync_record.title or "the other Channel"
         client.chat_postMessage(
             channel=channel_id,
-            text=f":arrows_counterclockwise: *{admin_name}* started syncing this channel with *{channel_ref}*. Messages will be shared automatically.",
+            text=f":arrows_counterclockwise: *{admin_name}* started syncing this Channel with *{channel_ref}*. Messages will be shared automatically.",
         )
 
         local_ref = helpers.resolve_channel_name(channel_id, workspace_record)
@@ -243,7 +246,7 @@ def handle_join_sync_submission(
                     member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
                     member_client.chat_postMessage(
                         channel=sync_channel.channel_id,
-                        text=f":arrows_counterclockwise: *{admin_label}* started syncing *{local_ref}* with this channel. Messages will be shared automatically.",
+                        text=f":arrows_counterclockwise: *{admin_label}* started syncing *{local_ref}* with this Channel. Messages will be shared automatically.",
                     )
             except Exception as exc:
                 _logger.debug(f"join_sync: failed to notify channel {sync_channel.channel_id}: {exc}")
@@ -316,7 +319,7 @@ def handle_new_sync_submission(
         DbManager.create_record(channel_sync_record)
         client.chat_postMessage(
             channel=channel_id,
-            text=f":outbox_tray: *{admin_name}* published this channel for syncing. Other Workspaces can now subscribe.",
+            text=f":outbox_tray: *{admin_name}* published this Channel for Syncing. Other Workspaces can now subscribe.",
         )
     except Exception as e:
         logger.error(f"Failed to create sync for channel {channel_id}: {e}")
@@ -356,7 +359,7 @@ def handle_member_joined_channel(
     try:
         client.chat_postMessage(
             channel=channel_id,
-            text=":wave: Hello! I'm SyncBot. I was added to this channel, but this channel "
+            text=":wave: Hello! I'm SyncBot. I was added to this Channel, but this Channel "
             "doesn't seem to be part of a Sync. I'm leaving now. Please open the SyncBot Home "
             "tab to configure me.",
         )
@@ -386,7 +389,7 @@ def check_join_sync_channel(
         blocks.append(
             orm.SectionBlock(
                 action=constants.WARNING_BLOCK,
-                label=":warning: :warning: This channel is already part of a Sync! Please choose another channel.",
+                label=":warning: :warning: This Channel is already part of a Sync! Please choose another Channel.",
             ).as_form_field()
         )
         helpers.update_modal(
@@ -418,8 +421,9 @@ def handle_db_reset(
     logger: Logger,
     context: dict,
 ) -> None:
-    """Open a confirmation modal warning the user before a full DB reset."""
-    if not constants.ENABLE_DB_RESET:
+    """Open a confirmation modal warning the user before a full DB reset. Only for the workspace whose team_id matches ENABLE_DB_RESET."""
+    team_id = helpers.safe_get(body, "team", "id") or helpers.safe_get(body, "view", "team_id")
+    if not helpers.is_db_reset_visible_for_workspace(team_id):
         return
 
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
@@ -434,7 +438,7 @@ def handle_db_reset(
         trigger_id=trigger_id,
         view={
             "type": "modal",
-            "title": {"type": "plain_text", "text": "Reset Database?"},
+            "title": {"type": "plain_text", "text": "Yikes! Reset Database?"},
             "close": {"type": "plain_text", "text": "Cancel"},
             "blocks": [
                 {
@@ -442,10 +446,11 @@ def handle_db_reset(
                     "text": {
                         "type": "mrkdwn",
                         "text": (
-                            ":rotating_light: *This will permanently delete ALL data* :rotating_light:\n\n"
-                            "Every workspace, group, channel sync, user mapping, and federation connection "
-                            "in this database will be erased and the schema will be reinitialized from `init.sql`.\n\n"
-                            "*This action cannot be undone.*"
+                            ":rotating_light: *This Will Permanently Delete ALL Data!* :rotating_light:\n\n"
+                            "Every Slack Install, Workspace Group, Channel Sync, and User Mapping, "
+                            "in this database will be erased and the schema will be reinitialized.\n\n"
+                            "*NOTE:* _All Slack Workspaces will need to reinstall the SyncBot app to get started again._\n\n"
+                            "*This action cannot be undone! MAKE A BACKUP FIRST!*"
                         ),
                     },
                 },
@@ -454,7 +459,7 @@ def handle_db_reset(
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "Yes, Reset Everything!"},
+                            "text": {"type": "plain_text", "text": "Confirm, Erase Everything!"},
                             "style": "danger",
                             "action_id": actions.CONFIG_DB_RESET_PROCEED,
                         },
@@ -471,13 +476,39 @@ def handle_db_reset_proceed(
     logger: Logger,
     context: dict,
 ) -> None:
-    """Execute the database reset after user confirmed via modal."""
-    if not constants.ENABLE_DB_RESET:
+    """Execute the database reset after user confirmed via modal. Only for the workspace whose team_id matches ENABLE_DB_RESET."""
+    team_id = helpers.safe_get(body, "team", "id") or helpers.safe_get(body, "view", "team_id")
+    if not helpers.is_db_reset_visible_for_workspace(team_id):
         return
 
     user_id = helpers.get_user_id_from_body(body)
     if not user_id or not helpers.is_user_authorized(client, user_id):
         return
+
+    # Update the modal to a "done" state so the user can close it (Slack only allows
+    # closing modals via view_submission, not block_actions, so we replace the view).
+    view_id = helpers.safe_get(body, "view", "id")
+    if view_id:
+        try:
+            client.views_update(
+                view_id=view_id,
+                view={
+                    "type": "modal",
+                    "title": {"type": "plain_text", "text": "Reset Complete"},
+                    "close": {"type": "plain_text", "text": "Close"},
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": ":skull_and_crossbones: You can close this now.",
+                            },
+                        },
+                    ],
+                },
+            )
+        except Exception as e:
+            _logger.warning("Failed to update modal after DB reset: %s", e)
 
     _logger.critical(
         "DB_RESET triggered by user %s — dropping database and reinitializing from init.sql",
@@ -490,11 +521,6 @@ def handle_db_reset_proceed(
 
     helpers.clear_all_caches()
 
-    team_id = (
-        helpers.safe_get(body, "view", "team_id")
-        or helpers.safe_get(body, "team", "id")
-        or helpers.safe_get(body, "team_id")
-    )
     if team_id and user_id:
         try:
             client.views_publish(
@@ -506,7 +532,7 @@ def handle_db_reset_proceed(
                             "type": "section",
                             "text": {
                                 "type": "mrkdwn",
-                                "text": ":white_check_mark: *Database has been reset.*\nPlease reinstall the app or re-open this tab to get started fresh.",
+                                "text": "*Database Has Been Reset!*\nPlease reinstall SyncBot in your Workspace.",
                             },
                         }
                     ],

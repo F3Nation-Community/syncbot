@@ -4,7 +4,7 @@ import contextlib
 import logging
 import secrets
 import string
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from logging import Logger
 
 from slack_sdk.web import WebClient
@@ -13,7 +13,8 @@ import builders
 import helpers
 from db import DbManager, schemas
 from slack import actions, forms, orm
-from slack.blocks import context as block_context, divider, section
+from slack.blocks import context as block_context
+from slack.blocks import divider, section
 
 _logger = logging.getLogger(__name__)
 
@@ -100,15 +101,14 @@ def handle_create_group(
     view = orm.BlockView(
         blocks=[
             orm.InputBlock(
-                label="Group Name",
+                label="Workspace Group Name",
                 action=actions.CONFIG_CREATE_GROUP_NAME,
-                element=orm.PlainTextInputElement(placeholder="e.g. East Coast AOs, Partner Org..."),
+                element=orm.PlainTextInputElement(placeholder="e.g. Slack Syndicate, The Multiverse..."),
                 optional=False,
             ),
             orm.ContextBlock(
                 element=orm.ContextElement(
-                    initial_value="Give this group a friendly name. An invite code will be generated "
-                    "that other workspace admins can use to join.",
+                    initial_value="_Give this Workspace Group a friendly and descriptive name._",
                 ),
             ),
         ]
@@ -119,7 +119,7 @@ def handle_create_group(
         trigger_id=trigger_id,
         callback_id=actions.CONFIG_CREATE_GROUP_SUBMIT,
         title_text="Create Group",
-        submit_button_text="Create",
+        submit_button_text="Create Group",
     )
 
 
@@ -193,8 +193,8 @@ def handle_create_group_submit(
             if dm_channel:
                 client.chat_postMessage(
                     channel=dm_channel,
-                    text=f":white_check_mark: *Group Created* — *{group_name}*\n\n"
-                    f"Share this invite code with admins of other workspaces:\n\n`{code}`",
+                    text=f":raised_hands: *New Workspace Group Created!*\n\n*Group Name:* `{group_name}`\n\n*Invite Code:* `{code}`\n\n"
+                    "You can share the Invite Code with an Admin from another Workspace and they can join the Group.",
                 )
         except Exception as e:
             _logger.warning(f"Failed to DM invite code: {e}")
@@ -314,7 +314,6 @@ def handle_join_group_submit(
 
     _activate_group_membership(client, workspace_record, group)
 
-    ws_name = helpers.resolve_workspace_name(workspace_record)
     _, admin_label = helpers.format_admin_label(client, acting_user_id, workspace_record)
 
     other_members = DbManager.find_records(
@@ -336,7 +335,7 @@ def handle_join_group_submit(
             member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
             helpers.notify_admins_dm(
                 member_client,
-                f":handshake: *{admin_label}* joined the group *{group.name}*.",
+                f":punch: *{admin_label}* joined the Workspace Group called *{group.name}*.",
             )
             builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
         except Exception as e:
@@ -387,6 +386,23 @@ def handle_invite_workspace(
     )
     eligible = [ws for ws in all_workspaces if ws.id not in member_ws_ids and ws.bot_token]
 
+    if not eligible and not constants.FEDERATION_ENABLED:
+        msg_blocks = [
+            section(
+                "At least one other Slack Workspace needs to install this SyncBot app, or "
+                "External Connections need to be allowed, before you can invite another Workspace to this Group."
+            ),
+        ]
+        orm.BlockView(blocks=msg_blocks).post_modal(
+            client=client,
+            trigger_id=trigger_id,
+            callback_id=actions.CONFIG_INVITE_WORKSPACE_SUBMIT,
+            title_text="Oops!",
+            submit_button_text="None",
+            new_or_add="new",
+        )
+        return
+
     modal_blocks: list = []
 
     if eligible:
@@ -399,10 +415,10 @@ def handle_invite_workspace(
         ]
         modal_blocks.append(
             orm.InputBlock(
-                label="Send a direct invite",
+                label="Send a SyncBot DM",
                 action=actions.CONFIG_INVITE_WORKSPACE_SELECT,
                 element=orm.StaticSelectElement(
-                    placeholder="Select a workspace",
+                    placeholder="Select a Workspace",
                     options=ws_options,
                 ),
                 optional=True,
@@ -410,17 +426,16 @@ def handle_invite_workspace(
         )
         modal_blocks.append(
             block_context(
-                "A DM will be sent to the workspace's admins "
-                "with an invitation to join this group.",
+                "A SyncBot DM will be sent to Admins in the other Workspace.",
             )
         )
 
+    modal_blocks.append(block_context("\u200b"))
     modal_blocks.append(divider())
     modal_blocks.append(section(":memo: *Invite Code*"))
     modal_blocks.append(
         block_context(
-            "Share this code with an admin from another workspace:"
-            f"\n\n`{group.invite_code}`"
+            f"Alternatively, share this Invite Code with an Admin from another Workspace:\n\n`{group.invite_code}`"
         )
     )
 
@@ -429,8 +444,8 @@ def handle_invite_workspace(
         modal_blocks.append(section(":globe_with_meridians: *External Workspace*"))
         modal_blocks.append(
             block_context(
-                "For workspaces running their own SyncBot instance, "
-                f"share this code for them to join externally:\n\n`{group.invite_code}`"
+                "For Workspaces running their own external SyncBot instance, "
+                f"share this Invite Code for them to join:\n\n`{group.invite_code}`"
             )
         )
 
@@ -512,16 +527,18 @@ def handle_invite_workspace_submit(
         builders.refresh_home_tab_for_workspace(workspace_record, logger, context=context)
         return
 
+    acting_user_id = helpers.safe_get(body, "user", "id") or user_id
     member = schemas.WorkspaceGroupMember(
         group_id=group_id,
         workspace_id=target_ws_id,
         status="pending",
         role="member",
         joined_at=None,
+        invited_by_slack_user_id=acting_user_id,
+        invited_by_workspace_id=workspace_record.id,
     )
     DbManager.create_record(member)
 
-    acting_user_id = helpers.safe_get(body, "user", "id") or user_id
     _, admin_label = helpers.format_admin_label(client, acting_user_id, workspace_record)
 
     target_client = WebClient(token=helpers.decrypt_bot_token(target_ws.bot_token))
@@ -531,8 +548,7 @@ def handle_invite_workspace_submit(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f":handshake: *{admin_label}* has invited your workspace "
-                f"to join the group *{group.name}*.",
+                "text": f":punch: *{admin_label}* has invited your Workspace to join a SyncBot Group!\n\n*Group Name:* `{group.name}`",
             },
         },
         {
@@ -558,7 +574,7 @@ def handle_invite_workspace_submit(
 
     dm_entries = helpers.notify_admins_dm_blocks(
         target_client,
-        f"{admin_label} has invited your workspace to join the group {group.name}.",
+        f"{admin_label} has invited your Workspace to join a SyncBot Group!\n\n*Group Name:* `{group.name}`",
         invite_blocks,
     )
     helpers.save_dm_messages_to_group_member(member.id, dm_entries)
@@ -623,7 +639,7 @@ def handle_accept_group_invite(
     _update_invite_dms(
         member,
         workspace_record,
-        f":white_check_mark: Your workspace has joined the group *{group.name}*.",
+        f"Your Workspace has joined the SyncBot Group called *{group.name}*.",
     )
 
     other_members = DbManager.find_records(
@@ -646,7 +662,7 @@ def handle_accept_group_invite(
             member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
             helpers.notify_admins_dm(
                 member_client,
-                f":handshake: *{ws_name}* has joined the group *{group.name}*.",
+                f":punch: *{ws_name}* has joined the Workspace Group called *{group.name}*.",
             )
             builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
         except Exception as e:
@@ -670,7 +686,7 @@ def handle_decline_group_invite(
     logger: Logger,
     context: dict,
 ) -> None:
-    """Decline a pending group invite from a DM button."""
+    """Handle Decline (invited workspace) or Cancel Invite (inviting workspace) for a pending group invite."""
     raw_member_id = helpers.safe_get(body, "actions", 0, "value")
     try:
         member_id = int(raw_member_id)
@@ -686,12 +702,16 @@ def handle_decline_group_invite(
     group = DbManager.get_record(schemas.WorkspaceGroup, id=member.group_id)
     group_name = group.name if group else "the group"
 
+    action_id = helpers.safe_get(body, "actions", 0, "action_id") or ""
+    is_cancel = action_id.startswith(actions.CONFIG_CANCEL_GROUP_REQUEST)
+    outcome = "canceled" if is_cancel else "declined"
+
     target_ws = helpers.get_workspace_by_id(member.workspace_id) if member.workspace_id else None
 
     _update_invite_dms(
         member,
         target_ws,
-        f":x: The invitation to join *{group_name}* was declined.",
+        f":x: The invitation to join *{group_name}* was {outcome}.",
     )
 
     group_id = member.group_id
@@ -722,6 +742,10 @@ def handle_decline_group_invite(
             continue
         with contextlib.suppress(Exception):
             builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
+
+    if target_ws and target_ws.bot_token and not target_ws.deleted_at:
+        with contextlib.suppress(Exception):
+            builders.refresh_home_tab_for_workspace(target_ws, logger, context=None)
 
 
 def _update_invite_dms(
