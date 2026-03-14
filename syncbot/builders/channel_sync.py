@@ -11,6 +11,8 @@ from db.schemas import PostMeta, Sync, SyncChannel, Workspace, WorkspaceGroup, W
 from slack import actions, orm
 from slack.blocks import (
     context as block_context,
+)
+from slack.blocks import (
     section,
 )
 

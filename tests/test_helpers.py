@@ -1,4 +1,4 @@
-"""Unit tests for syncbot.utils.helpers core utility functions."""
+"""Unit tests for helper utilities under ``syncbot/helpers``."""
 
 import os
 import time

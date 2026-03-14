@@ -16,11 +16,11 @@ from slack import orm
 
 def _find_source_workspace_id(records: list[tuple], channel_id: str, ws_index: int = 1) -> int | None:
     """Return the workspace ID from the record whose channel matches *channel_id*."""
-    for rec in records:
-        sc = rec[ws_index - 1] if ws_index > 1 else rec[0]
-        ws = rec[ws_index]
-        if sc.channel_id == channel_id:
-            return ws.id
+    for record in records:
+        sync_channel = record[ws_index - 1] if ws_index > 1 else record[0]
+        workspace = record[ws_index]
+        if sync_channel.channel_id == channel_id:
+            return workspace.id
     return None
 
 _logger = logging.getLogger(__name__)
@@ -606,8 +606,13 @@ def _handle_reaction(
                         message_ts=target_msg_ts,
                     )
                     permalink = helpers.safe_get(plink_resp, "permalink")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # Permalink lookup is optional; if it fails we still post a
+                    # reaction notice without the deep-link.
+                    _logger.debug(
+                        "reaction_permalink_lookup_failed",
+                        extra={"channel_id": sync_channel.channel_id, "message_ts": target_msg_ts, "error": str(exc)},
+                    )
 
                 if permalink:
                     msg_text = f"reacted with :{reaction}: to <{permalink}|this message>"
@@ -679,7 +684,7 @@ def respond_to_message_event(
     if _is_own_bot_message(body, client, context):
         return
 
-    s3_photo_list, photo_blocks, direct_files = _build_file_context(body, client, logger)
+    photo_list, photo_blocks, direct_files = _build_file_context(body, client, logger)
 
     has_files = bool(photo_blocks or direct_files)
     if (
@@ -688,7 +693,7 @@ def respond_to_message_event(
         or (event_subtype == "file_share" and (ctx["msg_text"] != "" or has_files))
     ):
         if not ctx["thread_ts"]:
-            _handle_new_post(body, client, logger, ctx, s3_photo_list, photo_blocks, direct_files)
+            _handle_new_post(body, client, logger, ctx, photo_list, photo_blocks, direct_files)
         else:
             _handle_thread_reply(body, client, logger, ctx, photo_blocks, direct_files)
     elif event_subtype == "message_changed":

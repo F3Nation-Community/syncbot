@@ -511,8 +511,13 @@ def resolve_channel_references(
         try:
             info = source_client.conversations_info(channel=ch_id)
             ch_name = safe_get(info, "channel", "name") or ch_id
-        except Exception:
-            pass
+        except Exception as exc:
+            # If we cannot resolve channel metadata, keep the raw channel ID.
+            # This preserves message content without blocking sync processing.
+            _logger.debug(
+                "resolve_channel_reference_failed",
+                extra={"channel_id": ch_id, "error": str(exc)},
+            )
 
         if team_id and ch_name != ch_id:
             deep_link = f"https://slack.com/app_redirect?channel={ch_id}&team={team_id}"

@@ -256,11 +256,11 @@ OAuth state and installation data are stored in the same RDS MySQL database.
 | Document | Description |
 |----------|-------------|
 | [User Guide](docs/USER_GUIDE.md) | End-user walkthrough of all features |
-| [Architecture](ARCHITECTURE.md) | Message sync flow, AWS infrastructure, caching |
+| [Architecture](docs/ARCHITECTURE.md) | Message sync flow, AWS infrastructure, caching |
 | [Backup & Migration](docs/BACKUP_AND_MIGRATION.md) | Full-instance backup/restore, workspace data migration |
 | [Deployment](docs/DEPLOYMENT.md) | Shared infrastructure, CI/CD via GitHub Actions |
 | [API Reference](docs/API_REFERENCE.md) | HTTP endpoints and subscribed Slack events |
-| [Improvements](IMPROVEMENTS.md) | Completed and planned improvements |
+| [Improvements](docs/IMPROVEMENTS.md) | Completed and planned improvements |
 
 ## Project Structure
 

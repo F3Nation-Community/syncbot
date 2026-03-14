@@ -26,7 +26,7 @@ CONFIG_JOIN_SYNC_SELECT = "config_join_sync_select"
 CONFIG_JOIN_SYNC_CHANNEL_SELECT = "config_join_sync_channel_select"
 """Input: channel selector in the join-sync form (dispatches an action on change)."""
 
-CONFIG_JOIN_SYNC_SUMBIT = "config_join_sync_submit"
+CONFIG_JOIN_SYNC_SUBMIT = "config_join_sync_submit"
 """Callback: join-sync modal submitted."""
 
 # ---------------------------------------------------------------------------
@@ -166,7 +166,7 @@ CONFIG_BACKUP_DOWNLOAD = "backup_download"
 """Action: user clicked Download backup in Backup/Restore modal."""
 
 CONFIG_BACKUP_RESTORE_JSON_INPUT = "backup_restore_json_input"
-"""Input: plain text area for restore JSON in Backup/Restore modal."""
+"""Input: uploaded JSON file in Backup/Restore modal."""
 
 CONFIG_DATA_MIGRATION = "data_migration"
 """Action: user clicked "Data Migration" in External Connections (opens modal)."""
@@ -184,7 +184,7 @@ CONFIG_DATA_MIGRATION_EXPORT = "data_migration_export"
 """Action: user clicked Export in Data Migration modal."""
 
 CONFIG_DATA_MIGRATION_JSON_INPUT = "data_migration_json_input"
-"""Input: plain text area for migration import JSON."""
+"""Input: uploaded JSON file in Data Migration modal."""
 
 # ---------------------------------------------------------------------------
 # External Connections (federation) actions
@@ -219,7 +219,7 @@ CONFIG_DB_RESET = "db_reset"
 """Action: user clicked "Reset Database" on the Home tab."""
 
 CONFIG_DB_RESET_CONFIRM = "db_reset_confirm"
+"""Callback: database reset confirmation view submitted."""
 
 CONFIG_DB_RESET_PROCEED = "db_reset_proceed"
-"""Action: danger button to confirm database reset."""
-"""Callback: user confirmed database reset in the warning modal."""
+"""Action: danger button to proceed with database reset."""

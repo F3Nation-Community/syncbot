@@ -351,8 +351,13 @@ def resolve_workspace_name(workspace: schemas.Workspace) -> str:
                 )
                 workspace.workspace_name = name
                 return name
-        except Exception:
-            pass
+        except Exception as exc:
+            # Name lookup is best-effort; falling back to team_id keeps UI usable
+            # even when Slack API calls fail intermittently.
+            _logger.debug(
+                "resolve_workspace_name_failed",
+                extra={"workspace_id": workspace.id, "team_id": workspace.team_id, "error": str(exc)},
+            )
 
     return workspace.team_id or f"Workspace {workspace.id}"
 

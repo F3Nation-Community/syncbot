@@ -13,6 +13,7 @@ import constants
 import helpers
 from builders._common import _get_group_members, _get_groups_for_workspace
 from db import DbManager, schemas
+from handlers._common import _get_authorized_workspace
 
 _logger = logging.getLogger(__name__)
 
@@ -88,12 +89,16 @@ def handle_user_profile_changed(
     notified_ws: set[int] = set()
     for group, _ in my_groups:
         members = _get_group_members(group.id)
-        for m in members:
-            if m.workspace_id and m.workspace_id != workspace_record.id and m.workspace_id not in notified_ws:
-                member_ws = helpers.get_workspace_by_id(m.workspace_id, context=context)
+        for member in members:
+            if (
+                member.workspace_id
+                and member.workspace_id != workspace_record.id
+                and member.workspace_id not in notified_ws
+            ):
+                member_ws = helpers.get_workspace_by_id(member.workspace_id, context=context)
                 if member_ws:
                     builders.refresh_home_tab_for_workspace(member_ws, logger, context=None)
-                    notified_ws.add(m.workspace_id)
+                    notified_ws.add(member.workspace_id)
 
     _logger.info(
         "user_profile_updated",
@@ -125,19 +130,10 @@ def handle_user_mapping_refresh(
     Uses content hash and cached blocks; when hash unchanged and within 60s cooldown,
     re-publishes with cooldown message.
     """
-    user_id = helpers.get_user_id_from_body(body)
-    if not user_id or not helpers.is_user_authorized(client, user_id):
-        _logger.warning("authorization_denied", extra={"user_id": user_id, "action": "user_mapping_refresh"})
+    auth_result = _get_authorized_workspace(body, client, context, "user_mapping_refresh")
+    if not auth_result:
         return
-
-    team_id = (
-        helpers.safe_get(body, "view", "team_id")
-        or helpers.safe_get(body, "team", "id")
-        or helpers.safe_get(body, "user", "team_id")
-    )
-    workspace_record = helpers.get_workspace_record(team_id, body, context, client) if team_id else None
-    if not workspace_record:
-        return
+    user_id, workspace_record = auth_result
 
     raw_group = helpers.safe_get(body, "actions", 0, "value") or "0"
     try:
@@ -178,20 +174,30 @@ def handle_user_mapping_refresh(
 
     member_clients: list[tuple[WebClient, int]] = []
 
-    for m in members:
-        if not m.workspace_id or m.workspace_id == workspace_record.id:
+    for member in members:
+        if not member.workspace_id or member.workspace_id == workspace_record.id:
             continue
         try:
-            helpers._CACHE.pop(f"dir_refresh:{m.workspace_id}", None)
-            member_ws = helpers.get_workspace_by_id(m.workspace_id, context=context)
+            # Force a fresh directory pull before rematching. Cached directory
+            # snapshots can keep stale display names/emails after profile edits.
+            helpers._CACHE.pop(f"dir_refresh:{member.workspace_id}", None)
+            member_ws = helpers.get_workspace_by_id(member.workspace_id, context=context)
             if member_ws and member_ws.bot_token:
                 member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
-                helpers._refresh_user_directory(member_client, m.workspace_id)
-                member_clients.append((member_client, m.workspace_id))
-            helpers.seed_user_mappings(m.workspace_id, workspace_record.id, group_id=gid_opt)
-            helpers.seed_user_mappings(workspace_record.id, m.workspace_id, group_id=gid_opt)
-        except Exception:
-            pass
+                helpers._refresh_user_directory(member_client, member.workspace_id)
+                member_clients.append((member_client, member.workspace_id))
+            helpers.seed_user_mappings(member.workspace_id, workspace_record.id, group_id=gid_opt)
+            helpers.seed_user_mappings(workspace_record.id, member.workspace_id, group_id=gid_opt)
+        except Exception as exc:
+            _logger.warning(
+                "user_mapping_refresh_member_sync_failed",
+                extra={
+                    "workspace_id": workspace_record.id,
+                    "member_workspace_id": member.workspace_id,
+                    "group_id": gid_opt,
+                    "error": str(exc),
+                },
+            )
 
     helpers.run_auto_match_for_workspace(client, workspace_record.id)
     for member_client, member_ws_id in member_clients:
@@ -221,15 +227,10 @@ def handle_user_mapping_edit_submit(
     """Save the per-user mapping edit and refresh the mapping screen."""
     from handlers._common import _parse_private_metadata
 
-    user_id = helpers.get_user_id_from_body(body)
-    if not user_id or not helpers.is_user_authorized(client, user_id):
-        _logger.warning("authorization_denied", extra={"user_id": user_id, "action": "user_mapping_edit_submit"})
+    auth_result = _get_authorized_workspace(body, client, context, "user_mapping_edit_submit")
+    if not auth_result:
         return
-
-    team_id = helpers.safe_get(body, "view", "team_id")
-    workspace_record = helpers.get_workspace_record(team_id, body, context, client) if team_id else None
-    if not workspace_record:
-        return
+    user_id, workspace_record = auth_result
 
     meta = _parse_private_metadata(body)
     mapping_id = meta.get("mapping_id")

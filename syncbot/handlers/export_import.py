@@ -284,13 +284,13 @@ def _do_restore(data: dict, client: WebClient, user_id: str) -> None:
         _logger.exception("restore failed: %s", e)
         raise
 
-    for tid in team_ids:
-        ws = DbManager.find_records(schemas.Workspace, [schemas.Workspace.team_id == tid])
-        if ws:
+    for team_id in team_ids:
+        workspace_rows = DbManager.find_records(schemas.Workspace, [schemas.Workspace.team_id == team_id])
+        if workspace_rows:
             try:
-                builders.refresh_home_tab_for_workspace(ws[0], _logger)
+                builders.refresh_home_tab_for_workspace(workspace_rows[0], _logger)
             except Exception as e:
-                _logger.warning("_do_restore: failed to refresh home tab for %s: %s", tid, e)
+                _logger.warning("_do_restore: failed to refresh home tab for %s: %s", team_id, e)
 
 
 # ---------------------------------------------------------------------------

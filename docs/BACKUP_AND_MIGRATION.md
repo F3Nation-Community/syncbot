@@ -20,4 +20,4 @@ After import, Home tab and sync-list caches for that workspace are cleared.
 
 ### Instance A Behavior
 
-When a workspace that used to be on Instance A connects to A from a new instance (B) via federation and sends its `team_id`, A soft-deletes the matching local workspace row so only the federated connection represents that workspace. See [ARCHITECTURE.md](../ARCHITECTURE.md) for details.
+When a workspace that used to be on Instance A connects to A from a new instance (B) via federation and sends its `team_id`, A soft-deletes the matching local workspace row so only the federated connection represents that workspace. See [ARCHITECTURE.md](ARCHITECTURE.md) for details.

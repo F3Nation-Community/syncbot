@@ -299,8 +299,13 @@ def _build_pending_invite_section(
                 admin_name, _ = helpers.get_user_info(ws_client, invite.invited_by_slack_user_id)
                 if admin_name:
                     inviter_label = f"{admin_name} from {workspace_label}"
-            except Exception:
-                pass
+            except Exception as exc:
+                # Keep the workspace-level fallback label if we cannot resolve the
+                # inviter's display name from Slack.
+                _logger.debug(
+                    "pending_invite_inviter_name_lookup_failed",
+                    extra={"invite_id": invite.id, "workspace_id": invite.invited_by_workspace_id, "error": str(exc)},
+                )
 
     blocks.append(divider())
     blocks.append(header(f"{group.name}"))

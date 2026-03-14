@@ -85,13 +85,13 @@ def handle_tokens_revoked(
                 schemas.WorkspaceGroupMember.deleted_at.is_(None),
             ],
         )
-        for m in group_members:
-            if not m.workspace_id or m.workspace_id in notified_ws:
+        for member in group_members:
+            if not member.workspace_id or member.workspace_id in notified_ws:
                 continue
-            member_ws = helpers.get_workspace_by_id(m.workspace_id)
+            member_ws = helpers.get_workspace_by_id(member.workspace_id)
             if not member_ws or not member_ws.bot_token or member_ws.deleted_at:
                 continue
-            notified_ws.add(m.workspace_id)
+            notified_ws.add(member.workspace_id)
 
             try:
                 member_client = WebClient(token=helpers.decrypt_bot_token(member_ws.bot_token))
@@ -109,7 +109,7 @@ def handle_tokens_revoked(
                         schemas.SyncChannel,
                         [
                             schemas.SyncChannel.sync_id == sync_channel.sync_id,
-                            schemas.SyncChannel.workspace_id == m.workspace_id,
+                            schemas.SyncChannel.workspace_id == member.workspace_id,
                             schemas.SyncChannel.deleted_at.is_(None),
                         ],
                     )
@@ -123,7 +123,7 @@ def handle_tokens_revoked(
                         f":double_vertical_bar: Syncing with *{ws_name}* has been paused because they uninstalled the app.",
                     )
             except Exception as e:
-                _logger.warning(f"handle_tokens_revoked: failed to notify member {m.workspace_id}: {e}")
+                _logger.warning(f"handle_tokens_revoked: failed to notify member {member.workspace_id}: {e}")
 
     _logger.info(
         "workspace_soft_deleted",

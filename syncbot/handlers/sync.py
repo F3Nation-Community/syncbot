@@ -397,7 +397,7 @@ def check_join_sync_channel(
             client=client,
             view_id=view_id,
             title_text="Join Sync",
-            callback_id=actions.CONFIG_JOIN_SYNC_SUMBIT,
+            callback_id=actions.CONFIG_JOIN_SYNC_SUBMIT,
         )
     elif len(sync_channel_records) == 0 and already_warning:
         blocks = [block for block in blocks if block["block_id"] != constants.WARNING_BLOCK]
@@ -406,7 +406,7 @@ def check_join_sync_channel(
             client=client,
             view_id=view_id,
             title_text="Join Sync",
-            callback_id=actions.CONFIG_JOIN_SYNC_SUMBIT,
+            callback_id=actions.CONFIG_JOIN_SYNC_SUBMIT,
         )
 
 

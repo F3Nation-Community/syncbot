@@ -68,7 +68,7 @@ def build_join_sync_form(
     join_sync_form.post_modal(
         client=client,
         trigger_id=trigger_id,
-        callback_id=actions.CONFIG_JOIN_SYNC_SUMBIT,
+        callback_id=actions.CONFIG_JOIN_SYNC_SUBMIT,
         title_text="Join Sync",
         new_or_add="new",
     )

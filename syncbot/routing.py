@@ -62,7 +62,7 @@ EVENT_MAPPER = {
 """Event ``type`` -> handler."""
 
 VIEW_MAPPER = {
-    actions.CONFIG_JOIN_SYNC_SUMBIT: handlers.handle_join_sync_submission,
+    actions.CONFIG_JOIN_SYNC_SUBMIT: handlers.handle_join_sync_submission,
     actions.CONFIG_NEW_SYNC_SUBMIT: handlers.handle_new_sync_submission,
     actions.CONFIG_USER_MAPPING_EDIT_SUBMIT: handlers.handle_user_mapping_edit_submit,
     actions.CONFIG_CREATE_GROUP_SUBMIT: handlers.handle_create_group_submit,

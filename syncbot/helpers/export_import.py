@@ -13,9 +13,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-import constants
 from sqlalchemy import text
 
+import constants
 from db import DbManager, get_engine, schemas
 
 _logger = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ def _restore_raw_table(table_name: str, rows: list[dict]) -> None:
                 else:
                     parsed[key] = value
 
-            cols = ", ".join(f"`{k}`" for k in parsed.keys())
-            placeholders = ", ".join(f":{k}" for k in parsed.keys())
+            cols = ", ".join(f"`{k}`" for k in parsed)
+            placeholders = ", ".join(f":{k}" for k in parsed)
             conn.execute(
                 text(f"INSERT INTO `{table_name}` ({cols}) VALUES ({placeholders})"),
                 parsed,

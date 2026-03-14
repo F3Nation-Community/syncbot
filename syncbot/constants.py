@@ -1,9 +1,11 @@
 """Application constants and startup configuration validation.
 
-This module defines the **names** of all environment variables the app
-reads at runtime (the actual *values* come from ``os.environ``).  It
-also provides :func:`validate_config` which should be called once at
-startup to fail fast on missing configuration.
+This module defines:
+1) environment-variable *name* constants, and
+2) derived runtime flags computed from ``os.environ``.
+
+It also provides :func:`validate_config` to fail fast on missing
+configuration at startup.
 """
 
 import logging
@@ -31,8 +33,12 @@ ADMIN_DATABASE_USER = "ADMIN_DATABASE_USER"
 ADMIN_DATABASE_PASSWORD = "ADMIN_DATABASE_PASSWORD"
 ADMIN_DATABASE_SCHEMA = "ADMIN_DATABASE_SCHEMA"
 
-# Make the "Reset Database" button appear on the Home tab in a specific Workspace.
-ENABLE_DB_RESET = os.environ.get("ENABLE_DB_RESET", "").strip()
+# Name of env var that scopes the Reset Database button to one workspace.
+ENABLE_DB_RESET = "ENABLE_DB_RESET"
+
+# ---------------------------------------------------------------------------
+# Derived runtime flags / computed values
+# ---------------------------------------------------------------------------
 
 LOCAL_DEVELOPMENT = os.environ.get("LOCAL_DEVELOPMENT", "false").lower() == "true"
 

@@ -11,7 +11,13 @@ import builders
 import helpers
 from builders._common import _format_channel_ref, _get_group_members
 from db import DbManager, schemas
-from handlers._common import _parse_private_metadata, _sanitize_text
+from handlers._common import (
+    _get_authorized_workspace,
+    _get_selected_conversation_or_option,
+    _get_selected_option_value,
+    _parse_private_metadata,
+    _sanitize_text,
+)
 from slack import actions, orm
 from slack.blocks import context as block_context
 from slack.blocks import section
@@ -95,10 +101,14 @@ def _build_publish_step2(
 
     if sync_mode == "direct" and other_members:
         ws_options: list[orm.SelectorOption] = []
-        for m in other_members:
-            ws = helpers.get_workspace_by_id(m.workspace_id)
-            name = helpers.resolve_workspace_name(ws) if ws else f"Workspace {m.workspace_id}"
-            ws_options.append(orm.SelectorOption(name=name, value=str(m.workspace_id)))
+        for other_member in other_members:
+            other_workspace = helpers.get_workspace_by_id(other_member.workspace_id)
+            name = (
+                helpers.resolve_workspace_name(other_workspace)
+                if other_workspace
+                else f"Workspace {other_member.workspace_id}"
+            )
+            ws_options.append(orm.SelectorOption(name=name, value=str(other_member.workspace_id)))
 
         if ws_options:
             modal_blocks.append(
@@ -123,10 +133,10 @@ def handle_publish_channel(
     context: dict,
 ) -> None:
     """Open the publish-channel flow — always starts with step 1 (sync mode selection)."""
-    user_id = helpers.get_user_id_from_body(body)
-    if not user_id or not helpers.is_user_authorized(client, user_id):
-        _logger.warning("authorization_denied", extra={"user_id": user_id, "action": "publish_channel"})
+    auth_result = _get_authorized_workspace(body, client, context, "publish_channel")
+    if not auth_result:
         return
+    _, workspace_record = auth_result
 
     trigger_id = helpers.safe_get(body, "trigger_id")
     raw_group_id = helpers.safe_get(body, "actions", 0, "value")
@@ -166,7 +176,7 @@ def handle_publish_channel(
         callback_id=actions.CONFIG_PUBLISH_MODE_SUBMIT,
         title_text="Sync Channel",
         submit_button_text="Next",
-        parent_metadata={"group_id": group_id},
+        parent_metadata={"group_id": group_id, "workspace_id": workspace_record.id},
         new_or_add="new",
     )
 
@@ -178,35 +188,23 @@ def handle_publish_mode_submit(
     context: dict,
 ) -> None:
     """Handle step 1 submission: read the selected sync mode and show step 2."""
-    user_id = helpers.get_user_id_from_body(body)
-    if not user_id or not helpers.is_user_authorized(client, user_id):
+    auth_result = _get_authorized_workspace(body, client, context, "publish_mode_submit")
+    if not auth_result:
         return
+    _, workspace_record = auth_result
 
     metadata = _parse_private_metadata(body)
     group_id = metadata.get("group_id")
     if not group_id:
         return
 
-    state_values = helpers.safe_get(body, "view", "state", "values") or {}
-    sync_mode = "group"
-    for _block_id, block_data in state_values.items():
-        for action_id, action_data in block_data.items():
-            if action_id == actions.CONFIG_PUBLISH_SYNC_MODE:
-                selected = helpers.safe_get(action_data, "selected_option", "value")
-                if selected:
-                    sync_mode = selected
-
-    team_id = helpers.safe_get(body, "view", "team_id")
-    workspace_record = helpers.get_workspace_record(team_id, body, context, client) if team_id else None
+    sync_mode = _get_selected_option_value(body, actions.CONFIG_PUBLISH_SYNC_MODE) or "group"
 
     other_members = []
-    if workspace_record:
-        group_members = _get_group_members(group_id)
-        other_members = [m for m in group_members if m.workspace_id != workspace_record.id and m.workspace_id]
-
-    if not workspace_record:
-        _logger.warning("handle_publish_mode_submit: no workspace_record")
-        return
+    group_members = _get_group_members(group_id)
+    other_members = [
+        member for member in group_members if member.workspace_id != workspace_record.id and member.workspace_id
+    ]
     step2 = _build_publish_step2(client, group_id, sync_mode, other_members, workspace_record.id)
     updated_view = step2.as_ack_update(
         callback_id=actions.CONFIG_PUBLISH_CHANNEL_SUBMIT,
@@ -228,15 +226,10 @@ def handle_publish_channel_submit(
     context: dict,
 ) -> None:
     """Create a Sync + SyncChannel for the publisher's channel, scoped to a group."""
-    user_id = helpers.get_user_id_from_body(body)
-    if not user_id or not helpers.is_user_authorized(client, user_id):
-        _logger.warning("authorization_denied", extra={"user_id": user_id, "action": "publish_channel_submit"})
+    auth_result = _get_authorized_workspace(body, client, context, "publish_channel_submit")
+    if not auth_result:
         return
-
-    team_id = helpers.safe_get(body, "view", "team_id")
-    workspace_record = helpers.get_workspace_record(team_id, body, context, client)
-    if not workspace_record:
-        return
+    _, workspace_record = auth_result
 
     metadata = _parse_private_metadata(body)
     group_id = metadata.get("group_id")
@@ -245,31 +238,19 @@ def handle_publish_channel_submit(
         _logger.warning("publish_channel_submit: missing group_id in metadata")
         return
 
-    state_values = helpers.safe_get(body, "view", "state", "values") or {}
-
     sync_mode = metadata.get("sync_mode", "group")
     target_workspace_id = None
-
-    for _block_id, block_data in state_values.items():
-        for action_id, action_data in block_data.items():
-            if action_id == actions.CONFIG_PUBLISH_DIRECT_TARGET:
-                selected_opt = helpers.safe_get(action_data, "selected_option", "value")
-                if selected_opt:
-                    with contextlib.suppress(TypeError, ValueError):
-                        target_workspace_id = int(selected_opt)
+    selected_target = _get_selected_option_value(body, actions.CONFIG_PUBLISH_DIRECT_TARGET)
+    if selected_target:
+        with contextlib.suppress(TypeError, ValueError):
+            target_workspace_id = int(selected_target)
 
     if sync_mode == "direct" and not target_workspace_id:
         sync_mode = "group"
 
     ack_fn = context.get("ack")
 
-    channel_id = None
-    for _block_id, block_data in state_values.items():
-        for action_id, action_data in block_data.items():
-            if action_id == actions.CONFIG_PUBLISH_CHANNEL_SELECT:
-                channel_id = action_data.get("selected_conversation") or action_data.get("selected_option", {}).get(
-                    "value"
-                )
+    channel_id = _get_selected_conversation_or_option(body, actions.CONFIG_PUBLISH_CHANNEL_SELECT)
 
     if not channel_id or channel_id == "__none__":
         if ack_fn:
@@ -355,17 +336,11 @@ def handle_unpublish_channel(
     DB cascades remove all ``SyncChannel`` and ``PostMeta`` rows.
     Only the original publisher can unpublish.
     """
-    user_id = helpers.get_user_id_from_body(body)
-    if not user_id or not helpers.is_user_authorized(client, user_id):
-        _logger.warning("authorization_denied", extra={"user_id": user_id, "action": "unpublish_channel"})
+    auth_result = _get_authorized_workspace(body, client, context, "unpublish_channel")
+    if not auth_result:
         return
+    user_id, workspace_record = auth_result
 
-    team_id = (
-        helpers.safe_get(body, "view", "team_id")
-        or helpers.safe_get(body, "team", "id")
-        or helpers.safe_get(body, "user", "team_id")
-    )
-    workspace_record = helpers.get_workspace_record(team_id, body, context, client) if team_id else None
     admin_name, admin_label = helpers.format_admin_label(client, user_id, workspace_record)
 
     raw_value = helpers.safe_get(body, "actions", 0, "value")
@@ -441,15 +416,10 @@ def _toggle_sync_status(
         _logger.warning(f"{log_event}_invalid_id", extra={"action_id": action_id})
         return
 
-    user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
-    team_id = (
-        helpers.safe_get(body, "view", "team_id")
-        or helpers.safe_get(body, "team", "id")
-        or helpers.safe_get(body, "user", "team_id")
-    )
-    workspace_record = helpers.get_workspace_record(team_id, body, context, client) if team_id else None
-    if not workspace_record:
+    auth_result = _get_authorized_workspace(body, client, context, log_event)
+    if not auth_result:
         return
+    user_id, workspace_record = auth_result
     admin_name, admin_label = helpers.format_admin_label(client, user_id, workspace_record)
 
     all_channels = DbManager.find_records(
@@ -597,20 +567,15 @@ def handle_stop_sync_confirm(
     Removes only this workspace's ``SyncChannel`` and its ``PostMeta``.
     Other workspaces' data and the Sync record remain intact.
     """
-    user_id = helpers.get_user_id_from_body(body)
-    if not user_id or not helpers.is_user_authorized(client, user_id):
-        _logger.warning("authorization_denied", extra={"user_id": user_id, "action": "stop_sync_confirm"})
+    auth_result = _get_authorized_workspace(body, client, context, "stop_sync_confirm")
+    if not auth_result:
         return
+    user_id, workspace_record = auth_result
 
     meta = _parse_private_metadata(body)
     sync_id = meta.get("sync_id")
     if not sync_id:
         _logger.warning("stop_sync_confirm: missing sync_id in metadata")
-        return
-
-    team_id = helpers.safe_get(body, "view", "team_id")
-    workspace_record = helpers.get_workspace_record(team_id, body, context, client)
-    if not workspace_record:
         return
 
     admin_name, admin_label = helpers.format_admin_label(client, user_id, workspace_record)
@@ -679,22 +644,13 @@ def handle_subscribe_channel(
     The channel list only shows channels that are not already in any sync
     (excluding already-synced and published-but-unsubscribed channels).
     """
-    user_id = helpers.get_user_id_from_body(body)
-    if not user_id or not helpers.is_user_authorized(client, user_id):
-        _logger.warning("authorization_denied", extra={"user_id": user_id, "action": "subscribe_channel"})
+    auth_result = _get_authorized_workspace(body, client, context, "subscribe_channel")
+    if not auth_result:
         return
+    _, workspace_record = auth_result
 
     trigger_id = helpers.safe_get(body, "trigger_id")
     sync_id = helpers.safe_get(body, "actions", 0, "value")
-    team_id = (
-        helpers.safe_get(body, "view", "team_id")
-        or helpers.safe_get(body, "team", "id")
-        or helpers.safe_get(body, "user", "team_id")
-    )
-    workspace_record = helpers.get_workspace_record(team_id, body, context, client) if team_id else None
-    if not workspace_record:
-        _logger.warning("handle_subscribe_channel: no workspace_record")
-        return
 
     blocks: list[orm.BaseBlock] = []
 
@@ -747,15 +703,10 @@ def handle_subscribe_channel_submit(
     context: dict,
 ) -> None:
     """Subscribe to an available channel sync: create SyncChannel for subscriber."""
-    user_id = helpers.get_user_id_from_body(body)
-    if not user_id or not helpers.is_user_authorized(client, user_id):
-        _logger.warning("authorization_denied", extra={"user_id": user_id, "action": "subscribe_channel_submit"})
+    auth_result = _get_authorized_workspace(body, client, context, "subscribe_channel_submit")
+    if not auth_result:
         return
-
-    team_id = helpers.safe_get(body, "view", "team_id")
-    workspace_record = helpers.get_workspace_record(team_id, body, context, client)
-    if not workspace_record:
-        return
+    user_id, workspace_record = auth_result
 
     metadata = _parse_private_metadata(body)
     sync_id = metadata.get("sync_id")
@@ -764,14 +715,7 @@ def handle_subscribe_channel_submit(
         _logger.warning("subscribe_channel_submit: missing sync_id")
         return
 
-    state_values = helpers.safe_get(body, "view", "state", "values") or {}
-    channel_id = None
-    for _block_id, block_data in state_values.items():
-        for action_id, action_data in block_data.items():
-            if action_id == actions.CONFIG_SUBSCRIBE_CHANNEL_SELECT:
-                channel_id = action_data.get("selected_conversation") or helpers.safe_get(
-                    action_data, "selected_option", "value"
-                )
+    channel_id = _get_selected_conversation_or_option(body, actions.CONFIG_SUBSCRIBE_CHANNEL_SELECT)
 
     if not channel_id or channel_id == "__none__":
         _logger.warning("subscribe_channel_submit: no channel selected")

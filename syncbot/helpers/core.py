@@ -63,7 +63,7 @@ def is_db_reset_visible_for_workspace(team_id: str | None) -> bool:
     Reads ENABLE_DB_RESET from os.environ at call time so it is correct even
     if .env was loaded after constants was first imported.
     """
-    enabled = (os.environ.get("ENABLE_DB_RESET") or "").strip()
+    enabled = (os.environ.get(constants.ENABLE_DB_RESET) or "").strip()
     if not enabled:
         _logger.debug("DB reset button hidden: ENABLE_DB_RESET not set")
         return False

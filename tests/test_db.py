@@ -1,4 +1,4 @@
-"""Unit tests for syncbot.utils.db connection pooling and retry logic."""
+"""Unit tests for ``syncbot/db`` connection pooling and retry logic."""
 
 import os
 from unittest.mock import patch

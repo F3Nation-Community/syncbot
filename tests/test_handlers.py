@@ -1,4 +1,4 @@
-"""Unit tests for syncbot.utils.handlers event parsing and dispatch."""
+"""Unit tests for handler parsing and dispatch helpers."""
 
 import os
 from unittest.mock import MagicMock, patch

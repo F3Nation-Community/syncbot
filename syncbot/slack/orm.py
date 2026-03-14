@@ -507,7 +507,7 @@ class BlockView:
         trigger_id: str,
         title_text: str,
         callback_id: str,
-        submit_button_text: str = "Submit",
+        submit_button_text: str | None = "Submit",
         parent_metadata: dict = None,
         close_button_text: str = "Close",
         notify_on_close: bool = False,
@@ -526,7 +526,7 @@ class BlockView:
         if parent_metadata:
             view["private_metadata"] = json.dumps(parent_metadata)
 
-        if submit_button_text != "None":  # TODO: would prefer this to use None instead of "None"
+        if submit_button_text:
             view["submit"] = {"type": "plain_text", "text": submit_button_text}
 
         try:
@@ -535,8 +535,11 @@ class BlockView:
             elif new_or_add == "add":
                 client.views_push(trigger_id=trigger_id, view=view)
         except Exception as e:
-            logger.error(f"Failed to open/push modal view: {e}")
-            logger.debug(f"View payload: {json.dumps(view, indent=2)}")
+            logger.error(
+                "modal_open_or_push_failed",
+                extra={"callback_id": callback_id, "mode": new_or_add, "error": str(e)},
+            )
+            logger.debug("modal_view_payload", extra={"view": json.dumps(view, indent=2)})
 
     def publish_home_tab(self, client: Any, user_id: str):
         """Publish a Home tab view for the given user."""
@@ -552,7 +555,7 @@ class BlockView:
         view_id: str,
         title_text: str,
         callback_id: str,
-        submit_button_text: str = "Submit",
+        submit_button_text: str | None = "Submit",
         parent_metadata: dict = None,
         close_button_text: str = "Close",
         notify_on_close: bool = False,
@@ -567,7 +570,7 @@ class BlockView:
             "notify_on_close": notify_on_close,
             "blocks": blocks,
         }
-        if submit_button_text != "None":
+        if submit_button_text:
             view["submit"] = {"type": "plain_text", "text": submit_button_text}
         if parent_metadata:
             view["private_metadata"] = json.dumps(parent_metadata)
