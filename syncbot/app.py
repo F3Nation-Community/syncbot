@@ -31,6 +31,7 @@ from constants import (
     LOCAL_DEVELOPMENT,
     validate_config,
 )
+from db import initialize_database
 from federation.api import dispatch_federation_request
 from helpers import get_oauth_flow, get_request_type, safe_get
 from logger import (
@@ -79,6 +80,7 @@ SlackRequestHandler.clear_all_log_handlers()
 configure_logging()
 
 validate_config()
+initialize_database()
 
 app = App(
     process_before_response=not LOCAL_DEVELOPMENT,

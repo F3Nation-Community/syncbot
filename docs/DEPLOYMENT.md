@@ -16,11 +16,11 @@ sam deploy --guided \
     ExistingDatabaseHost=mydb.xxxx.us-east-2.rds.amazonaws.com
 ```
 
-Each app sharing the same RDS should use a **different `DatabaseSchema`** (the default is `syncbot`). Create the schema and initialize the tables on the existing instance:
+Each app sharing the same RDS should use a **different `DatabaseSchema`** (the default is `syncbot`). SyncBot now auto-creates the schema and initializes/updates tables at startup, so there is no manual `init.sql` step.
 
 ```bash
+# Optional one-time validation if you want to pre-create schema manually:
 mysql -h <EXISTING_RDS_ENDPOINT> -u <DB_USER> -p -e "CREATE DATABASE IF NOT EXISTS syncbot;"
-mysql -h <EXISTING_RDS_ENDPOINT> -u <DB_USER> -p syncbot < db/init.sql
 ```
 
 **What about API Gateway and Lambda?** Each stack always creates its own API Gateway and Lambda function. These are lightweight resources that don't affect free-tier billing — the free tier quotas (1M API calls, 1M Lambda requests) are shared across your entire account regardless of how many gateways or functions you have. If you want a unified domain across apps, put a CloudFront distribution or API Gateway custom domain in front.
@@ -75,6 +75,6 @@ push to test → sam build → deploy to test
 push to prod → sam build → (manual approval, optional) → deploy to prod
 ```
 
-Monitor progress in your repo's **Actions** tab. The first deploy creates the CloudFormation stack (VPC, RDS, Lambda, API Gateway). SAM uses the deployment bucket only for packaging; the app stores OAuth and data in RDS and uploads media directly to Slack.
+Monitor progress in your repo's **Actions** tab. The first deploy creates the CloudFormation stack (VPC, RDS, Lambda, API Gateway). SAM uses the deployment bucket only for packaging; the app stores OAuth and data in RDS and uploads media directly to Slack. On cold start, SyncBot also applies DB bootstrap/migrations automatically.
 
 > **Tip:** If you prefer to do the very first deploy manually (to see the interactive prompts), run `sam deploy --guided` locally first, then let the pipeline handle all future deploys.

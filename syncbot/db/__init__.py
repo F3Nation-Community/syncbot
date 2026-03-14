@@ -13,12 +13,13 @@ Key design decisions:
 import logging
 import os
 import ssl
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 from urllib.parse import quote_plus
 
-from sqlalchemy import and_, create_engine, func, pool, text
+from sqlalchemy import and_, create_engine, func, inspect, pool, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
@@ -40,6 +41,13 @@ GLOBAL_SCHEMA = None
 
 # Maximum number of times to retry a DB operation on a transient connection error
 _MAX_RETRIES = 2
+_DB_INIT_MAX_ATTEMPTS = 15
+_DB_INIT_RETRY_SECONDS = 2
+_MIGRATION_TABLE = "schema_migrations"
+_BASELINE_VERSION = "000_init_sql"
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_INIT_SQL_PATH = _PROJECT_ROOT / "db" / "init.sql"
+_MIGRATIONS_DIR = _PROJECT_ROOT / "db" / "migrations"
 
 
 def _build_base_url(include_schema: bool = False) -> tuple[str, dict]:
@@ -59,6 +67,144 @@ def _build_base_url(include_schema: bool = False) -> tuple[str, dict]:
             ssl_ctx = ssl.create_default_context()
         connect_args["ssl"] = ssl_ctx
     return db_url, connect_args
+
+
+def _sql_statements_from_file(sql_path: Path) -> list[str]:
+    """Parse a SQL file into executable statements.
+
+    This parser intentionally supports the project's migration style
+    (line comments + semicolon-delimited statements).
+    """
+    sql = sql_path.read_text()
+    lines = []
+    for line in sql.splitlines():
+        if "--" in line:
+            line = line[: line.index("--")].strip()
+        else:
+            line = line.strip()
+        if line:
+            lines.append(line)
+    combined = " ".join(lines)
+    return [stmt.strip() for stmt in combined.split(";") if stmt.strip()]
+
+
+def _execute_sql_file(conn, sql_path: Path) -> None:
+    """Execute all statements from *sql_path* using the provided connection."""
+    for stmt in _sql_statements_from_file(sql_path):
+        conn.execute(text(stmt))
+
+
+def _ensure_migration_table(engine) -> None:
+    """Create the migration tracking table if it does not exist."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version VARCHAR(255) PRIMARY KEY,
+                    applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+        )
+
+
+def _migration_applied(engine, version: str) -> bool:
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT version FROM schema_migrations WHERE version = :version"),
+            {"version": version},
+        ).first()
+    return row is not None
+
+
+def _record_migration(engine, version: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO schema_migrations (version)
+                VALUES (:version)
+                ON DUPLICATE KEY UPDATE version = VALUES(version)
+                """
+            ),
+            {"version": version},
+        )
+
+
+def _table_exists(engine, table_name: str) -> bool:
+    """Return True if *table_name* exists in the current schema."""
+    return inspect(engine).has_table(table_name)
+
+
+def _ensure_database_exists() -> None:
+    """Create the configured schema if it does not already exist."""
+    schema = os.environ.get(constants.ADMIN_DATABASE_SCHEMA, "syncbot")
+    url_no_db, connect_args = _build_base_url(include_schema=False)
+    engine_no_db = create_engine(url_no_db, connect_args=connect_args, pool_pre_ping=True)
+    try:
+        with engine_no_db.begin() as conn:
+            conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{schema}` CHARACTER SET utf8mb4"))
+    finally:
+        engine_no_db.dispose()
+
+
+def initialize_database() -> None:
+    """Initialize schema and apply migrations automatically.
+
+    Behavior:
+    - Ensures the target database exists.
+    - Creates migration tracking table.
+    - Applies ``db/init.sql`` exactly once for fresh databases (or marks it as
+      baseline for already-initialized databases).
+    - Applies pending SQL migrations from ``db/migrations`` in filename order.
+    """
+    if not _INIT_SQL_PATH.exists():
+        raise FileNotFoundError(f"Missing init.sql at {_INIT_SQL_PATH}")
+
+    for attempt in range(1, _DB_INIT_MAX_ATTEMPTS + 1):
+        try:
+            _ensure_database_exists()
+            engine = get_engine()
+
+            _ensure_migration_table(engine)
+
+            if not _migration_applied(engine, _BASELINE_VERSION):
+                if _table_exists(engine, "workspaces"):
+                    _logger.info("db_init_baseline_marked", extra={"version": _BASELINE_VERSION})
+                    _record_migration(engine, _BASELINE_VERSION)
+                else:
+                    _logger.info("db_init_start", extra={"file": str(_INIT_SQL_PATH)})
+                    with engine.begin() as conn:
+                        _execute_sql_file(conn, _INIT_SQL_PATH)
+                    _record_migration(engine, _BASELINE_VERSION)
+                    _logger.info("db_init_complete", extra={"version": _BASELINE_VERSION})
+
+            if _MIGRATIONS_DIR.exists():
+                migration_files = sorted(p for p in _MIGRATIONS_DIR.glob("*.sql") if p.is_file())
+                for migration_file in migration_files:
+                    version = migration_file.name
+                    if _migration_applied(engine, version):
+                        continue
+                    _logger.info("db_migration_start", extra={"version": version})
+                    with engine.begin() as conn:
+                        _execute_sql_file(conn, migration_file)
+                    _record_migration(engine, version)
+                    _logger.info("db_migration_complete", extra={"version": version})
+
+            return
+        except Exception as exc:
+            if attempt >= _DB_INIT_MAX_ATTEMPTS:
+                _logger.error(
+                    "db_init_failed",
+                    extra={"attempts": _DB_INIT_MAX_ATTEMPTS, "error": str(exc)},
+                )
+                raise
+            _logger.warning(
+                "db_init_retrying",
+                extra={"attempt": attempt, "max_attempts": _DB_INIT_MAX_ATTEMPTS, "error": str(exc)},
+            )
+            time.sleep(_DB_INIT_RETRY_SECONDS)
 
 
 def drop_and_init_db() -> None:
@@ -86,35 +232,22 @@ def drop_and_init_db() -> None:
     url_with_db, connect_args = _build_base_url(include_schema=True)
     engine_with_db = create_engine(url_with_db, connect_args=connect_args, pool_pre_ping=True)
 
-    init_path = Path(__file__).resolve().parent.parent.parent / "db" / "init.sql"
+    init_path = _INIT_SQL_PATH
     if not init_path.exists():
         _logger.error("drop_and_init_db: init.sql not found at %s", init_path)
         engine_with_db.dispose()
         return
 
-    sql = init_path.read_text()
-    # Strip line comments and split into statements
-    lines = []
-    for line in sql.splitlines():
-        if "--" in line:
-            line = line[: line.index("--")].strip()
-        else:
-            line = line.strip()
-        if line:
-            lines.append(line)
-    combined = " ".join(lines)
-    statements = [s.strip() for s in combined.split(";") if s.strip()]
-
     with engine_with_db.begin() as conn:
-        for stmt in statements:
-            if stmt:
-                conn.execute(text(stmt))
+        _execute_sql_file(conn, init_path)
 
     engine_with_db.dispose()
 
     GLOBAL_ENGINE = None
     GLOBAL_SESSION = None
     GLOBAL_SCHEMA = None
+    # Ensure baseline is re-recorded after reset.
+    initialize_database()
     _logger.info("drop_and_init_db: database %s dropped and reinitialized from init.sql", schema)
 
 

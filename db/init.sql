@@ -1,6 +1,5 @@
 -- SyncBot Database Schema
 -- Run this to initialize a fresh database with all tables.
--- Pre-release: all schema changes are maintained here; no separate migration scripts.
 --
 -- Usage:
 --   mysql -h <RDS_ENDPOINT> -u <DB_USER> -p <DB_SCHEMA> < db/init.sql
@@ -61,7 +60,6 @@ CREATE TABLE IF NOT EXISTS workspace_group_members (
     FOREIGN KEY (invited_by_workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL,
     UNIQUE KEY uq_group_workspace (group_id, workspace_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
--- If upgrading an existing DB, run: ALTER TABLE workspace_group_members ADD COLUMN invited_by_slack_user_id VARCHAR(32) DEFAULT NULL, ADD COLUMN invited_by_workspace_id INT DEFAULT NULL, ADD CONSTRAINT fk_wgm_invited_by FOREIGN KEY (invited_by_workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS syncs (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -126,7 +124,6 @@ CREATE TABLE IF NOT EXISTS user_mappings (
     UNIQUE KEY uq_source_target (source_workspace_id, source_user_id, target_workspace_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Slack OAuth persistence tables (for SQLAlchemyInstallationStore / SQLAlchemyOAuthStateStore)
 CREATE TABLE IF NOT EXISTS slack_bots (
     id INT AUTO_INCREMENT PRIMARY KEY,
     client_id VARCHAR(32) NOT NULL,
@@ -180,7 +177,6 @@ CREATE TABLE IF NOT EXISTS slack_oauth_states (
     expire_at DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Indexes
 CREATE INDEX idx_sync_channels_channel_id ON sync_channels(channel_id);
 CREATE INDEX idx_sync_channels_sync_id ON sync_channels(sync_id);
 CREATE INDEX idx_sync_channels_workspace_id ON sync_channels(workspace_id);

@@ -64,11 +64,7 @@ sam deploy --guided
 
 You'll be prompted for parameters like `DatabaseUser`, `DatabasePassword`, `SlackSigningSecret`, `SlackClientId`, `SlackClientSecret`, `EncryptionKey`, and `AllowedDBCidr`. These are stored as CloudFormation parameters (secrets use `NoEcho`).
 
-3. **Initialize the database** — after the stack creates the RDS instance, grab the endpoint from the CloudFormation outputs and run:
-
-```bash
-mysql -h <RDS_ENDPOINT> -u <DB_USER> -p<DB_PASSWORD> syncbot < db/init.sql
-```
+3. **Auto-initialize check** — on first startup, SyncBot now creates the database schema and applies pending SQL migrations automatically. No manual `mysql < db/init.sql` step is required.
 
 4. **Update your Slack app URLs** to point at the API Gateway endpoint shown in the stack outputs (e.g., `https://xxxxx.execute-api.us-east-2.amazonaws.com/Prod/slack/events`).
 
@@ -80,7 +76,7 @@ sam deploy                        # test (default profile)
 sam deploy --config-env prod      # production profile
 ```
 
-The `samconfig.toml` file stores per-environment settings so you don't have to re-enter parameters.
+The `samconfig.toml` file stores per-environment settings so you don't have to re-enter parameters. Each deploy automatically runs DB bootstrap/migrations during app startup.
 
 > For shared infrastructure, CI/CD setup, and advanced deployment options, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
@@ -192,7 +188,6 @@ docker run -d --name syncbot-db \
   -e MYSQL_DATABASE=syncbot \
   -p 3306:3306 \
   mysql:8
-mysql -h 127.0.0.1 -u root -prootpass syncbot < db/init.sql
 ```
 
 Configure and run:
@@ -276,7 +271,8 @@ syncbot/
 │   ├── federation/            # Cross-instance sync (opt-in)
 │   ├── db/                    # Engine, session, ORM models
 │   └── slack/                 # Action IDs, forms, Block Kit helpers
-├── db/init.sql                # Database schema
+├── db/init.sql                # Baseline schema for fresh databases
+├── db/migrations/             # Forward-only SQL migrations (auto-applied)
 ├── tests/                     # pytest unit tests
 ├── docs/                      # Extended documentation
 ├── template.yaml              # AWS SAM infrastructure-as-code
