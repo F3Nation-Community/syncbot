@@ -65,6 +65,9 @@ jobs:
             --force-upload \
             --parameter-overrides \
               "Stage=${{ vars.STAGE_NAME }} \
+               ExistingDatabaseHost=${{ vars.EXISTING_DATABASE_HOST }} \
+               DatabaseUser=${{ vars.DATABASE_USER }} \
+               DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
                DatabasePassword=${{ secrets.DATABASE_PASSWORD }} \
@@ -106,6 +109,9 @@ jobs:
             --force-upload \
             --parameter-overrides \
               "Stage=${{ vars.STAGE_NAME }} \
+               ExistingDatabaseHost=${{ vars.EXISTING_DATABASE_HOST }} \
+               DatabaseUser=${{ vars.DATABASE_USER }} \
+               DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
                DatabasePassword=${{ secrets.DATABASE_PASSWORD }} \

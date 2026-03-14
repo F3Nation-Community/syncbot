@@ -37,7 +37,17 @@ Pushes to deployment branches automatically build and deploy via `.github/workfl
 
 ### One-Time Setup
 
-1. **Create an IAM user** for deployments with permissions for CloudFormation, Lambda, API Gateway, S3 (for deploy artifacts only), IAM, and RDS. Generate an access key pair.
+1. **Create an IAM user and access key pair** for deployments with permissions for:
+```
+AWSCloudFormationFullAccess
+AmazonAPIGatewayAdministrator
+AWSLambda_FullAccess
+AmazonRDSFullAccess
+AmazonEC2FullAccess
+CloudWatchFullAccess
+AmazonS3FullAccess
+IAMFullAccess
+```
 
 2. **Create a SAM deployment bucket** — SAM uploads the Lambda package to an S3 bucket during deploy (packaging only; the app does not use S3 at runtime):
 
@@ -65,6 +75,12 @@ aws s3 mb s3://my-sam-deploy-bucket --region us-east-2
 | `AWS_STACK_NAME` | `syncbot-test` | `syncbot-prod` |
 | `AWS_S3_BUCKET` | `my-sam-deploy-bucket` | `my-sam-deploy-bucket` |
 | `STAGE_NAME` | `test` | `prod` |
+| `EXISTING_DATABASE_HOST` | `mydb.xxxx.us-east-2.rds.amazonaws.com` | `mydb.xxxx.us-east-2.rds.amazonaws.com` |
+| `DATABASE_USER` | `syncbot_user` | `syncbot_user` |
+| `DATABASE_SCHEMA` | `syncbot_test` | `syncbot_prod` |
+
+`EXISTING_DATABASE_HOST` tells SAM to skip creating VPC/RDS resources and point Lambda at your existing RDS endpoint. Use different `DATABASE_SCHEMA` values per environment when sharing one RDS instance.
+If you want SAM to create a new RDS per environment instead, leave `EXISTING_DATABASE_HOST` empty.
 
 ### Deploy Flow
 
