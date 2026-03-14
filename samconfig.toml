@@ -10,13 +10,13 @@ version = 0.1
 use_container = true
 
 [default.deploy.parameters]
-stack_name = "syncbot-staging"
+stack_name = "syncbot-test"
 resolve_s3 = true
-s3_prefix = "syncbot-staging"
+s3_prefix = "syncbot-test"
 region = "us-east-2"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
-parameter_overrides = "Stage=staging"
+parameter_overrides = "Stage=test"
 
 [prod.deploy.parameters]
 stack_name = "syncbot-prod"

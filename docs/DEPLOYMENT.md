@@ -27,11 +27,13 @@ mysql -h <EXISTING_RDS_ENDPOINT> -u <DB_USER> -p syncbot < db/init.sql
 
 ## CI/CD via GitHub Actions
 
-Pushes to `main` automatically build and deploy via `.github/workflows/sam-pipeline.yml`:
+Pushes to deployment branches automatically build and deploy via `.github/workflows/sam-pipeline.yml`:
 
 1. **Build** — `sam build --use-container`
-2. **Deploy to test** — automatic
-3. **Deploy to prod** — requires manual approval (configure in GitHub environment settings)
+2. **Deploy to test** — automatic on push to `test`
+3. **Deploy to prod** — automatic on push to `prod` (can require manual approval via GitHub environment settings)
+
+`main` can remain an upstream-sync branch and does not deploy.
 
 ### One-Time Setup
 
@@ -62,14 +64,15 @@ aws s3 mb s3://my-sam-deploy-bucket --region us-east-2
 |----------|-------------|-------------|
 | `AWS_STACK_NAME` | `syncbot-test` | `syncbot-prod` |
 | `AWS_S3_BUCKET` | `my-sam-deploy-bucket` | `my-sam-deploy-bucket` |
-| `STAGE_NAME` | `staging` | `prod` |
+| `STAGE_NAME` | `test` | `prod` |
 
 ### Deploy Flow
 
-Once configured, merge or push to `main` and the pipeline runs:
+Once configured, push to deployment branches and the pipeline runs:
 
 ```
-push to main → sam build → deploy to test → (manual approval) → deploy to prod
+push to test → sam build → deploy to test
+push to prod → sam build → (manual approval, optional) → deploy to prod
 ```
 
 Monitor progress in your repo's **Actions** tab. The first deploy creates the CloudFormation stack (VPC, RDS, Lambda, API Gateway). SAM uses the deployment bucket only for packaging; the app stores OAuth and data in RDS and uploads media directly to Slack.

@@ -76,7 +76,7 @@ mysql -h <RDS_ENDPOINT> -u <DB_USER> -p<DB_PASSWORD> syncbot < db/init.sql
 
 ```bash
 sam build --use-container
-sam deploy                        # staging (default profile)
+sam deploy                        # test (default profile)
 sam deploy --config-env prod      # production profile
 ```
 

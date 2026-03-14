@@ -1,7 +1,8 @@
 on:
   push:
     branches:
-      - main
+      - test
+      - prod
 
 jobs:
   sam-build:
@@ -29,6 +30,7 @@ jobs:
           path: './.aws-sam/build'
 
   sam-deploy-test:
+    if: github.ref == 'refs/heads/test'
     runs-on: ubuntu-latest
     environment: test
     needs: sam-build
@@ -69,9 +71,10 @@ jobs:
                PasswordEncryptKey=${{ secrets.PASSWORD_ENCRYPT_KEY }}"
 
   sam-deploy-prod:
+    if: github.ref == 'refs/heads/prod'
     runs-on: ubuntu-latest
     environment: prod
-    needs: [sam-build, sam-deploy-test]
+    needs: sam-build
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
