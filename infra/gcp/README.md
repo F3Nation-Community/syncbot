@@ -25,8 +25,11 @@ Minimal Terraform scaffold to run SyncBot on Google Cloud. Satisfies the [infras
 
    ```bash
    echo -n "YOUR_SLACK_SIGNING_SECRET" | gcloud secrets versions add syncbot-test-syncbot-slack-signing-secret --data-file=-
-   # Repeat for ENV_SLACK_CLIENT_ID, ENV_SLACK_CLIENT_SECRET, ENV_SLACK_SCOPES, syncbot-token-encryption-key, syncbot-db-password (if existing DB)
+   # Repeat for ENV_SLACK_CLIENT_ID, ENV_SLACK_CLIENT_SECRET, ENV_SLACK_SCOPES, syncbot-db-password (if existing DB)
    ```
+
+   `TOKEN_ENCRYPTION_KEY` is generated once automatically by Terraform and stored in Secret Manager. Back it up. If lost, existing workspaces must reinstall to re-authorize bot tokens.
+   For disaster recovery, restore with `-var='token_encryption_key_override=<old_key>'`.
 
 3. **Set the Cloud Run image**  
    By default the service uses a placeholder image. Build and push your SyncBot image to Artifact Registry, then:

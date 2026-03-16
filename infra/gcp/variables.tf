@@ -129,6 +129,13 @@ variable "secret_token_encryption_key" {
   description = "Secret Manager secret ID for TOKEN_ENCRYPTION_KEY"
 }
 
+variable "token_encryption_key_override" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Optional disaster-recovery override for TOKEN_ENCRYPTION_KEY. Leave empty for normal deploys."
+}
+
 variable "secret_db_password" {
   type        = string
   default     = "syncbot-db-password"

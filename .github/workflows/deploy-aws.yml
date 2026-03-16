@@ -1,5 +1,6 @@
 # Deploy SyncBot to AWS (SAM). See docs/DEPLOYMENT.md and docs/INFRA_CONTRACT.md.
 # To use GCP instead: set repository variable DEPLOY_TARGET=gcp and disable this workflow.
+# Optional DR secret: TOKEN_ENCRYPTION_KEY_OVERRIDE (passes TokenEncryptionKeyOverride on deploy).
 
 name: Deploy (AWS)
 
@@ -62,6 +63,12 @@ jobs:
 
       - name: Deploy to test
         run: |
+          TOKEN_KEY_OVERRIDE="${{ secrets.TOKEN_ENCRYPTION_KEY_OVERRIDE }}"
+          OVERRIDE_PARAM=""
+          if [ -n "$TOKEN_KEY_OVERRIDE" ]; then
+            OVERRIDE_PARAM=" TokenEncryptionKeyOverride=$TOKEN_KEY_OVERRIDE"
+            echo "Using TOKEN_ENCRYPTION_KEY_OVERRIDE for disaster-recovery deploy."
+          fi
           sam deploy \
             -t .aws-sam/build/template.yaml \
             --no-confirm-changeset \
@@ -79,8 +86,7 @@ jobs:
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
-               DatabasePassword=${{ secrets.DATABASE_PASSWORD }} \
-               TokenEncryptionKey=${{ secrets.TOKEN_ENCRYPTION_KEY }}"
+               DatabasePassword=${{ secrets.DATABASE_PASSWORD }}$OVERRIDE_PARAM"
 
   sam-deploy-prod:
     if: github.ref == 'refs/heads/prod'
@@ -105,6 +111,12 @@ jobs:
 
       - name: Deploy to prod
         run: |
+          TOKEN_KEY_OVERRIDE="${{ secrets.TOKEN_ENCRYPTION_KEY_OVERRIDE }}"
+          OVERRIDE_PARAM=""
+          if [ -n "$TOKEN_KEY_OVERRIDE" ]; then
+            OVERRIDE_PARAM=" TokenEncryptionKeyOverride=$TOKEN_KEY_OVERRIDE"
+            echo "Using TOKEN_ENCRYPTION_KEY_OVERRIDE for disaster-recovery deploy."
+          fi
           sam deploy \
             -t .aws-sam/build/template.yaml \
             --no-confirm-changeset \
@@ -122,5 +134,4 @@ jobs:
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
-               DatabasePassword=${{ secrets.DATABASE_PASSWORD }} \
-               TokenEncryptionKey=${{ secrets.TOKEN_ENCRYPTION_KEY }}"
+               DatabasePassword=${{ secrets.DATABASE_PASSWORD }}$OVERRIDE_PARAM"

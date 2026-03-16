@@ -33,7 +33,7 @@ The application reads configuration from environment variables. Providers must i
 | `ENV_SLACK_CLIENT_ID` | Slack OAuth client ID. |
 | `ENV_SLACK_CLIENT_SECRET` | Slack OAuth client secret. |
 | `ENV_SLACK_SCOPES` | Comma-separated OAuth scopes (see `.env.example`). |
-| `TOKEN_ENCRYPTION_KEY` | Passphrase for bot-token encryption at rest (any value except `123` to enable). |
+| `TOKEN_ENCRYPTION_KEY` | Passphrase for bot-token encryption at rest. Should be generated once, stored in secret manager, and persisted/backed up. |
 
 ### Optional
 

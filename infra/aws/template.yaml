@@ -102,13 +102,14 @@ Parameters:
     Type: String
     Default: "10.0.0.0/16"
 
-  # --- Security ---
-
-  TokenEncryptionKey:
-    Description: Encryption key for bot and OAuth tokens
+  TokenEncryptionKeyOverride:
+    Description: >
+      Optional disaster-recovery override for TOKEN_ENCRYPTION_KEY.
+      Use only when restoring an existing deployment with a known key.
+      Leave empty for normal deploys (auto-generated Secret Manager key is used).
     Type: String
     NoEcho: true
-    Default: "123"
+    Default: ""
 
   RequireAdmin:
     Description: >
@@ -126,6 +127,7 @@ Parameters:
 
 Conditions:
   CreateDatabase: !Equals [!Ref ExistingDatabaseHost, ""]
+  HasTokenEncryptionKeyOverride: !Not [!Equals [!Ref TokenEncryptionKeyOverride, ""]]
 
 Mappings:
   StagesMap:
@@ -297,6 +299,18 @@ Resources:
         - Key: Name
           Value: !Sub "syncbot-${Stage}-db"
 
+  TokenEncryptionKeySecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub "syncbot-${Stage}-token-encryption-key"
+      Description: !Sub "SyncBot ${Stage} token encryption key (backup required)"
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+        IncludeSpace: false
+
   # ============================================================
   # Lambda Function
   # ============================================================
@@ -352,7 +366,10 @@ Resources:
           ADMIN_DATABASE_USER: !Ref DatabaseUser
           ADMIN_DATABASE_PASSWORD: !Ref DatabasePassword
           ADMIN_DATABASE_SCHEMA: !Ref DatabaseSchema
-          TOKEN_ENCRYPTION_KEY: !Ref TokenEncryptionKey
+          TOKEN_ENCRYPTION_KEY: !If
+            - HasTokenEncryptionKeyOverride
+            - !Ref TokenEncryptionKeyOverride
+            - !Sub "{{resolve:secretsmanager:${TokenEncryptionKeySecret}:SecretString}}"
           REQUIRE_ADMIN: !Ref RequireAdmin
 
   # ============================================================
@@ -471,3 +488,7 @@ Outputs:
     Condition: CreateDatabase
     Description: VPC ID (only when VPC is created by this stack)
     Value: !Ref VPC
+
+  TokenEncryptionSecretArn:
+    Description: Secrets Manager ARN containing TOKEN_ENCRYPTION_KEY
+    Value: !Ref TokenEncryptionKeySecret

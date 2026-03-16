@@ -162,6 +162,11 @@ resource "random_password" "db" {
   special = false
 }
 
+resource "random_password" "token_encryption_key" {
+  length  = 48
+  special = false
+}
+
 resource "google_sql_database_instance" "main" {
   count            = var.use_existing_database ? 0 : 1
   project          = var.project_id
@@ -210,6 +215,12 @@ resource "google_secret_manager_secret_version" "db_password" {
   count       = var.use_existing_database ? 0 : 1
   secret      = google_secret_manager_secret.app_secrets[var.secret_db_password].id
   secret_data = random_password.db[0].result
+}
+
+# Generate TOKEN_ENCRYPTION_KEY once and persist in Secret Manager.
+resource "google_secret_manager_secret_version" "token_encryption_key" {
+  secret      = google_secret_manager_secret.app_secrets[var.secret_token_encryption_key].id
+  secret_data = var.token_encryption_key_override != "" ? var.token_encryption_key_override : random_password.token_encryption_key.result
 }
 
 # ---------------------------------------------------------------------------

@@ -42,3 +42,8 @@ output "database_connection_name" {
   description = "Cloud SQL connection name (when not using existing DB)"
   value       = var.use_existing_database ? null : (length(google_sql_database_instance.main) > 0 ? google_sql_database_instance.main[0].connection_name : null)
 }
+
+output "token_encryption_secret_name" {
+  description = "Secret Manager secret name containing TOKEN_ENCRYPTION_KEY"
+  value       = google_secret_manager_secret.app_secrets[var.secret_token_encryption_key].name
+}

@@ -94,8 +94,18 @@ You need: **GitHubDeployRoleArn** → `AWS_ROLE_TO_ASSUME`, **DeploymentBucketNa
 
    Use the bootstrap **DeploymentBucketName**. Set parameters (Stage, DB, Slack, etc.) when prompted.
 
-3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `EXISTING_DATABASE_HOST`, `DATABASE_USER`, `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `DATABASE_PASSWORD`, `TOKEN_ENCRYPTION_KEY`. No access keys — the workflow uses OIDC.
+3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `EXISTING_DATABASE_HOST`, `DATABASE_USER`, `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `DATABASE_PASSWORD`. No access keys — the workflow uses OIDC.
 4. Push to `test` or `prod` to build and deploy. The workflow file is `.github/workflows/deploy-aws.yml` (runs when `DEPLOY_TARGET` is not `gcp`).
+
+**Important:** `TOKEN_ENCRYPTION_KEY` is generated once and stored in Secrets Manager by the app stack. Back up the secret value after first deploy. If this key is lost, existing workspaces must reinstall to re-authorize bot tokens.
+
+**Disaster recovery:** if you must rebuild and keep existing encrypted tokens working, deploy with the old key:
+
+```bash
+sam deploy ... --parameter-overrides "... TokenEncryptionKeyOverride=<old_key>"
+```
+
+If using GitHub Actions, set optional secret `TOKEN_ENCRYPTION_KEY_OVERRIDE`; the AWS workflow will pass it automatically.
 
 ---
 
@@ -132,7 +142,13 @@ terraform plan -var="project_id=YOUR_PROJECT_ID" -var="stage=test"
 terraform apply -var="project_id=YOUR_PROJECT_ID" -var="stage=test"
 ```
 
-Set Secret Manager secret values for Slack and DB (see [infra/gcp/README.md](../infra/gcp/README.md)). Set **cloud_run_image** after building and pushing your container image. Capture outputs for CI: **service_url**, **region**, **project_id**, **artifact_registry_repository**, **deploy_service_account_email**.
+Set Secret Manager secret values for Slack and DB (see [infra/gcp/README.md](../infra/gcp/README.md)). `TOKEN_ENCRYPTION_KEY` is auto-generated once and stored in Secret Manager during apply. Set **cloud_run_image** after building and pushing your container image. Capture outputs for CI: **service_url**, **region**, **project_id**, **artifact_registry_repository**, **deploy_service_account_email**.
+
+**Disaster recovery:** if rebuilding and you need to preserve existing token decryption, re-apply with:
+
+```bash
+terraform apply -var="project_id=YOUR_PROJECT_ID" -var="stage=test" -var='token_encryption_key_override=<old_key>'
+```
 
 Helper script for GitHub vars:
 
