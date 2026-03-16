@@ -5,6 +5,7 @@ Description: >
   Free-tier compatible: Lambda, API Gateway, RDS db.t3.micro.
   OAuth and app data use RDS (MySQL); media is uploaded directly to Slack.
   SAM deploy uses an S3 artifact bucket for packaging only (not runtime).
+  Template lives under infra/aws; CodeUri points at repo-root syncbot/.
 
 Globals:
   Function:
@@ -27,9 +28,9 @@ Parameters:
   Stage:
     Description: Deployment stage
     Type: String
-    Default: staging
+    Default: test
     AllowedValues:
-      - staging
+      - test
       - prod
 
   # --- Slack ---
@@ -103,8 +104,8 @@ Parameters:
 
   # --- Security ---
 
-  PasswordEncryptKey:
-    Description: Encryption key for sensitive data
+  TokenEncryptionKey:
+    Description: Encryption key for bot and OAuth tokens
     Type: String
     NoEcho: true
     Default: "123"
@@ -128,7 +129,7 @@ Conditions:
 
 Mappings:
   StagesMap:
-    staging:
+    test:
       SlackClientID: "1966318390773.6037875913205"
       KeepWarmName: "SyncBotKeepWarmTest"
     prod:
@@ -138,13 +139,6 @@ Mappings:
 Resources:
   # ============================================================
   # Networking
-  #
-  # Minimal VPC for RDS (AWS requires RDS to live in a VPC).
-  # Only public subnets — no NAT Gateway, no private subnets.
-  # Lambda runs OUTSIDE the VPC and connects to RDS over its
-  # public endpoint, keeping the architecture free-tier friendly.
-  #
-  # Skipped entirely when ExistingDatabaseHost is provided.
   # ============================================================
 
   VPC:
@@ -229,10 +223,6 @@ Resources:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable
 
-  # ============================================================
-  # Security Groups (skipped when using existing database)
-  # ============================================================
-
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Condition: CreateDatabase
@@ -250,9 +240,7 @@ Resources:
           Value: !Sub "syncbot-${Stage}-rds-sg"
 
   # ============================================================
-  # RDS MySQL Database (free-tier: db.t3.micro, 20 GB gp2)
-  #
-  # Skipped entirely when ExistingDatabaseHost is provided.
+  # RDS MySQL Database
   # ============================================================
 
   RDSParameterGroup:
@@ -310,20 +298,13 @@ Resources:
           Value: !Sub "syncbot-${Stage}-db"
 
   # ============================================================
-  # Lambda Function (free-tier: 1M requests, 400 000 GB-s)
-  #
-  # Runs OUTSIDE the VPC so it can reach the Slack API and RDS
-  # public endpoint without a NAT Gateway.
-  #
-  # Each app gets its own Lambda function — this is inherent to
-  # the serverless model and doesn't affect free-tier billing
-  # (the 1M request quota is shared across ALL functions).
+  # Lambda Function
   # ============================================================
 
   SyncBotFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: syncbot/
+      CodeUri: ../../syncbot/
       Handler: app.handler
       Runtime: python3.11
       Architectures:
@@ -371,15 +352,11 @@ Resources:
           ADMIN_DATABASE_USER: !Ref DatabaseUser
           ADMIN_DATABASE_PASSWORD: !Ref DatabasePassword
           ADMIN_DATABASE_SCHEMA: !Ref DatabaseSchema
-          PASSWORD_ENCRYPT_KEY: !Ref PasswordEncryptKey
+          TOKEN_ENCRYPTION_KEY: !Ref TokenEncryptionKey
           REQUIRE_ADMIN: !Ref RequireAdmin
 
   # ============================================================
-  # CloudWatch Alarms (free-tier: 10 alarms)
-  #
-  # Basic operational alarms that surface problems before users
-  # notice.  All alarms use the free-tier standard-resolution
-  # (60-second) metrics already published by Lambda and API GW.
+  # CloudWatch Alarms
   # ============================================================
 
   LambdaErrorAlarm:
@@ -406,8 +383,7 @@ Resources:
     Properties:
       AlarmName: !Sub "syncbot-${Stage}-lambda-throttles"
       AlarmDescription: >
-        Fires when the SyncBot Lambda function is throttled,
-        indicating a concurrency limit has been reached.
+        Fires when the SyncBot Lambda function is throttled.
       Namespace: AWS/Lambda
       MetricName: Throttles
       Dimensions:
@@ -425,8 +401,7 @@ Resources:
     Properties:
       AlarmName: !Sub "syncbot-${Stage}-lambda-duration"
       AlarmDescription: >
-        Fires when average Lambda duration exceeds 10 seconds,
-        indicating potential performance degradation.
+        Fires when average Lambda duration exceeds 10 seconds.
       Namespace: AWS/Lambda
       MetricName: Duration
       Dimensions:

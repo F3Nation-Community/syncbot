@@ -16,9 +16,9 @@ _OAUTH_STATE_EXPIRATION_SECONDS = 600
 
 
 def get_oauth_flow():
-    """Build the Slack OAuth flow using MySQL-backed stores.
+    """Build the Slack OAuth flow using SQLAlchemy-backed stores.
 
-    Uses the same RDS/MySQL connection as the rest of the app. Works for both
+    Uses the same database engine as the rest of the app. Works for both
     local development and production (Lambda). If OAuth credentials are not
     set and LOCAL_DEVELOPMENT is true, returns None (single-workspace mode).
     """

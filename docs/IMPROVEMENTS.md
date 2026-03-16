@@ -99,7 +99,7 @@ This document outlines the improvements made to the SyncBot application and addi
 - **Connection pooling** reuses DB connections across invocations in warm Lambda containers
 
 ### 15. Infrastructure as Code
-- **AWS SAM template** (`template.yaml`) defining VPC, RDS, Lambda, API Gateway (SAM artifact S3 used for deploy packaging only)
+- **AWS SAM template** (`infra/aws/template.yaml`) defining VPC, RDS, Lambda, API Gateway (SAM artifact S3 used for deploy packaging only)
 - **Free-tier optimized** (128 MB Lambda, db.t3.micro RDS, gp2 storage, no NAT Gateway)
 - **CI/CD pipeline** (`.github/workflows/sam-pipeline.yml`) for automated build/deploy
 - **SAM config** (`samconfig.toml`) for staging and production environments
@@ -119,7 +119,7 @@ This document outlines the improvements made to the SyncBot application and addi
   - `request_error` (with `request_type`, `request_id`)
   - `messages_synced` (with `sync_type`: `new_post`, `thread_reply`, `message_edit`, `message_delete`)
   - `sync_failures` (with `sync_type`)
-- **Added CloudWatch Alarms** in `template.yaml` (within free-tier's 10-alarm limit):
+- **Added CloudWatch Alarms** in `infra/aws/template.yaml` (within free-tier's 10-alarm limit):
   - `LambdaErrorAlarm` — fires on 3+ errors in 5 minutes
   - `LambdaThrottleAlarm` — fires on any throttling
   - `LambdaDurationAlarm` — fires when average duration exceeds 10 seconds
@@ -417,12 +417,12 @@ This document outlines the improvements made to the SyncBot application and addi
 
 ### 45. Backup, Restore, and Data Migration (Completed)
 - **Slack UI** — Home tab has **Backup/Restore** (next to Refresh) and **Data Migration** (in External Connections when federation is enabled). Modals for download backup, restore from JSON, export workspace data, and import migration file; confirmation modals when HMAC or encryption-key/signature checks fail with option to proceed anyway.
-- **Full-instance backup** — All tables exported as JSON with `version`, `exported_at`, `encryption_key_hash` (SHA-256 of `PASSWORD_ENCRYPT_KEY`), and HMAC over canonical JSON. Restore inserts in FK order; intended for empty/fresh DB (e.g. after AWS rebuild). On HMAC or encryption-key mismatch, payload stored in cache and confirmation modal pushed; after restore, Home tab caches invalidated for all workspaces.
+- **Full-instance backup** — All tables exported as JSON with `version`, `exported_at`, `encryption_key_hash` (SHA-256 of `TOKEN_ENCRYPTION_KEY`), and HMAC over canonical JSON. Restore inserts in FK order; intended for empty/fresh DB (e.g. after AWS rebuild). On HMAC or encryption-key mismatch, payload stored in cache and confirmation modal pushed; after restore, Home tab caches invalidated for all workspaces.
 - **Workspace migration export/import** — Export produces workspace-scoped JSON (syncs, sync channels, post meta, user directory, user mappings) with optional `source_instance` (webhook_url, instance_id, public_key, one-time connection code). Ed25519 signature for tampering detection. Import verifies signature, resolves or creates federated group (using `source_instance` when present), replace mode (remove then create SyncChannels/PostMeta/user_directory/user_mappings), optional tampering confirmation; Home tab and sync-list caches invalidated after import.
 - **Instance A detection** — Federated pair request accepts optional `team_id` and `workspace_name`; stored as `primary_team_id` and `primary_workspace_name` on `federated_workspaces`. If a local workspace with that `team_id` exists, it is soft-deleted so the federated connection is the only representation of that workspace on the instance.
 
 ### 46. Code Quality & Documentation Restructure (Completed)
-- **Database reset via UI** — Renamed `DANGER_DROP_AND_INIT_DB` (auto-drop on startup) to `ENABLE_DB_RESET` (boolean env var). When enabled, a red "Reset Database" button appears in a "Danger Zone" section at the bottom of the Home tab. Clicking it opens a confirmation modal; confirming drops and reinitializes the database from `db/init.sql`, clears all caches, and publishes a confirmation message. No longer runs automatically on startup.
+- **Database reset via UI** — Renamed `DANGER_DROP_AND_INIT_DB` (auto-drop on startup) to `ENABLE_DB_RESET` (boolean env var). When enabled, a red "Reset Database" button appears in a "Danger Zone" section at the bottom of the Home tab. Clicking it opens a confirmation modal; confirming drops and reinitializes the database via Alembic, clears all caches, and publishes a confirmation message. No longer runs automatically on startup.
 - **Variable naming convention audit** — Standardized variable names across 14 files to align with the domain model:
   - `partner` / `p_ws` / `p_ch` / `p_client` → `member_ws` / `sync_channel` / `member_client` (maps to `workspace_group_members` table)
   - `sc` (SyncChannel) → `sync_channel`; `ch` (ambiguous) → `sync_channel` or `slack_channel` depending on type
@@ -439,7 +439,7 @@ This document outlines the improvements made to the SyncBot application and addi
 - **OAuth in RDS** — Slack OAuth state and installation data are stored in the same MySQL database via `SQLAlchemyInstallationStore` and `SQLAlchemyOAuthStateStore`. One code path for local dev and production; no file-based or S3-backed OAuth stores.
 - **No runtime S3** — Removed all runtime S3 usage: OAuth buckets and image bucket resources, Lambda S3 policies, and env vars. Media is uploaded directly to each target Slack channel via `files_upload_v2`. SAM deploy still uses an S3 artifact bucket for packaging only.
 - **HEIC and Pillow removed** — HEIC-to-PNG conversion and `upload_photos` (S3) were removed; direct upload is the only media path. Dropped `pillow` and `pillow-heif` from dependencies.
-- **Template and docs** — `template.yaml` no longer creates OAuth or image buckets; README, DEPLOYMENT, ARCHITECTURE, USER_GUIDE, `.env.example`, and IMPROVEMENTS updated to describe MySQL OAuth and artifact-bucket-only S3.
+- **Template and docs** — `infra/aws/template.yaml` no longer creates OAuth or image buckets; README, DEPLOYMENT, ARCHITECTURE, USER_GUIDE, `.env.example`, and IMPROVEMENTS updated to describe MySQL OAuth and artifact-bucket-only S3.
 
 ## Remaining Recommendations
 
@@ -450,8 +450,8 @@ This document outlines the improvements made to the SyncBot application and addi
    - Review and update other dependencies
 
 2. **Database Migrations**
-   - Startup now auto-bootstraps schema and applies ordered SQL files from `db/migrations/` (tracked in `schema_migrations`)
-   - Consider adopting Alembic in the future if you want model-autogenerated migrations and down-revision support
+   - Startup now bootstraps schema via Alembic (`alembic upgrade head`) for fresh installs.
+   - Continue using Alembic revisions for schema changes and add DB integration coverage as schema evolves.
 
 3. **Advanced Testing**
    - Add integration tests for database operations
@@ -485,4 +485,4 @@ This document outlines the improvements made to the SyncBot application and addi
 - Duplicated code has been consolidated into shared helpers throughout handlers and federation modules
 - Home and User Mapping Refresh buttons use content hash, cached blocks, and a 60s cooldown to minimize RDS and Slack API usage when nothing has changed; request-scoped caching keeps builds lightweight, and cross-workspace refreshes use `context=None` to prevent cache contamination
 - Variable naming follows a consistent domain-model convention: `member_ws`/`member_client` for group members, `sync_channel` for ORM records, `slack_channel` for raw API dicts
-- Schema bootstrap + migration application is automatic at startup (`db/init.sql` baseline + `db/migrations/*.sql`)
+- Schema bootstrap + migration application is automatic at startup via Alembic (`alembic upgrade head`)

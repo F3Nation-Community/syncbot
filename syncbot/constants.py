@@ -25,13 +25,20 @@ SLACK_CLIENT_ID = "ENV_SLACK_CLIENT_ID"
 SLACK_CLIENT_SECRET = "ENV_SLACK_CLIENT_SECRET"
 SLACK_SCOPES = "ENV_SLACK_SCOPES"
 SLACK_SIGNING_SECRET = "SLACK_SIGNING_SECRET"
-PASSWORD_ENCRYPT_KEY = "PASSWORD_ENCRYPT_KEY"
+TOKEN_ENCRYPTION_KEY = "TOKEN_ENCRYPTION_KEY"
 REQUIRE_ADMIN = "REQUIRE_ADMIN"
 
+# Database: backend-agnostic (mysql or sqlite)
+DATABASE_BACKEND = "DATABASE_BACKEND"
+DATABASE_URL = "DATABASE_URL"
+
+# Legacy MySQL-only vars (used when DATABASE_URL unset and backend is mysql)
 DATABASE_HOST = "DATABASE_HOST"
 ADMIN_DATABASE_USER = "ADMIN_DATABASE_USER"
 ADMIN_DATABASE_PASSWORD = "ADMIN_DATABASE_PASSWORD"
 ADMIN_DATABASE_SCHEMA = "ADMIN_DATABASE_SCHEMA"
+DATABASE_SSL_CA_PATH = "DATABASE_SSL_CA_PATH"
+DATABASE_TLS_ENABLED = "DATABASE_TLS_ENABLED"
 
 # Name of env var that scopes the Reset Database button to one workspace.
 ENABLE_DB_RESET = "ENABLE_DB_RESET"
@@ -89,27 +96,68 @@ FEDERATION_ENABLED = os.environ.get("SYNCBOT_FEDERATION_ENABLED", "false").lower
 # handles any requests.  Fails fast in production; warns in local dev.
 # ---------------------------------------------------------------------------
 
-# Required in all environments
-_REQUIRED_ALWAYS = [
-    DATABASE_HOST,
-    ADMIN_DATABASE_USER,
-    ADMIN_DATABASE_PASSWORD,
-    ADMIN_DATABASE_SCHEMA,
-]
+def get_database_backend() -> str:
+    """Return 'mysql' or 'sqlite'. Defaults to 'mysql' when unset for backward compatibility."""
+    return os.environ.get(DATABASE_BACKEND, "mysql").lower().strip() or "mysql"
 
-# Required only in production (Lambda). OAuth uses MySQL; no S3 buckets.
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Parse common boolean env values with a safe default."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def database_tls_enabled() -> bool:
+    """Return True when MySQL TLS should be used.
+
+    Defaults:
+    - local dev: disabled
+    - non-local: enabled
+    Can be overridden with DATABASE_TLS_ENABLED=true/false.
+    """
+    default = not LOCAL_DEVELOPMENT
+    return _env_bool(DATABASE_TLS_ENABLED, default)
+
+
+def database_ssl_ca_path() -> str:
+    """Return optional CA bundle path for DB TLS verification."""
+    return os.environ.get(DATABASE_SSL_CA_PATH, "/etc/pki/tls/certs/ca-bundle.crt")
+
+
+def get_required_db_vars() -> list:
+    """Return list of required env var names for the current database backend."""
+    backend = get_database_backend()
+    if backend == "sqlite":
+        return [DATABASE_URL]
+    # mysql: require URL or legacy host/user/password/schema
+    if os.environ.get(DATABASE_URL):
+        return []  # URL is enough
+    return [
+        DATABASE_HOST,
+        ADMIN_DATABASE_USER,
+        ADMIN_DATABASE_PASSWORD,
+        ADMIN_DATABASE_SCHEMA,
+    ]
+
+
+# Required in all environments (non-DB vars; DB vars are backend-dependent)
+_REQUIRED_ALWAYS_NON_DB: list = []
+
+# Required only in production (non-local deployments).
 _REQUIRED_PRODUCTION = [
     SLACK_SIGNING_SECRET,
     SLACK_CLIENT_ID,
     SLACK_CLIENT_SECRET,
     SLACK_SCOPES,
-    PASSWORD_ENCRYPT_KEY,
+    TOKEN_ENCRYPTION_KEY,
 ]
 
 
 def _encryption_active() -> bool:
     """Return True if bot-token encryption is configured with a real key."""
-    key = os.environ.get(PASSWORD_ENCRYPT_KEY, "")
+    key = os.environ.get(TOKEN_ENCRYPTION_KEY, "")
     return bool(key) and key != "123"
 
 
@@ -118,8 +166,9 @@ def validate_config() -> None:
 
     In production this raises immediately so the Lambda fails on cold-start
     rather than silently misbehaving.  In local development it only warns.
+    DB requirements depend on DATABASE_BACKEND (mysql vs sqlite).
     """
-    required = list(_REQUIRED_ALWAYS)
+    required = list(_REQUIRED_ALWAYS_NON_DB) + list(get_required_db_vars())
     if not LOCAL_DEVELOPMENT:
         required.extend(_REQUIRED_PRODUCTION)
 
@@ -136,5 +185,5 @@ def validate_config() -> None:
     if not LOCAL_DEVELOPMENT and not _encryption_active():
         _logger.critical(
             "Bot-token encryption is DISABLED in production. "
-            "Set PASSWORD_ENCRYPT_KEY to a strong passphrase to encrypt tokens at rest."
+            "Set TOKEN_ENCRYPTION_KEY to a strong passphrase to encrypt tokens at rest."
         )

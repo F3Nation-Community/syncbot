@@ -187,7 +187,7 @@ class UserMapping(BaseClass, GetDBClass):
 class InstanceKey(BaseClass, GetDBClass):
     """This instance's Ed25519 keypair, auto-generated on first boot.
 
-    The private key is stored Fernet-encrypted using PASSWORD_ENCRYPT_KEY.
+    The private key is stored Fernet-encrypted using TOKEN_ENCRYPTION_KEY.
     The public key is shared with federated workspaces during connection setup.
     """
 

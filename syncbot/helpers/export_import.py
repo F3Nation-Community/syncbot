@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import MetaData, Table, delete, select
 
 import constants
 from db import DbManager, get_engine, schemas
@@ -23,45 +23,47 @@ _logger = logging.getLogger(__name__)
 BACKUP_VERSION = 1
 MIGRATION_VERSION = 1
 _RAW_BACKUP_TABLES = ("slack_bots", "slack_installations", "slack_oauth_states")
+_DATETIME_COLUMNS = frozenset({
+    "bot_token_expires_at",
+    "user_token_expires_at",
+    "installed_at",
+    "expire_at",
+})
 
 
 def _dump_raw_table(table_name: str) -> list[dict]:
-    """Return all rows from a non-ORM table as dictionaries."""
+    """Return all rows from a non-ORM table as dictionaries (dialect-neutral via reflection)."""
     engine = get_engine()
+    meta = MetaData()
+    table = Table(table_name, meta, autoload_with=engine)
     with engine.connect() as conn:
-        rows = conn.execute(text(f"SELECT * FROM `{table_name}`")).mappings().all()
+        rows = conn.execute(select(table)).mappings().all()
     return [dict(row) for row in rows]
 
 
 def _restore_raw_table(table_name: str, rows: list[dict]) -> None:
-    """Replace table contents for a non-ORM table from backup rows."""
+    """Replace table contents for a non-ORM table from backup rows (dialect-neutral)."""
     engine = get_engine()
+    meta = MetaData()
+    table = Table(table_name, meta, autoload_with=engine)
     with engine.begin() as conn:
-        conn.execute(text(f"DELETE FROM `{table_name}`"))
+        conn.execute(delete(table))
         for row in rows:
             if not row:
                 continue
             parsed: dict[str, Any] = {}
             for key, value in row.items():
-                if isinstance(value, str) and key in {
-                    "bot_token_expires_at",
-                    "user_token_expires_at",
-                    "installed_at",
-                    "expire_at",
-                }:
+                if key not in table.c:
+                    continue
+                if isinstance(value, str) and key in _DATETIME_COLUMNS:
                     try:
                         parsed[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
                     except ValueError:
                         parsed[key] = value
                 else:
                     parsed[key] = value
-
-            cols = ", ".join(f"`{k}`" for k in parsed)
-            placeholders = ", ".join(f":{k}" for k in parsed)
-            conn.execute(
-                text(f"INSERT INTO `{table_name}` ({cols}) VALUES ({placeholders})"),
-                parsed,
-            )
+            if parsed:
+                conn.execute(table.insert().values(**parsed))
 
 
 def _json_serializer(obj: Any) -> Any:
@@ -84,16 +86,16 @@ def canonical_json_dumps(obj: dict) -> bytes:
 
 
 def _compute_encryption_key_hash() -> str | None:
-    """SHA-256 hex of PASSWORD_ENCRYPT_KEY, or None if unset."""
-    key = os.environ.get(constants.PASSWORD_ENCRYPT_KEY, "")
+    """SHA-256 hex of TOKEN_ENCRYPTION_KEY, or None if unset."""
+    key = os.environ.get(constants.TOKEN_ENCRYPTION_KEY, "")
     if not key or key == "123":
         return None
     return hashlib.sha256(key.encode()).hexdigest()
 
 
 def _compute_backup_hmac(payload_without_hmac: dict) -> str:
-    """HMAC-SHA256 of canonical JSON of payload (excluding hmac field), keyed by PASSWORD_ENCRYPT_KEY."""
-    key = os.environ.get(constants.PASSWORD_ENCRYPT_KEY, "")
+    """HMAC-SHA256 of canonical JSON of payload (excluding hmac field), keyed by TOKEN_ENCRYPTION_KEY."""
+    key = os.environ.get(constants.TOKEN_ENCRYPTION_KEY, "")
     if not key:
         key = ""
     raw = canonical_json_dumps(payload_without_hmac)

@@ -153,7 +153,7 @@ def notify_synced_channels(client: WebClient, channel_ids: list[str], message: s
 def purge_stale_soft_deletes() -> int:
     """Permanently delete workspaces that have been soft-deleted beyond the retention period.
 
-    Returns 0 without raising if the schema is missing (e.g. fresh DB before init.sql).
+    Returns 0 without raising if the schema is missing (e.g. fresh DB before Alembic bootstrap).
     """
     from helpers.workspace import get_workspace_by_id
 

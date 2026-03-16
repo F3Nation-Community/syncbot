@@ -112,7 +112,7 @@ flowchart TB
     Lambda -.->|logs & metrics| Monitoring
 ```
 
-All infrastructure is defined in `template.yaml` (AWS SAM). Dashed lines indicate resources that are conditionally created — when `Existing*` parameters are set, those resources are skipped.
+All infrastructure is defined in `infra/aws/template.yaml` (AWS SAM). Dashed lines indicate resources that are conditionally created — when `Existing*` parameters are set, those resources are skipped.
 
 ## Security & Hardening
 
@@ -137,6 +137,6 @@ To keep RDS and Slack API usage low when admins use the **Refresh** button on th
 
 ## Backup, Restore, and Data Migration
 
-- **Full-instance backup** — All tables are dumped as plain JSON (no compression). The payload includes `version`, `exported_at`, `encryption_key_hash` (SHA-256 of `PASSWORD_ENCRYPT_KEY`), and `hmac` (HMAC-SHA256 over canonical JSON). Restore inserts rows in FK order; it is intended for an empty or fresh database (e.g. after an AWS rebuild). On HMAC or encryption-key mismatch, the UI warns but allows proceeding. After restore, Home tab caches (`home_tab_hash`, `home_tab_blocks`) are invalidated for all restored workspaces.
+- **Full-instance backup** — All tables are dumped as plain JSON (no compression). The payload includes `version`, `exported_at`, `encryption_key_hash` (SHA-256 of `TOKEN_ENCRYPTION_KEY`), and `hmac` (HMAC-SHA256 over canonical JSON). Restore inserts rows in FK order; it is intended for an empty or fresh database (e.g. after an AWS rebuild). On HMAC or encryption-key mismatch, the UI warns but allows proceeding. After restore, Home tab caches (`home_tab_hash`, `home_tab_blocks`) are invalidated for all restored workspaces.
 - **Data migration (workspace-scoped)** — Export produces a JSON file with syncs, sync channels, post meta, user directory, and user mappings keyed by stable identifiers (team_id, sync title, channel_id). The export can include `source_instance` (webhook_url, instance_id, public_key, one-time connection code) so import on the new instance can establish the federation connection and then import in one step. The payload is signed with the instance Ed25519 key; import verifies the signature and warns (but does not block) on mismatch. Import uses replace mode: existing SyncChannels and PostMeta for that workspace in the federated group are removed, then data from the file is created. User mappings are imported where both source and target workspace exist on the new instance. After import, Home tab caches for that workspace are invalidated.
 - **Instance A detection** — When instance B connects to A via federation, B can send optional `team_id` and `workspace_name` in the pair request. A stores them on the `federated_workspaces` row (`primary_team_id`, `primary_workspace_name`) and, if a local workspace with that `team_id` exists, soft-deletes it so the only representation of that workspace on A is the federated connection.

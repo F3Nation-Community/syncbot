@@ -61,7 +61,7 @@ class TestSafeGet:
 
 
 class TestEncryption:
-    @patch.dict(os.environ, {"PASSWORD_ENCRYPT_KEY": "my-secret-key"})
+    @patch.dict(os.environ, {"TOKEN_ENCRYPTION_KEY": "my-secret-key"})
     def test_encrypt_decrypt_roundtrip(self):
         # Use a non-secret placeholder; encryption accepts any string
         token = "xoxb-0-0"
@@ -70,12 +70,12 @@ class TestEncryption:
         decrypted = helpers.decrypt_bot_token(encrypted)
         assert decrypted == token
 
-    @patch.dict(os.environ, {"PASSWORD_ENCRYPT_KEY": "my-secret-key"})
+    @patch.dict(os.environ, {"TOKEN_ENCRYPTION_KEY": "my-secret-key"})
     def test_decrypt_invalid_token_raises(self):
         with pytest.raises(ValueError, match="decryption failed"):
             helpers.decrypt_bot_token("not-a-valid-encrypted-token")
 
-    @patch.dict(os.environ, {"PASSWORD_ENCRYPT_KEY": "123"})
+    @patch.dict(os.environ, {"TOKEN_ENCRYPTION_KEY": "123"})
     def test_encryption_disabled_with_default_key(self):
         token = "xoxb-0-0"
         assert helpers.encrypt_bot_token(token) == token
@@ -83,18 +83,18 @@ class TestEncryption:
 
     @patch.dict(os.environ, {}, clear=False)
     def test_encryption_disabled_when_key_missing(self):
-        os.environ.pop("PASSWORD_ENCRYPT_KEY", None)
+        os.environ.pop("TOKEN_ENCRYPTION_KEY", None)
         token = "xoxb-0-0"
         assert helpers.encrypt_bot_token(token) == token
         assert helpers.decrypt_bot_token(token) == token
 
-    @patch.dict(os.environ, {"PASSWORD_ENCRYPT_KEY": "key-A"})
+    @patch.dict(os.environ, {"TOKEN_ENCRYPTION_KEY": "key-A"})
     def test_wrong_key_raises(self):
         token = "xoxb-0-0"
         encrypted = helpers.encrypt_bot_token(token)
 
         with (
-            patch.dict(os.environ, {"PASSWORD_ENCRYPT_KEY": "key-B"}),
+            patch.dict(os.environ, {"TOKEN_ENCRYPTION_KEY": "key-B"}),
             pytest.raises(ValueError, match="decryption failed"),
         ):
             helpers.decrypt_bot_token(encrypted)

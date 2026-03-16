@@ -511,7 +511,7 @@ def handle_db_reset_proceed(
             _logger.warning("Failed to update modal after DB reset: %s", e)
 
     _logger.critical(
-        "DB_RESET triggered by user %s — dropping database and reinitializing from init.sql",
+        "DB_RESET triggered by user %s — dropping database and reinitializing via Alembic",
         user_id,
     )
 

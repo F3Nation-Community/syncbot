@@ -1,0 +1,69 @@
+# Deploy SyncBot to GCP (Cloud Run). See docs/DEPLOYMENT.md and docs/INFRA_CONTRACT.md.
+# To use AWS instead, disable this workflow and use deploy-aws.yml.
+#
+# Setup:
+# 1. Run infra/gcp Terraform and configure Workload Identity Federation for GitHub.
+# 2. Set GitHub vars: GCP_PROJECT_ID, GCP_REGION, GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT.
+# 3. Set GitHub secrets for Slack/DB/encryption as needed for your CI (or use Secret Manager only).
+# 4. Replace placeholder steps with real build/deploy; disable deploy-aws.yml if using GCP only.
+
+name: Deploy (GCP)
+
+on:
+  push:
+    branches:
+      - test
+      - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+# Run only when DEPLOY_TARGET is set to 'gcp' (disable deploy-aws.yml if using GCP only)
+jobs:
+  build-and-push:
+    if: vars.DEPLOY_TARGET == 'gcp'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Workload Identity Federation: authenticate without a key file
+      # - uses: google-github-actions/auth@v2
+      #   with:
+      #     workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      #     service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      # - uses: google-github-actions/setup-gcloud@v2
+
+      # Build and push container image to Artifact Registry
+      # - run: |
+      #     gcloud builds submit --tag "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/syncbot-TEST-images/syncbot:${{ github.sha }}" .
+
+      - name: Placeholder (GCP deploy not yet configured)
+        run: echo "Configure Workload Identity Federation and uncomment build/deploy steps in deploy-gcp.yml"
+
+  deploy-test:
+    if: github.ref == 'refs/heads/test'
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    # environment: test
+    steps:
+      # - uses: google-github-actions/auth@v2
+      #   with:
+      #     workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      #     service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      # - run: gcloud run deploy syncbot-test --image=... --region=...
+      - run: echo "GCP deploy placeholder"
+
+  deploy-prod:
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    # environment: prod
+    steps:
+      # - uses: google-github-actions/auth@v2
+      #   with:
+      #     workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      #     service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      # - run: gcloud run deploy syncbot-prod --image=... --region=...
+      - run: echo "GCP deploy placeholder"

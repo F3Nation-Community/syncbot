@@ -4,7 +4,7 @@
 
 Use **Backup/Restore** (Home tab, next to Refresh) to:
 
-- **Download backup** — Generates a JSON file containing all tables (workspaces, groups, syncs, channels, post meta, user directory, user mappings, federation, instance keys). The file is sent to your DM. Backup includes an HMAC for integrity and a hash of the encryption key. **Use the same `PASSWORD_ENCRYPT_KEY` on the target instance** so restored bot tokens decrypt; otherwise workspaces must reinstall the app to re-authorize.
+- **Download backup** — Generates a JSON file containing all tables (workspaces, groups, syncs, channels, post meta, user directory, user mappings, federation, instance keys). The file is sent to your DM. Backup includes an HMAC for integrity and a hash of the encryption key. **Use the same `TOKEN_ENCRYPTION_KEY` on the target instance** so restored bot tokens decrypt; otherwise workspaces must reinstall the app to re-authorize.
 - **Restore from backup** — Paste the backup JSON in the modal and submit. Restore is intended for an **empty or fresh database** (e.g. after an AWS rebuild). If the encryption key hash or HMAC does not match, you will see a warning and can still proceed (e.g. if you edited the file on purpose).
 
 After restore, Home tab caches are cleared so the next Refresh shows current data.

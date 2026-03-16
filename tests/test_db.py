@@ -1,4 +1,4 @@
-"""Unit tests for ``syncbot/db`` connection pooling and retry logic."""
+"""Unit tests for ``syncbot/db`` connection pooling, retry logic, and backend parity (MySQL/SQLite)."""
 
 import os
 from unittest.mock import patch
@@ -11,6 +11,7 @@ os.environ.setdefault("ADMIN_DATABASE_PASSWORD", "test")
 os.environ.setdefault("ADMIN_DATABASE_SCHEMA", "syncbot")
 os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-0-0")
 
+from sqlalchemy import inspect
 from sqlalchemy.exc import OperationalError
 
 from db import _MAX_RETRIES, _with_retry
@@ -78,13 +79,15 @@ class TestEngineConfig:
     @patch.dict(
         os.environ,
         {
+            "DATABASE_BACKEND": "mysql",
             "DATABASE_HOST": "localhost",
             "ADMIN_DATABASE_USER": "root",
             "ADMIN_DATABASE_PASSWORD": "test",
             "ADMIN_DATABASE_SCHEMA": "syncbot",
         },
+        clear=False,
     )
-    def test_engine_uses_queue_pool(self):
+    def test_engine_uses_queue_pool_mysql(self):
         from sqlalchemy.pool import QueuePool
 
         import db as db_mod
@@ -103,3 +106,84 @@ class TestEngineConfig:
                 engine.dispose()
             db_mod.GLOBAL_ENGINE = old_engine
             db_mod.GLOBAL_SCHEMA = old_schema
+
+    @patch.dict(
+        os.environ,
+        {
+            "DATABASE_BACKEND": "sqlite",
+            "DATABASE_URL": "sqlite:///:memory:",
+        },
+        clear=False,
+    )
+    def test_engine_uses_null_pool_sqlite(self):
+        from sqlalchemy.pool import NullPool
+
+        import db as db_mod
+        from db import get_engine
+
+        old_engine = db_mod.GLOBAL_ENGINE
+        old_schema = db_mod.GLOBAL_SCHEMA
+        engine = None
+        try:
+            db_mod.GLOBAL_ENGINE = None
+            db_mod.GLOBAL_SCHEMA = None
+            engine = get_engine()
+            assert isinstance(engine.pool, NullPool)
+        finally:
+            if engine:
+                engine.dispose()
+            db_mod.GLOBAL_ENGINE = old_engine
+            db_mod.GLOBAL_SCHEMA = old_schema
+
+
+# -----------------------------------------------------------------------
+# Backend parity: SQLite bootstrap and required vars
+# -----------------------------------------------------------------------
+
+
+class TestBackendParity:
+    @pytest.mark.parametrize("sqlite_url", ["sqlite:///test_bootstrap.db"])
+    @patch.dict(os.environ, {"DATABASE_BACKEND": "sqlite"}, clear=False)
+    def test_sqlite_initialize_database_creates_tables(self, sqlite_url):
+        import db as db_mod
+        from db import get_engine, initialize_database
+
+        os.environ["DATABASE_URL"] = sqlite_url
+        old_engine = db_mod.GLOBAL_ENGINE
+        old_schema = db_mod.GLOBAL_SCHEMA
+        try:
+            db_mod.GLOBAL_ENGINE = None
+            db_mod.GLOBAL_SCHEMA = None
+            initialize_database()
+            engine = get_engine()
+            insp = inspect(engine)
+            assert insp.has_table("workspaces")
+            assert insp.has_table("alembic_version")
+            assert insp.has_table("slack_bots")
+        finally:
+            if db_mod.GLOBAL_ENGINE:
+                db_mod.GLOBAL_ENGINE.dispose()
+            db_mod.GLOBAL_ENGINE = old_engine
+            db_mod.GLOBAL_SCHEMA = old_schema
+            if "DATABASE_URL" in os.environ and "test_bootstrap" in os.environ["DATABASE_URL"]:
+                try:
+                    (__import__("pathlib").Path("test_bootstrap.db")).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    def test_get_required_db_vars_mysql_without_url(self):
+        with patch.dict(os.environ, {"DATABASE_BACKEND": "mysql"}, clear=False):
+            if "DATABASE_URL" in os.environ:
+                del os.environ["DATABASE_URL"]
+            from constants import get_required_db_vars
+
+            required = get_required_db_vars()
+            assert "DATABASE_HOST" in required
+            assert "ADMIN_DATABASE_USER" in required
+
+    def test_get_required_db_vars_sqlite(self):
+        with patch.dict(os.environ, {"DATABASE_BACKEND": "sqlite"}, clear=False):
+            from constants import get_required_db_vars
+
+            required = get_required_db_vars()
+            assert required == ["DATABASE_URL"]

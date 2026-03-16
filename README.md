@@ -30,7 +30,7 @@ Before deploying (or developing locally) you need a Slack app:
 
 ## Deploying to AWS
 
-SyncBot ships with a full AWS SAM template (`template.yaml`) that provisions everything on the **free tier**:
+SyncBot ships with a full AWS SAM template (`infra/aws/template.yaml`) that provisions everything on the **free tier**:
 
 | Resource | Service | Free-Tier Detail |
 |----------|---------|-----------------|
@@ -64,7 +64,7 @@ sam deploy --guided
 
 You'll be prompted for parameters like `DatabaseUser`, `DatabasePassword`, `SlackSigningSecret`, `SlackClientId`, `SlackClientSecret`, `EncryptionKey`, and `AllowedDBCidr`. These are stored as CloudFormation parameters (secrets use `NoEcho`).
 
-3. **Auto-initialize check** — on first startup, SyncBot now creates the database schema and applies pending SQL migrations automatically. No manual `mysql < db/init.sql` step is required.
+3. **Auto-initialize check** — on first startup, SyncBot creates the database schema and applies pending Alembic migrations automatically.
 
 4. **Update your Slack app URLs** to point at the API Gateway endpoint shown in the stack outputs (e.g., `https://xxxxx.execute-api.us-east-2.amazonaws.com/Prod/slack/events`).
 
@@ -78,7 +78,7 @@ sam deploy --config-env prod      # production profile
 
 The `samconfig.toml` file stores per-environment settings so you don't have to re-enter parameters. Each deploy automatically runs DB bootstrap/migrations during app startup.
 
-> For shared infrastructure, CI/CD setup, and advanced deployment options, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+> For one-time bootstrap, **fork-and-deploy** (GitHub OIDC) and **download-and-deploy** (local limited credentials), see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
@@ -108,6 +108,15 @@ Open the project folder in your editor, then:
 - Or click the green remote indicator in the bottom-left corner → **Reopen in Container**
 
 The first build takes a minute or two. After that, your editor is running inside the container with Python, MySQL, and all dependencies ready.
+
+Want SQLite instead of MySQL in the dev container? Set in `.env` before reopening:
+
+```bash
+DATABASE_BACKEND=sqlite
+DATABASE_URL=sqlite:////app/syncbot/syncbot.db
+```
+
+The app will use SQLite and ignore MySQL connection vars.
 
 #### 3. Run the app
 
@@ -161,6 +170,15 @@ docker compose up --build
 ```
 
 The app listens on **port 3000**. Code changes require `docker compose restart app`. Only rebuild when `requirements.txt` changes.
+
+**SQLite mode (optional):** set this in `.env` before `docker compose up`:
+
+```bash
+DATABASE_BACKEND=sqlite
+DATABASE_URL=sqlite:////app/syncbot/syncbot.db
+```
+
+This stores the SQLite file inside the bind-mounted app folder. You can still leave the `db` service running; the app will ignore MySQL vars when `DATABASE_BACKEND=sqlite`.
 
 ```bash
 docker compose exec app python -m pytest /app/tests -v    # run tests
@@ -223,7 +241,7 @@ See [`.env.example`](.env.example) for all available options with descriptions.
 | `ENV_SLACK_CLIENT_ID` | OAuth client ID |
 | `ENV_SLACK_CLIENT_SECRET` | OAuth client secret |
 | `ENV_SLACK_SCOPES` | Comma-separated OAuth scopes |
-| `PASSWORD_ENCRYPT_KEY` | Passphrase for Fernet bot-token encryption |
+| `TOKEN_ENCRYPTION_KEY` | Passphrase for Fernet bot-token encryption |
 
 OAuth state and installation data are stored in the same RDS MySQL database.
 
@@ -253,7 +271,7 @@ OAuth state and installation data are stored in the same RDS MySQL database.
 | [User Guide](docs/USER_GUIDE.md) | End-user walkthrough of all features |
 | [Architecture](docs/ARCHITECTURE.md) | Message sync flow, AWS infrastructure, caching |
 | [Backup & Migration](docs/BACKUP_AND_MIGRATION.md) | Full-instance backup/restore, workspace data migration |
-| [Deployment](docs/DEPLOYMENT.md) | Shared infrastructure, CI/CD via GitHub Actions |
+| [Deployment](docs/DEPLOYMENT.md) | Bootstrap, fork-and-deploy (GitHub OIDC), download-and-deploy |
 | [API Reference](docs/API_REFERENCE.md) | HTTP endpoints and subscribed Slack events |
 | [Improvements](docs/IMPROVEMENTS.md) | Completed and planned improvements |
 
@@ -271,11 +289,11 @@ syncbot/
 │   ├── federation/            # Cross-instance sync (opt-in)
 │   ├── db/                    # Engine, session, ORM models
 │   └── slack/                 # Action IDs, forms, Block Kit helpers
-├── db/init.sql                # Baseline schema for fresh databases
-├── db/migrations/             # Forward-only SQL migrations (auto-applied)
+├── db/alembic/                # Alembic migrations (backend-agnostic schema source)
+├── db/alembic.ini             # Alembic configuration
 ├── tests/                     # pytest unit tests
 ├── docs/                      # Extended documentation
-├── template.yaml              # AWS SAM infrastructure-as-code
+├── infra/aws/                 # AWS SAM templates (template.yaml, template.bootstrap.yaml)
 ├── slack-manifest.yaml        # Slack app manifest
 └── docker-compose.yml         # Local development stack
 ```

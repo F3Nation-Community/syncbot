@@ -9,7 +9,6 @@ services:
       - "3306:3306"
     volumes:
       - syncbot-db:/var/lib/mysql
-      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
@@ -25,14 +24,18 @@ services:
         condition: service_healthy
     environment:
       # Database
-      DATABASE_HOST: db
-      ADMIN_DATABASE_USER: root
-      ADMIN_DATABASE_PASSWORD: rootpass
-      ADMIN_DATABASE_SCHEMA: syncbot
+      DATABASE_BACKEND: ${DATABASE_BACKEND:-mysql}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_HOST: ${DATABASE_HOST:-db}
+      ADMIN_DATABASE_USER: ${ADMIN_DATABASE_USER:-root}
+      ADMIN_DATABASE_PASSWORD: ${ADMIN_DATABASE_PASSWORD:-rootpass}
+      ADMIN_DATABASE_SCHEMA: ${ADMIN_DATABASE_SCHEMA:-syncbot}
+      DATABASE_TLS_ENABLED: ${DATABASE_TLS_ENABLED:-false}
+      DATABASE_SSL_CA_PATH: ${DATABASE_SSL_CA_PATH:-/etc/pki/tls/certs/ca-bundle.crt}
       # Slack — replace with your values or use a .env file
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-xoxb-your-bot-token}
       # Optional
-      PASSWORD_ENCRYPT_KEY: ${PASSWORD_ENCRYPT_KEY:-123}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-123}
       REQUIRE_ADMIN: ${REQUIRE_ADMIN:-true}
     volumes:
       - ./syncbot:/app/syncbot

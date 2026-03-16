@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TypeVar
 from urllib.parse import quote_plus
 
-from sqlalchemy import and_, create_engine, func, inspect, pool, text
+from sqlalchemy import and_, create_engine, func, pool, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
@@ -43,15 +43,12 @@ GLOBAL_SCHEMA = None
 _MAX_RETRIES = 2
 _DB_INIT_MAX_ATTEMPTS = 15
 _DB_INIT_RETRY_SECONDS = 2
-_MIGRATION_TABLE = "schema_migrations"
-_BASELINE_VERSION = "000_init_sql"
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-_INIT_SQL_PATH = _PROJECT_ROOT / "db" / "init.sql"
-_MIGRATIONS_DIR = _PROJECT_ROOT / "db" / "migrations"
+_ALEMBIC_SCRIPT_LOCATION = _PROJECT_ROOT / "db" / "alembic"
 
 
-def _build_base_url(include_schema: bool = False) -> tuple[str, dict]:
-    """Build MySQL URL and connect_args for get_engine (no schema or with schema)."""
+def _build_mysql_url(include_schema: bool = False) -> tuple[str, dict]:
+    """Build MySQL URL and connect_args from legacy env vars."""
     host = os.environ[constants.DATABASE_HOST]
     user = quote_plus(os.environ[constants.ADMIN_DATABASE_USER])
     passwd = quote_plus(os.environ[constants.ADMIN_DATABASE_PASSWORD])
@@ -59,8 +56,8 @@ def _build_base_url(include_schema: bool = False) -> tuple[str, dict]:
     path = f"/{schema}" if include_schema else ""
     db_url = f"mysql+pymysql://{user}:{passwd}@{host}:3306{path}?charset=utf8mb4"
     connect_args: dict = {}
-    if not constants.LOCAL_DEVELOPMENT:
-        ca_path = "/etc/pki/tls/certs/ca-bundle.crt"
+    if constants.database_tls_enabled():
+        ca_path = constants.database_ssl_ca_path()
         try:
             ssl_ctx = ssl.create_default_context(cafile=ca_path)
         except (OSError, ssl.SSLError):
@@ -69,78 +66,45 @@ def _build_base_url(include_schema: bool = False) -> tuple[str, dict]:
     return db_url, connect_args
 
 
-def _sql_statements_from_file(sql_path: Path) -> list[str]:
-    """Parse a SQL file into executable statements.
-
-    This parser intentionally supports the project's migration style
-    (line comments + semicolon-delimited statements).
-    """
-    sql = sql_path.read_text()
-    lines = []
-    for line in sql.splitlines():
-        if "--" in line:
-            line = line[: line.index("--")].strip()
-        else:
-            line = line.strip()
-        if line:
-            lines.append(line)
-    combined = " ".join(lines)
-    return [stmt.strip() for stmt in combined.split(";") if stmt.strip()]
-
-
-def _execute_sql_file(conn, sql_path: Path) -> None:
-    """Execute all statements from *sql_path* using the provided connection."""
-    for stmt in _sql_statements_from_file(sql_path):
-        conn.execute(text(stmt))
-
-
-def _ensure_migration_table(engine) -> None:
-    """Create the migration tracking table if it does not exist."""
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS schema_migrations (
-                    version VARCHAR(255) PRIMARY KEY,
-                    applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                """
-            )
-        )
+def _get_database_url_and_args(schema: str = None) -> tuple[str, dict]:
+    """Return (url, connect_args) for the configured backend. Dialect-aware."""
+    backend = constants.get_database_backend()
+    if backend == "sqlite":
+        url = os.environ.get(constants.DATABASE_URL) or "sqlite:///db.sqlite3"
+        # Ensure path is absolute for SQLite when file path is used
+        if url.startswith("sqlite:///") and not url.startswith("sqlite:////"):
+            path_part = url[10:]
+            if not path_part.startswith("/") and ":" not in path_part[:2]:
+                url = f"sqlite:///{_PROJECT_ROOT / path_part}"
+        connect_args = {"check_same_thread": False}
+        return url, connect_args
+    # mysql
+    if os.environ.get(constants.DATABASE_URL):
+        url = os.environ[constants.DATABASE_URL]
+        connect_args = {}
+        if constants.database_tls_enabled():
+            ca_path = constants.database_ssl_ca_path()
+            try:
+                ssl_ctx = ssl.create_default_context(cafile=ca_path)
+            except (OSError, ssl.SSLError):
+                ssl_ctx = ssl.create_default_context()
+            connect_args["ssl"] = ssl_ctx
+        return url, connect_args
+    return _build_mysql_url(include_schema=True)
 
 
-def _migration_applied(engine, version: str) -> bool:
-    with engine.begin() as conn:
-        row = conn.execute(
-            text("SELECT version FROM schema_migrations WHERE version = :version"),
-            {"version": version},
-        ).first()
-    return row is not None
-
-
-def _record_migration(engine, version: str) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                INSERT INTO schema_migrations (version)
-                VALUES (:version)
-                ON DUPLICATE KEY UPDATE version = VALUES(version)
-                """
-            ),
-            {"version": version},
-        )
-
-
-def _table_exists(engine, table_name: str) -> bool:
-    """Return True if *table_name* exists in the current schema."""
-    return inspect(engine).has_table(table_name)
+def _is_sqlite(engine) -> bool:
+    return engine.dialect.name == "sqlite"
 
 
 def _ensure_database_exists() -> None:
-    """Create the configured schema if it does not already exist."""
+    """Create the configured schema if it does not already exist (MySQL only)."""
+    if constants.get_database_backend() != "mysql":
+        return
+    if os.environ.get(constants.DATABASE_URL):
+        return  # URL already points at a database
     schema = os.environ.get(constants.ADMIN_DATABASE_SCHEMA, "syncbot")
-    url_no_db, connect_args = _build_base_url(include_schema=False)
+    url_no_db, connect_args = _build_mysql_url(include_schema=False)
     engine_no_db = create_engine(url_no_db, connect_args=connect_args, pool_pre_ping=True)
     try:
         with engine_no_db.begin() as conn:
@@ -149,49 +113,31 @@ def _ensure_database_exists() -> None:
         engine_no_db.dispose()
 
 
+def _alembic_config():
+    """Build Alembic config with script_location set to project db/alembic."""
+    from alembic.config import Config  # pyright: ignore[reportMissingImports]
+    config = Config()
+    config.set_main_option("script_location", str(_ALEMBIC_SCRIPT_LOCATION))
+    return config
+
+
+def _run_alembic_upgrade() -> None:
+    """Run Alembic upgrade head (fresh-install flow only; pre-release)."""
+    from alembic import command  # pyright: ignore[reportMissingImports]
+
+    config = _alembic_config()
+    command.upgrade(config, "head")
+
+
 def initialize_database() -> None:
-    """Initialize schema and apply migrations automatically.
+    """Initialize schema via Alembic migrations (fresh install only; pre-release).
 
-    Behavior:
-    - Ensures the target database exists.
-    - Creates migration tracking table.
-    - Applies ``db/init.sql`` exactly once for fresh databases (or marks it as
-      baseline for already-initialized databases).
-    - Applies pending SQL migrations from ``db/migrations`` in filename order.
+    Ensures DB exists (MySQL only), then runs Alembic upgrade head.
     """
-    if not _INIT_SQL_PATH.exists():
-        raise FileNotFoundError(f"Missing init.sql at {_INIT_SQL_PATH}")
-
     for attempt in range(1, _DB_INIT_MAX_ATTEMPTS + 1):
         try:
             _ensure_database_exists()
-            engine = get_engine()
-
-            _ensure_migration_table(engine)
-
-            if not _migration_applied(engine, _BASELINE_VERSION):
-                if _table_exists(engine, "workspaces"):
-                    _logger.info("db_init_baseline_marked", extra={"version": _BASELINE_VERSION})
-                    _record_migration(engine, _BASELINE_VERSION)
-                else:
-                    _logger.info("db_init_start", extra={"file": str(_INIT_SQL_PATH)})
-                    with engine.begin() as conn:
-                        _execute_sql_file(conn, _INIT_SQL_PATH)
-                    _record_migration(engine, _BASELINE_VERSION)
-                    _logger.info("db_init_complete", extra={"version": _BASELINE_VERSION})
-
-            if _MIGRATIONS_DIR.exists():
-                migration_files = sorted(p for p in _MIGRATIONS_DIR.glob("*.sql") if p.is_file())
-                for migration_file in migration_files:
-                    version = migration_file.name
-                    if _migration_applied(engine, version):
-                        continue
-                    _logger.info("db_migration_start", extra={"version": version})
-                    with engine.begin() as conn:
-                        _execute_sql_file(conn, migration_file)
-                    _record_migration(engine, version)
-                    _logger.info("db_migration_complete", extra={"version": version})
-
+            _run_alembic_upgrade()
             return
         except Exception as exc:
             if attempt >= _DB_INIT_MAX_ATTEMPTS:
@@ -207,89 +153,97 @@ def initialize_database() -> None:
             time.sleep(_DB_INIT_RETRY_SECONDS)
 
 
-def drop_and_init_db() -> None:
-    """Drop the database and reinitialize from db/init.sql. All data is lost.
+def _drop_all_tables_dialect_aware(engine) -> None:
+    """Drop all tables in the current schema. MySQL: information_schema + FK off; SQLite: metadata reflect + drop."""
+    if _is_sqlite(engine):
+        from sqlalchemy import MetaData
+        meta = MetaData()
+        meta.reflect(bind=engine)
+        with engine.begin() as conn:
+            for table in reversed(meta.sorted_tables):
+                table.drop(conn, checkfirst=True)
+        return
+    with engine.begin() as conn:
+        conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+        result = conn.execute(
+            text(
+                "SELECT TABLE_NAME FROM information_schema.TABLES "
+                "WHERE TABLE_SCHEMA = DATABASE()"
+            )
+        )
+        for (table_name,) in result:
+            conn.execute(text(f"DROP TABLE IF EXISTS `{table_name}`"))
+        conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
 
+
+def drop_and_init_db() -> None:
+    """Empty the current schema and reinitialize via Alembic. All data is lost.
+
+    Drops all tables dialect-aware, then runs Alembic upgrade head.
     Called from the "Reset Database" UI button (gated by ENABLE_DB_RESET).
     Resets GLOBAL_ENGINE and GLOBAL_SESSION so the next get_engine() uses a fresh DB.
     """
     global GLOBAL_ENGINE, GLOBAL_SESSION, GLOBAL_SCHEMA
 
     _logger.critical(
-        "DB RESET: dropping database and reinitializing from init.sql. All data will be lost."
+        "DB RESET: emptying schema and reinitializing via Alembic. All data will be lost."
     )
 
-    schema = os.environ.get(constants.ADMIN_DATABASE_SCHEMA, "syncbot")
-    url_no_db, connect_args = _build_base_url(include_schema=False)
-    engine_no_db = create_engine(url_no_db, connect_args=connect_args, pool_pre_ping=True)
+    db_url, connect_args = _get_database_url_and_args()
+    engine = create_engine(
+        db_url,
+        connect_args=connect_args,
+        poolclass=pool.NullPool if constants.get_database_backend() == "sqlite" else pool.QueuePool,
+        pool_pre_ping=constants.get_database_backend() == "mysql",
+    )
 
-    with engine_no_db.begin() as conn:
-        conn.execute(text(f"DROP DATABASE IF EXISTS `{schema}`"))
-        conn.execute(text(f"CREATE DATABASE `{schema}` CHARACTER SET utf8mb4"))
+    _drop_all_tables_dialect_aware(engine)
 
-    engine_no_db.dispose()
-
-    url_with_db, connect_args = _build_base_url(include_schema=True)
-    engine_with_db = create_engine(url_with_db, connect_args=connect_args, pool_pre_ping=True)
-
-    init_path = _INIT_SQL_PATH
-    if not init_path.exists():
-        _logger.error("drop_and_init_db: init.sql not found at %s", init_path)
-        engine_with_db.dispose()
-        return
-
-    with engine_with_db.begin() as conn:
-        _execute_sql_file(conn, init_path)
-
-    engine_with_db.dispose()
+    engine.dispose()
 
     GLOBAL_ENGINE = None
     GLOBAL_SESSION = None
     GLOBAL_SCHEMA = None
-    # Ensure baseline is re-recorded after reset.
+    # Recreate schema via Alembic upgrade head.
     initialize_database()
-    _logger.info("drop_and_init_db: database %s dropped and reinitialized from init.sql", schema)
+    _logger.info("drop_and_init_db: schema emptied and reinitialized via Alembic")
 
 
 def get_engine(echo: bool = False, schema: str = None):
     """Return the global SQLAlchemy engine, creating it on first call.
 
-    Uses QueuePool with pool_pre_ping so that stale connections (common
-    in Lambda warm containers) are detected and replaced transparently.
+    Uses QueuePool with pool_pre_ping for MySQL; NullPool for SQLite.
     """
     global GLOBAL_ENGINE, GLOBAL_SCHEMA
 
-    target_schema = schema or os.environ[constants.ADMIN_DATABASE_SCHEMA]
+    backend = constants.get_database_backend()
+    target_schema = (schema or os.environ.get(constants.ADMIN_DATABASE_SCHEMA, "syncbot")) if backend == "mysql" else ""
+    cache_key = target_schema or backend
 
-    if target_schema == GLOBAL_SCHEMA and GLOBAL_ENGINE is not None:
+    if cache_key == GLOBAL_SCHEMA and GLOBAL_ENGINE is not None:
         return GLOBAL_ENGINE
 
-    host = os.environ[constants.DATABASE_HOST]
-    user = quote_plus(os.environ[constants.ADMIN_DATABASE_USER])
-    passwd = quote_plus(os.environ[constants.ADMIN_DATABASE_PASSWORD])
+    db_url, connect_args = _get_database_url_and_args(schema=target_schema or None)
 
-    db_url = f"mysql+pymysql://{user}:{passwd}@{host}:3306/{target_schema}?charset=utf8mb4"
-
-    connect_args: dict = {}
-    if not constants.LOCAL_DEVELOPMENT:
-        ca_path = "/etc/pki/tls/certs/ca-bundle.crt"
-        try:
-            ssl_ctx = ssl.create_default_context(cafile=ca_path)
-        except (OSError, ssl.SSLError):
-            ssl_ctx = ssl.create_default_context()
-        connect_args["ssl"] = ssl_ctx
-
-    GLOBAL_ENGINE = create_engine(
-        db_url,
-        echo=echo,
-        poolclass=pool.QueuePool,
-        pool_size=1,
-        max_overflow=1,
-        pool_recycle=3600,
-        pool_pre_ping=True,
-        connect_args=connect_args,
-    )
-    GLOBAL_SCHEMA = target_schema
+    if backend == "sqlite":
+        GLOBAL_ENGINE = create_engine(
+            db_url,
+            echo=echo,
+            poolclass=pool.NullPool,
+            connect_args=connect_args,
+        )
+    else:
+        GLOBAL_ENGINE = create_engine(
+            db_url,
+            echo=echo,
+            poolclass=pool.QueuePool,
+            pool_size=1,
+            max_overflow=1,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            connect_args=connect_args,
+        )
+    GLOBAL_SCHEMA = cache_key
     return GLOBAL_ENGINE
 
 

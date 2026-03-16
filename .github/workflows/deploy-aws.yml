@@ -1,11 +1,22 @@
+# Deploy SyncBot to AWS (SAM). See docs/DEPLOYMENT.md and docs/INFRA_CONTRACT.md.
+# To use GCP instead: set repository variable DEPLOY_TARGET=gcp and disable this workflow.
+
+name: Deploy (AWS)
+
 on:
   push:
     branches:
       - test
       - prod
 
+permissions:
+  id-token: write
+  contents: read
+
+# Skip when using GCP (set DEPLOY_TARGET=gcp to use deploy-gcp.yml instead)
 jobs:
   sam-build:
+    if: vars.DEPLOY_TARGET != 'gcp'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,11 +28,10 @@ jobs:
           use-installer: true
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
 
-      - run: sam build --use-container
+      - run: sam build -t infra/aws/template.yaml
 
       - name: Publish artifact
         uses: actions/upload-artifact@v4
@@ -37,9 +47,8 @@ jobs:
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -71,7 +80,7 @@ jobs:
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
                DatabasePassword=${{ secrets.DATABASE_PASSWORD }} \
-               PasswordEncryptKey=${{ secrets.PASSWORD_ENCRYPT_KEY }}"
+               TokenEncryptionKey=${{ secrets.TOKEN_ENCRYPTION_KEY }}"
 
   sam-deploy-prod:
     if: github.ref == 'refs/heads/prod'
@@ -81,9 +90,8 @@ jobs:
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -115,4 +123,4 @@ jobs:
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
                DatabasePassword=${{ secrets.DATABASE_PASSWORD }} \
-               PasswordEncryptKey=${{ secrets.PASSWORD_ENCRYPT_KEY }}"
+               TokenEncryptionKey=${{ secrets.TOKEN_ENCRYPTION_KEY }}"
