@@ -87,6 +87,8 @@ Resources:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
                 token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepository}:*"
+      ManagedPolicyArns:
+        - !Ref DeployPolicy
 
   # -------------------------------------------------------------------------
   # Least-privilege policy for SAM deploy (CloudFormation, S3, IAM PassRole, etc.)
@@ -233,12 +235,6 @@ Resources:
               - events:DescribeRule
               - events:ListTargetsByRule
             Resource: "*"
-
-  DeployRolePolicyAttachment:
-    Type: AWS::IAM::RolePolicyAttachment
-    Properties:
-      RoleName: !Ref GitHubDeployRole
-      PolicyArn: !Ref DeployPolicy
 
 Outputs:
   GitHubDeployRoleArn:

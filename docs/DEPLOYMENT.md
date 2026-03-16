@@ -65,7 +65,7 @@ aws cloudformation deploy \
   --region us-east-2
 ```
 
-Replace `YOUR_GITHUB_OWNER/YOUR_REPO` with your repo. Optionally set `CreateOIDCProvider=false` if the account already has the GitHub OIDC provider.
+Replace `YOUR_GITHUB_OWNER/YOUR_REPO` with your repo. Optionally set `CreateOIDCProvider=false` if the account already has the GitHub OIDC provider. The bootstrap template only accepts `GitHubRepository`, `CreateOIDCProvider`, and `DeploymentBucketPrefix` (database options go in the main app deploy, not bootstrap).
 
 **Capture outputs:**
 
@@ -94,10 +94,51 @@ You need: **GitHubDeployRoleArn** → `AWS_ROLE_TO_ASSUME`, **DeploymentBucketNa
 
    Use the bootstrap **DeploymentBucketName**. Set parameters (Stage, DB, Slack, etc.) when prompted.
 
-3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `EXISTING_DATABASE_HOST`, `DATABASE_USER`, `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `DATABASE_PASSWORD`. No access keys — the workflow uses OIDC.
+3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `EXISTING_DATABASE_HOST`, `EXISTING_DATABASE_ADMIN_USER` (when using existing RDS host), `DATABASE_USER` (when creating new RDS), `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `EXISTING_DATABASE_ADMIN_PASSWORD` (when using existing host), `DATABASE_PASSWORD` (when creating new RDS). No access keys — the workflow uses OIDC.
 4. Push to `test` or `prod` to build and deploy. The workflow file is `.github/workflows/deploy-aws.yml` (runs when `DEPLOY_TARGET` is not `gcp`).
 
 **Important:** `TOKEN_ENCRYPTION_KEY` is generated once and stored in Secrets Manager by the app stack. Back up the secret value after first deploy. If this key is lost, existing workspaces must reinstall to re-authorize bot tokens.
+
+#### Using an existing RDS host (AWS)
+
+To **reuse only the DB host** and have the deploy create the schema and a dedicated app user (and generated password) for you:
+
+1. **What the stack does:**  
+   When you set **ExistingDatabaseHost**, the template skips creating VPC, subnets, and RDS. A custom resource runs during deploy: it connects to your existing MySQL with a **bootstrap** (master) user you provide, creates the schema, creates an app user `syncbot_<stage>` with a **generated** password (stored in Secrets Manager), and grants that user full access to the schema. The app Lambda then uses that app user and generated password. You never manage the app DB password.
+
+2. **What you provide:**
+   - **Host:** The RDS endpoint (e.g. `mydb.xxxx.us-east-2.rds.amazonaws.com`). No `:3306` or path.
+   - **Admin user & password:** A MySQL user that can create databases and users (e.g. RDS master). Used only by the deploy step; the app uses a separate `syncbot_<stage>` user.
+   - **Schema name:** A dedicated schema per app or environment (e.g. `syncbot_test`, `syncbot_prod`). The deploy creates this schema and the app user with full access to it; the app runs Alembic migrations on startup.
+
+3. **Connectivity:**  
+   When using an existing host, Lambda is **not** put in a VPC. It can only reach **publicly accessible** endpoints. Your RDS must be:
+   - Set to **publicly accessible** (in RDS settings), and
+   - Protected by a security group that allows **inbound TCP 3306** from the internet (or restrict to known IPs).  
+   For production, consider a VPC-enabled Lambda and private RDS; that would require template changes.
+
+4. **First deploy (local `sam deploy`):**  
+   Pass the **existing-host** parameters (admin user/password; do **not** pass `DatabaseUser`/`DatabasePassword` for the app — they are created for you):
+   ```bash
+   sam deploy --guided ... \
+     --parameter-overrides \
+       ExistingDatabaseHost=your-db.xxxx.us-east-2.rds.amazonaws.com \
+       ExistingDatabaseAdminUser=admin \
+       ExistingDatabaseAdminPassword=your_master_password \
+       DatabaseSchema=syncbot_test \
+       SlackSigningSecret=... \
+       SlackClientSecret=...
+   ```
+   Omit **ExistingDatabaseHost** (or leave it empty) to have the stack create a new RDS instance; then you must pass **DatabaseUser** and **DatabasePassword** for the new RDS master.
+
+5. **GitHub Actions:**  
+   For **existing host** (deploy creates schema and app user), set **Variables**:
+   - **EXISTING_DATABASE_HOST** — Full RDS hostname. Leave **empty** to create a new RDS instead.
+   - **EXISTING_DATABASE_ADMIN_USER** — MySQL user that can create DBs/users (e.g. master).
+   - **DATABASE_SCHEMA** — Schema name (e.g. `syncbot_test` or `syncbot_prod`).  
+   Set **Secrets**:
+   - **EXISTING_DATABASE_ADMIN_PASSWORD** — Password for the admin user.  
+   For **new RDS** (stack creates the instance), set **DATABASE_USER**, **DATABASE_SCHEMA**, and secret **DATABASE_PASSWORD** instead, and leave **EXISTING_DATABASE_HOST** empty. The workflow passes all of these; the template uses the right set based on whether **EXISTING_DATABASE_HOST** is set.
 
 **Disaster recovery:** if you must rebuild and keep existing encrypted tokens working, deploy with the old key:
 
@@ -223,4 +264,4 @@ Schema is managed by **Alembic** (see `db/alembic/`). On startup the app runs **
 
 ## Sharing infrastructure across apps (AWS)
 
-To use an existing RDS instance instead of creating one per stack, set **ExistingDatabaseHost** in parameter overrides and use a **different DatabaseSchema** per app (e.g. `syncbot_test`, `syncbot_prod`). SyncBot creates the schema and runs migrations on startup. API Gateway and Lambda are per stack; free-tier quotas are account-wide.
+To use an existing RDS instance instead of creating one per stack, see **[Using an existing RDS host (AWS)](#using-an-existing-rds-host-aws)**. Set **ExistingDatabaseHost** and use a **different DatabaseSchema** per app or environment (e.g. `syncbot_test`, `syncbot_prod`). API Gateway and Lambda are per stack; free-tier quotas are account-wide.

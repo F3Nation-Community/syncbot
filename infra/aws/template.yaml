@@ -58,19 +58,34 @@ Parameters:
     Description: >
       Endpoint of an existing RDS instance (e.g. mydb.xxxx.us-east-2.rds.amazonaws.com).
       Leave EMPTY to create a new RDS instance. When set, all VPC and RDS
-      resources are skipped.
+      resources are skipped and the deploy creates the schema and app user for you.
     Type: String
     Default: ""
 
-  DatabaseUser:
-    Description: Database username (master user if creating new RDS, or an existing user)
+  ExistingDatabaseAdminUser:
+    Description: >
+      MySQL user that can create databases and users (e.g. master). Used only when
+      ExistingDatabaseHost is set; the deploy creates a dedicated app user and schema.
     Type: String
+    Default: ""
 
-  DatabasePassword:
-    Description: Database password
+  ExistingDatabaseAdminPassword:
+    Description: Password for ExistingDatabaseAdminUser. Used only when using existing host.
     Type: String
     NoEcho: true
-    MinLength: 8
+    Default: ""
+
+  DatabaseUser:
+    Description: >
+      Database username: master user when creating new RDS; ignored when ExistingDatabaseHost is set.
+    Type: String
+    Default: ""
+
+  DatabasePassword:
+    Description: Database password (master when creating new RDS; min 8 chars). Ignored when using existing host.
+    Type: String
+    NoEcho: true
+    Default: ""
 
   DatabaseSchema:
     Description: >
@@ -127,6 +142,7 @@ Parameters:
 
 Conditions:
   CreateDatabase: !Equals [!Ref ExistingDatabaseHost, ""]
+  UseExistingDatabase: !Not [!Equals [!Ref ExistingDatabaseHost, ""]]
   HasTokenEncryptionKeyOverride: !Not [!Equals [!Ref TokenEncryptionKeyOverride, ""]]
 
 Mappings:
@@ -311,6 +327,47 @@ Resources:
         ExcludePunctuation: true
         IncludeSpace: false
 
+  # --- Existing RDS: generated app password and setup Lambda ---
+  AppDbCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: UseExistingDatabase
+    Properties:
+      Name: !Sub "syncbot-${Stage}-app-db-password"
+      Description: !Sub "SyncBot ${Stage} app DB user password (created by stack)"
+      GenerateSecretString:
+        PasswordLength: 32
+        ExcludePunctuation: true
+        IncludeSpace: false
+
+  DbSetupFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseExistingDatabase
+    Properties:
+      CodeUri: db_setup/
+      Handler: handler.handler
+      Runtime: python3.11
+      Timeout: 60
+      MemorySize: 256
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Ref AppDbCredentialsSecret
+
+  AppDbSetup:
+    Type: Custom::ExistingRDSSetup
+    Condition: UseExistingDatabase
+    DependsOn: DbSetupFunction
+    Properties:
+      ServiceToken: !GetAtt DbSetupFunction.Arn
+      Host: !Ref ExistingDatabaseHost
+      AdminUser: !Ref ExistingDatabaseAdminUser
+      AdminPassword: !Ref ExistingDatabaseAdminPassword
+      Schema: !Ref DatabaseSchema
+      Stage: !Ref Stage
+      SecretArn: !Ref AppDbCredentialsSecret
+
   # ============================================================
   # Lambda Function
   # ============================================================
@@ -363,8 +420,16 @@ Resources:
             - CreateDatabase
             - !GetAtt RDSInstance.Endpoint.Address
             - !Ref ExistingDatabaseHost
-          ADMIN_DATABASE_USER: !Ref DatabaseUser
-          ADMIN_DATABASE_PASSWORD: !Ref DatabasePassword
+          ADMIN_DATABASE_USER: !If
+            - UseExistingDatabase
+            - !GetAtt AppDbSetup.Username
+            - !Ref DatabaseUser
+          ADMIN_DATABASE_PASSWORD: !If
+            - UseExistingDatabase
+            - !Sub
+              - "{{resolve:secretsmanager:${SecretArn}:SecretString}}"
+              - { SecretArn: !Ref AppDbCredentialsSecret }
+            - !Ref DatabasePassword
           ADMIN_DATABASE_SCHEMA: !Ref DatabaseSchema
           TOKEN_ENCRYPTION_KEY: !If
             - HasTokenEncryptionKeyOverride

@@ -8,6 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.11"
 alembic = "^1.13"
+python-dotenv = "^1.2.0"
 slack-bolt = "^1.27.0"
 sqlalchemy = "<2.0"
 pymysql = "^1.1.2"
