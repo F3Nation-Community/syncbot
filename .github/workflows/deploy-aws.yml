@@ -1,6 +1,9 @@
 # Deploy SyncBot to AWS (SAM). See docs/DEPLOYMENT.md and docs/INFRA_CONTRACT.md.
 # To use GCP instead: set repository variable DEPLOY_TARGET=gcp and disable this workflow.
-# Optional DR secret: TOKEN_ENCRYPTION_KEY_OVERRIDE (passes TokenEncryptionKeyOverride on deploy).
+#
+# Token key policy: Non-local deploys require a secure TOKEN_ENCRYPTION_KEY. The AWS app stack
+# auto-generates it in Secrets Manager by default. Back up the generated key after first deploy.
+# Optional DR secret TOKEN_ENCRYPTION_KEY_OVERRIDE passes TokenEncryptionKeyOverride for restore.
 
 name: Deploy (AWS)
 

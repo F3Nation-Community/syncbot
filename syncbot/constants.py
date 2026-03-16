@@ -155,10 +155,23 @@ _REQUIRED_PRODUCTION = [
 ]
 
 
+# Minimum length for TOKEN_ENCRYPTION_KEY in production (reject weak/placeholder values).
+_TOKEN_ENCRYPTION_KEY_MIN_LEN = 16
+_TOKEN_ENCRYPTION_KEY_PLACEHOLDERS = frozenset({"123", "changeme", "secret", "password"})
+
+
 def _encryption_active() -> bool:
-    """Return True if bot-token encryption is configured with a real key."""
-    key = os.environ.get(TOKEN_ENCRYPTION_KEY, "")
-    return bool(key) and key != "123"
+    """Return True if bot-token encryption is configured with a strong key.
+
+    In non-local environments the key must be set, at least _TOKEN_ENCRYPTION_KEY_MIN_LEN
+    characters, and not a known placeholder. Local dev can use any value or leave unset.
+    """
+    key = (os.environ.get(TOKEN_ENCRYPTION_KEY) or "").strip()
+    if not key or len(key) < _TOKEN_ENCRYPTION_KEY_MIN_LEN:
+        return False
+    if key.lower() in _TOKEN_ENCRYPTION_KEY_PLACEHOLDERS:
+        return False
+    return True
 
 
 def validate_config() -> None:
@@ -183,7 +196,11 @@ def validate_config() -> None:
             raise OSError(msg)
 
     if not LOCAL_DEVELOPMENT and not _encryption_active():
-        _logger.critical(
-            "Bot-token encryption is DISABLED in production. "
-            "Set TOKEN_ENCRYPTION_KEY to a strong passphrase to encrypt tokens at rest."
+        msg = (
+            "TOKEN_ENCRYPTION_KEY is required in production and must be a secure, random value "
+            f"(at least {_TOKEN_ENCRYPTION_KEY_MIN_LEN} characters). "
+            "Use your provider's secret manager; the AWS template auto-generates it. "
+            "Back up the key after first deploy. In local dev you may set it manually or leave unset."
         )
+        _logger.critical(msg)
+        raise OSError(msg)

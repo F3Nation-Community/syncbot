@@ -97,7 +97,7 @@ You need: **GitHubDeployRoleArn** → `AWS_ROLE_TO_ASSUME`, **DeploymentBucketNa
 3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `EXISTING_DATABASE_HOST`, `EXISTING_DATABASE_ADMIN_USER` (when using existing RDS host), `DATABASE_USER` (when creating new RDS), `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `EXISTING_DATABASE_ADMIN_PASSWORD` (when using existing host), `DATABASE_PASSWORD` (when creating new RDS). No access keys — the workflow uses OIDC.
 4. Push to `test` or `prod` to build and deploy. The workflow file is `.github/workflows/deploy-aws.yml` (runs when `DEPLOY_TARGET` is not `gcp`).
 
-**Important:** `TOKEN_ENCRYPTION_KEY` is generated once and stored in Secrets Manager by the app stack. Back up the secret value after first deploy. If this key is lost, existing workspaces must reinstall to re-authorize bot tokens.
+**Important (token encryption key):** Non-local deploys require a secure `TOKEN_ENCRYPTION_KEY`. The AWS app stack **auto-generates** it in Secrets Manager by default. You must **back up the generated key** after first deploy; if it is lost, existing workspaces must reinstall to re-authorize bot tokens. For local development you may set the key manually in `.env` or leave it unset.
 
 #### Using an existing RDS host (AWS)
 
