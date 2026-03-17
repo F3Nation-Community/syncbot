@@ -8,9 +8,9 @@ import pytest
 
 # Ensure minimal env vars are set before importing app code
 os.environ.setdefault("DATABASE_HOST", "localhost")
-os.environ.setdefault("ADMIN_DATABASE_USER", "root")
-os.environ.setdefault("ADMIN_DATABASE_PASSWORD", "test")
-os.environ.setdefault("ADMIN_DATABASE_SCHEMA", "syncbot")
+os.environ.setdefault("DATABASE_USER", "root")
+os.environ.setdefault("DATABASE_PASSWORD", "test")
+os.environ.setdefault("DATABASE_SCHEMA", "syncbot")
 # Placeholder only; never a real token (avoids secret scanners)
 os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-0-0")
 

@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("DATABASE_HOST", "localhost")
-os.environ.setdefault("ADMIN_DATABASE_USER", "root")
-os.environ.setdefault("ADMIN_DATABASE_PASSWORD", "test")
-os.environ.setdefault("ADMIN_DATABASE_SCHEMA", "syncbot")
+os.environ.setdefault("DATABASE_USER", "root")
+os.environ.setdefault("DATABASE_PASSWORD", "test")
+os.environ.setdefault("DATABASE_SCHEMA", "syncbot")
 os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-0-0")
 
 from handlers.groups import handle_join_group_submit  # noqa: E402

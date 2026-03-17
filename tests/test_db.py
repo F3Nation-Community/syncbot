@@ -6,9 +6,9 @@ from unittest.mock import patch
 import pytest
 
 os.environ.setdefault("DATABASE_HOST", "localhost")
-os.environ.setdefault("ADMIN_DATABASE_USER", "root")
-os.environ.setdefault("ADMIN_DATABASE_PASSWORD", "test")
-os.environ.setdefault("ADMIN_DATABASE_SCHEMA", "syncbot")
+os.environ.setdefault("DATABASE_USER", "root")
+os.environ.setdefault("DATABASE_PASSWORD", "test")
+os.environ.setdefault("DATABASE_SCHEMA", "syncbot")
 os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-0-0")
 
 from sqlalchemy import inspect
@@ -81,9 +81,9 @@ class TestEngineConfig:
         {
             "DATABASE_BACKEND": "mysql",
             "DATABASE_HOST": "localhost",
-            "ADMIN_DATABASE_USER": "root",
-            "ADMIN_DATABASE_PASSWORD": "test",
-            "ADMIN_DATABASE_SCHEMA": "syncbot",
+            "DATABASE_USER": "root",
+            "DATABASE_PASSWORD": "test",
+            "DATABASE_SCHEMA": "syncbot",
         },
         clear=False,
     )
@@ -179,7 +179,7 @@ class TestBackendParity:
 
             required = get_required_db_vars()
             assert "DATABASE_HOST" in required
-            assert "ADMIN_DATABASE_USER" in required
+            assert "DATABASE_USER" in required
 
     def test_get_required_db_vars_sqlite(self):
         with patch.dict(os.environ, {"DATABASE_BACKEND": "sqlite"}, clear=False):

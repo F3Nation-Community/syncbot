@@ -229,9 +229,9 @@ See [`.env.example`](.env.example) for all available options with descriptions.
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_HOST` | MySQL hostname |
-| `ADMIN_DATABASE_USER` | MySQL username |
-| `ADMIN_DATABASE_PASSWORD` | MySQL password |
-| `ADMIN_DATABASE_SCHEMA` | MySQL database name |
+| `DATABASE_USER` | MySQL username |
+| `DATABASE_PASSWORD` | MySQL password |
+| `DATABASE_SCHEMA` | MySQL database name |
 
 ### Required in Production (Lambda)
 

@@ -15,15 +15,15 @@ The application reads configuration from environment variables. Providers must i
 | `DATABASE_BACKEND` | `mysql` (default) or `sqlite`. |
 | `DATABASE_URL` | Full SQLAlchemy URL. When set, overrides legacy MySQL vars. **Required for SQLite** (e.g. `sqlite:///path/to/syncbot.db`). For MySQL, optional (if unset, legacy vars below are used). |
 | `DATABASE_HOST` | MySQL hostname (IP or FQDN). Required when backend is `mysql` and `DATABASE_URL` is unset. |
-| `ADMIN_DATABASE_USER` | MySQL username. Required when backend is `mysql` and `DATABASE_URL` is unset. |
-| `ADMIN_DATABASE_PASSWORD` | MySQL password. Required when backend is `mysql` and `DATABASE_URL` is unset. |
-| `ADMIN_DATABASE_SCHEMA` | MySQL database/schema name (e.g. `syncbot`, `syncbot_prod`). Required when backend is `mysql` and `DATABASE_URL` is unset. |
+| `DATABASE_USER` | MySQL username. Required when backend is `mysql` and `DATABASE_URL` is unset. |
+| `DATABASE_PASSWORD` | MySQL password. Required when backend is `mysql` and `DATABASE_URL` is unset. |
+| `DATABASE_SCHEMA` | MySQL database/schema name (e.g. `syncbot`, `syncbot_prod`). Required when backend is `mysql` and `DATABASE_URL` is unset. |
 | `DATABASE_TLS_ENABLED` | Optional MySQL TLS toggle (`true`/`false`). Defaults to enabled outside local dev. |
 | `DATABASE_SSL_CA_PATH` | Optional CA bundle path used when TLS is enabled (default `/etc/pki/tls/certs/ca-bundle.crt`). |
 
 **SQLite (forks / local):** Set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:///path/to/file.db`. Single-writer; suitable for small teams and dev. Caveats: single-writer behavior, file durability, and backup expectations are your responsibility. For production at scale, prefer MySQL.
 
-**MySQL (default):** Set `DATABASE_BACKEND=mysql` (or leave unset) and either `DATABASE_URL` or the four legacy vars above.
+**MySQL (default):** Set `DATABASE_BACKEND=mysql` (or leave unset) and either `DATABASE_URL` or the four legacy vars above. Deploy-time bootstrap credentials (e.g. `ExistingDatabaseAdmin*` in AWS) are used only for one-time schema setup; the app reads `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA` at runtime.
 
 ### Required in production (non–local)
 

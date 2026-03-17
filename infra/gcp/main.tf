@@ -37,7 +37,7 @@ locals {
     "ENV_SLACK_CLIENT_SECRET"     = var.secret_slack_client_secret
     "ENV_SLACK_SCOPES"            = var.secret_slack_scopes
     "TOKEN_ENCRYPTION_KEY"       = var.secret_token_encryption_key
-    "ADMIN_DATABASE_PASSWORD"    = var.secret_db_password
+    "DATABASE_PASSWORD"         = var.secret_db_password
   }
 }
 
@@ -264,11 +264,11 @@ resource "google_cloud_run_v2_service" "syncbot" {
         value = local.db_host
       }
       env {
-        name  = "ADMIN_DATABASE_USER"
+        name  = "DATABASE_USER"
         value = local.db_user
       }
       env {
-        name  = "ADMIN_DATABASE_SCHEMA"
+        name  = "DATABASE_SCHEMA"
         value = local.db_schema
       }
 

@@ -50,9 +50,9 @@ _ALEMBIC_SCRIPT_LOCATION = _PROJECT_ROOT / "db" / "alembic"
 def _build_mysql_url(include_schema: bool = False) -> tuple[str, dict]:
     """Build MySQL URL and connect_args from legacy env vars."""
     host = os.environ[constants.DATABASE_HOST]
-    user = quote_plus(os.environ[constants.ADMIN_DATABASE_USER])
-    passwd = quote_plus(os.environ[constants.ADMIN_DATABASE_PASSWORD])
-    schema = os.environ.get(constants.ADMIN_DATABASE_SCHEMA, "syncbot")
+    user = quote_plus(os.environ[constants.DATABASE_USER])
+    passwd = quote_plus(os.environ[constants.DATABASE_PASSWORD])
+    schema = os.environ.get(constants.DATABASE_SCHEMA, "syncbot")
     path = f"/{schema}" if include_schema else ""
     db_url = f"mysql+pymysql://{user}:{passwd}@{host}:3306{path}?charset=utf8mb4"
     connect_args: dict = {}
@@ -103,7 +103,7 @@ def _ensure_database_exists() -> None:
         return
     if os.environ.get(constants.DATABASE_URL):
         return  # URL already points at a database
-    schema = os.environ.get(constants.ADMIN_DATABASE_SCHEMA, "syncbot")
+    schema = os.environ.get(constants.DATABASE_SCHEMA, "syncbot")
     url_no_db, connect_args = _build_mysql_url(include_schema=False)
     engine_no_db = create_engine(url_no_db, connect_args=connect_args, pool_pre_ping=True)
     try:
@@ -217,7 +217,7 @@ def get_engine(echo: bool = False, schema: str = None):
     global GLOBAL_ENGINE, GLOBAL_SCHEMA
 
     backend = constants.get_database_backend()
-    target_schema = (schema or os.environ.get(constants.ADMIN_DATABASE_SCHEMA, "syncbot")) if backend == "mysql" else ""
+    target_schema = (schema or os.environ.get(constants.DATABASE_SCHEMA, "syncbot")) if backend == "mysql" else ""
     cache_key = target_schema or backend
 
     if cache_key == GLOBAL_SCHEMA and GLOBAL_ENGINE is not None:

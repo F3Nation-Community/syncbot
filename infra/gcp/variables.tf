@@ -139,5 +139,5 @@ variable "token_encryption_key_override" {
 variable "secret_db_password" {
   type        = string
   default     = "syncbot-db-password"
-  description = "Secret Manager secret ID for ADMIN_DATABASE_PASSWORD (used when use_existing_database = true or with Cloud SQL)"
+  description = "Secret Manager secret ID for DATABASE_PASSWORD (used when use_existing_database = true or with Cloud SQL)"
 }

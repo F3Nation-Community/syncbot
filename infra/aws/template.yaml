@@ -41,6 +41,13 @@ Parameters:
     NoEcho: true
     Default: "123"
 
+  SlackClientID:
+    Description: >
+      Slack OAuth app Client ID (Basic Information → App Credentials).
+      Required for your Slack app; use the ID from the app you created for this deploy.
+    Type: String
+    Default: ""
+
   SlackClientSecret:
     Description: Slack OAuth client secret
     Type: String
@@ -77,12 +84,15 @@ Parameters:
 
   DatabaseUser:
     Description: >
-      Database username: master user when creating new RDS; ignored when ExistingDatabaseHost is set.
+      Database username for new RDS only. When using an existing database
+      (ExistingDatabaseHost set), leave BLANK — the deploy creates syncbot_<stage> and uses it.
     Type: String
     Default: ""
 
   DatabasePassword:
-    Description: Database password (master when creating new RDS; min 8 chars). Ignored when using existing host.
+    Description: >
+      Master password for new RDS only (min 8 chars). When using an existing database
+      (ExistingDatabaseHost set), leave BLANK — the app user password is auto-generated.
     Type: String
     NoEcho: true
     Default: ""
@@ -144,6 +154,7 @@ Conditions:
   CreateDatabase: !Equals [!Ref ExistingDatabaseHost, ""]
   UseExistingDatabase: !Not [!Equals [!Ref ExistingDatabaseHost, ""]]
   HasTokenEncryptionKeyOverride: !Not [!Equals [!Ref TokenEncryptionKeyOverride, ""]]
+  HasSlackClientID: !Not [!Equals [!Ref SlackClientID, ""]]
 
 Mappings:
   StagesMap:
@@ -346,6 +357,8 @@ Resources:
       CodeUri: db_setup/
       Handler: handler.handler
       Runtime: python3.11
+      Architectures:
+        - x86_64
       Timeout: 60
       MemorySize: 256
       Policies:
@@ -412,25 +425,28 @@ Resources:
           SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
           ENV_SLACK_CLIENT_SECRET: !Ref SlackClientSecret
           ENV_SLACK_SCOPES: !Ref SlackOauthScopes
-          ENV_SLACK_CLIENT_ID: !FindInMap
-            - StagesMap
-            - !Ref Stage
-            - SlackClientID
+          ENV_SLACK_CLIENT_ID: !If
+            - HasSlackClientID
+            - !Ref SlackClientID
+            - !FindInMap
+              - StagesMap
+              - !Ref Stage
+              - SlackClientID
           DATABASE_HOST: !If
             - CreateDatabase
             - !GetAtt RDSInstance.Endpoint.Address
             - !Ref ExistingDatabaseHost
-          ADMIN_DATABASE_USER: !If
+          DATABASE_USER: !If
             - UseExistingDatabase
             - !GetAtt AppDbSetup.Username
             - !Ref DatabaseUser
-          ADMIN_DATABASE_PASSWORD: !If
+          DATABASE_PASSWORD: !If
             - UseExistingDatabase
             - !Sub
               - "{{resolve:secretsmanager:${SecretArn}:SecretString}}"
               - { SecretArn: !Ref AppDbCredentialsSecret }
             - !Ref DatabasePassword
-          ADMIN_DATABASE_SCHEMA: !Ref DatabaseSchema
+          DATABASE_SCHEMA: !Ref DatabaseSchema
           TOKEN_ENCRYPTION_KEY: !If
             - HasTokenEncryptionKeyOverride
             - !Ref TokenEncryptionKeyOverride

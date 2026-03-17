@@ -40,7 +40,7 @@ See [Swapping providers](#swapping-providers) for changing providers in a fork.
 
 The app supports **MySQL** (default) or **SQLite**. See [INFRA_CONTRACT.md](INFRA_CONTRACT.md) for required variables per backend. **Pre-release:** DB flow assumes **fresh installs only**; schema is created at startup via Alembic.
 
-- **MySQL:** Use for production and when using AWS/GCP templates (RDS, Cloud SQL). Set `DATABASE_BACKEND=mysql` (or leave unset) and either `DATABASE_URL` or `DATABASE_HOST` + `ADMIN_DATABASE_*`.
+- **MySQL:** Use for production and when using AWS/GCP templates (RDS, Cloud SQL). Set `DATABASE_BACKEND=mysql` (or leave unset) and either `DATABASE_URL` or `DATABASE_HOST` + `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA`.
 - **SQLite:** Use for forks or local runs where you prefer no DB server. Set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:///path/to/syncbot.db`. Single-writer; ensure backups and file durability. AWS/GCP reference templates assume MySQL; for SQLite you deploy the app (e.g. container or Lambda with a writable volume) and set the env vars only.
 
 ---
@@ -94,7 +94,7 @@ You need: **GitHubDeployRoleArn** → `AWS_ROLE_TO_ASSUME`, **DeploymentBucketNa
 
    Use the bootstrap **DeploymentBucketName**. Set parameters (Stage, DB, Slack, etc.) when prompted.
 
-3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `EXISTING_DATABASE_HOST`, `EXISTING_DATABASE_ADMIN_USER` (when using existing RDS host), `DATABASE_USER` (when creating new RDS), `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `EXISTING_DATABASE_ADMIN_PASSWORD` (when using existing host), `DATABASE_PASSWORD` (when creating new RDS). No access keys — the workflow uses OIDC.
+3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `SLACK_CLIENT_ID` (Slack app Client ID from Basic Information → App Credentials), `EXISTING_DATABASE_HOST`, `EXISTING_DATABASE_ADMIN_USER` (when using existing RDS host), `DATABASE_USER` (when creating new RDS), `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `EXISTING_DATABASE_ADMIN_PASSWORD` (when using existing host), `DATABASE_PASSWORD` (when creating new RDS). No access keys — the workflow uses OIDC.
 4. Push to `test` or `prod` to build and deploy. The workflow file is `.github/workflows/deploy-aws.yml` (runs when `DEPLOY_TARGET` is not `gcp`).
 
 **Important (token encryption key):** Non-local deploys require a secure `TOKEN_ENCRYPTION_KEY`. The AWS app stack **auto-generates** it in Secrets Manager by default. You must **back up the generated key** after first deploy; if it is lost, existing workspaces must reinstall to re-authorize bot tokens. For local development you may set the key manually in `.env` or leave it unset.
@@ -118,14 +118,17 @@ To **reuse only the DB host** and have the deploy create the schema and a dedica
    For production, consider a VPC-enabled Lambda and private RDS; that would require template changes.
 
 4. **First deploy (local `sam deploy`):**  
-   Pass the **existing-host** parameters (admin user/password; do **not** pass `DatabaseUser`/`DatabasePassword` for the app — they are created for you):
+   Pass the **existing-host** parameters (admin user/password). When using **guided** mode, SAM will still prompt for **DatabaseUser** and **DatabasePassword**; the stack ignores these when using an existing host (app user/password are auto-generated). If the **DatabasePassword** prompt repeats in a loop (SAM often rejects empty for password fields), type any placeholder (e.g. `ignored`) and continue — it is never used. To avoid interactive prompts, use **parameter-overrides** and set `DatabaseUser=` and `DatabasePassword=ignored` (or any value) for existing-host deploys:
    ```bash
    sam deploy --guided ... \
      --parameter-overrides \
        ExistingDatabaseHost=your-db.xxxx.us-east-2.rds.amazonaws.com \
        ExistingDatabaseAdminUser=admin \
        ExistingDatabaseAdminPassword=your_master_password \
+       DatabaseUser= \
+       DatabasePassword=ignored \
        DatabaseSchema=syncbot_test \
+       SlackClientID=your_slack_app_client_id \
        SlackSigningSecret=... \
        SlackClientSecret=...
    ```
