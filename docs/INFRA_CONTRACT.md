@@ -8,6 +8,21 @@ This document defines what any infrastructure provider (AWS, GCP, Azure, etc.) m
 
 The application reads configuration from environment variables. Providers must inject these at runtime (e.g. Lambda env, Cloud Run env, or a compatible secret/config layer).
 
+## Toolchain Baseline
+
+- Runtime baseline: **Python 3.12**.
+- Keep runtime/tooling aligned across:
+  - Lambda/Cloud Run runtime configuration
+  - CI Python version
+  - `pyproject.toml` Python constraint
+  - `syncbot/requirements.txt` deployment pins
+- When dependency constraints change in `pyproject.toml`, refresh both lock and deployment requirements:
+
+```bash
+poetry lock
+poetry export --only main --format requirements.txt --without-hashes --output syncbot/requirements.txt
+```
+
 ### Database (backend-agnostic)
 
 | Variable | Description |

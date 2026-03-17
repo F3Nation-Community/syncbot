@@ -190,12 +190,19 @@ docker compose down -v                                     # stop + delete DB vo
 
 ### Option C: Native Python
 
-**Prerequisites:** Python 3.11+, Poetry 1.6+, Docker *(optional, for MySQL)*
+**Prerequisites:** Python 3.12+, Poetry 1.6+ (2.x recommended), Docker *(optional, for MySQL)*
 
 ```bash
 git clone https://github.com/GITHUB_ORG_NAME/syncbot.git
 cd syncbot
 poetry install --with dev
+```
+
+If you change dependencies in `pyproject.toml`, refresh lock and deployment pins:
+
+```bash
+poetry lock
+poetry export --only main --format requirements.txt --without-hashes --output syncbot/requirements.txt
 ```
 
 Start a local MySQL instance:

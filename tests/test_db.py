@@ -180,6 +180,8 @@ class TestBackendParity:
             required = get_required_db_vars()
             assert "DATABASE_HOST" in required
             assert "DATABASE_USER" in required
+            assert "DATABASE_PASSWORD" in required
+            assert "DATABASE_SCHEMA" in required
 
     def test_get_required_db_vars_sqlite(self):
         with patch.dict(os.environ, {"DATABASE_BACKEND": "sqlite"}, clear=False):

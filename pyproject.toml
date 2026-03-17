@@ -6,11 +6,11 @@ authors = ["Klint Van Tassel <developer@sprocktech.com>", "Evan Petzoldt <evan.p
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.12"
 alembic = "^1.13"
 python-dotenv = "^1.2.0"
 slack-bolt = "^1.27.0"
-sqlalchemy = "<2.0"
+sqlalchemy = "^2.0"
 pymysql = "^1.1.2"
 cryptography = "^46.0.0"
 requests = "^2.32.0"
@@ -25,7 +25,7 @@ testpaths = ["tests"]
 pythonpath = ["syncbot"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 120
 src = ["syncbot", "tests"]
 

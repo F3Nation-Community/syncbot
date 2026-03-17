@@ -353,10 +353,12 @@ Resources:
   DbSetupFunction:
     Type: AWS::Serverless::Function
     Condition: UseExistingDatabase
+    Metadata:
+      BuildMethod: makefile
     Properties:
       CodeUri: db_setup/
       Handler: handler.handler
-      Runtime: python3.11
+      Runtime: python3.12
       Architectures:
         - x86_64
       Timeout: 60
@@ -390,7 +392,7 @@ Resources:
     Properties:
       CodeUri: ../../syncbot/
       Handler: app.handler
-      Runtime: python3.11
+      Runtime: python3.12
       Architectures:
         - x86_64
       Timeout: 30

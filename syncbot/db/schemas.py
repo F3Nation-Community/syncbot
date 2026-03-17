@@ -19,13 +19,11 @@ Tables:
 
 from typing import Any
 
-import sqlalchemy
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.types import DECIMAL
 
-BaseClass = declarative_base(mapper=sqlalchemy.orm.mapper)
+BaseClass = declarative_base()
 
 
 class GetDBClass:

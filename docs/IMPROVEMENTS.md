@@ -2,6 +2,9 @@
 
 This document outlines the improvements made to the SyncBot application and additional recommendations for future enhancements.
 
+> Historical changelog note: this file tracks work over time and may reference superseded implementation details.  
+> For current deployment/runtime requirements, use `docs/INFRA_CONTRACT.md` and `docs/DEPLOYMENT.md` as the source of truth.
+
 ## ✅ Completed Improvements
 
 ### 1. Database Management Fixes
@@ -441,13 +444,24 @@ This document outlines the improvements made to the SyncBot application and addi
 - **HEIC and Pillow removed** — HEIC-to-PNG conversion and `upload_photos` (S3) were removed; direct upload is the only media path. Dropped `pillow` and `pillow-heif` from dependencies.
 - **Template and docs** — `infra/aws/template.yaml` no longer creates OAuth or image buckets; README, DEPLOYMENT, ARCHITECTURE, USER_GUIDE, `.env.example`, and IMPROVEMENTS updated to describe MySQL OAuth and artifact-bucket-only S3.
 
+### 48. Infra Contract + Pre-Release DB Abstraction (Completed)
+- **Contract rename for clarity** — renamed deployment contract docs to **Infrastructure Contract** (`docs/INFRA_CONTRACT.md`) and updated all references across docs, workflows, and infra comments.
+- **Backend-neutral DB runtime contract** — standardized on `DATABASE_BACKEND`, `DATABASE_URL`, and `DATABASE_*` runtime names (`DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA`) across app, tests, infra, and docs.
+- **SQLite-capable runtime path** — app startup and reset flows are Alembic-driven and dialect-aware (MySQL + SQLite), with fresh-install assumptions for this pre-release.
+- **Token key naming cleanup** — renamed `PASSWORD_ENCRYPT_KEY` to `TOKEN_ENCRYPTION_KEY` everywhere (code, tests, infra, workflows, and docs).
+- **Generate-once token key** — cloud deploy paths now generate `TOKEN_ENCRYPTION_KEY` once and persist it in provider secret manager by default.
+- **Disaster recovery override** — added explicit key reuse overrides for rebuild scenarios:
+  - AWS SAM parameter: `TokenEncryptionKeyOverride`
+  - GCP Terraform variable: `token_encryption_key_override`
+- **Admin/operator warning surface** — deploy helper scripts and deployment docs now explicitly warn that losing the token key requires workspace reinstall/re-authorization.
+
 ## Remaining Recommendations
 
 ### Low Priority
 
 1. **Dependencies**
-   - Update SQLAlchemy to 2.0+ (currently pinned to <2.0)
-   - Review and update other dependencies
+   - Keep dependency pins current with regular lock refreshes and security audits
+   - Review major-version upgrades for Slack SDK/Bolt and provider tooling on a planned cadence
 
 2. **Database Migrations**
    - Startup now bootstraps schema via Alembic (`alembic upgrade head`) for fresh installs.
@@ -465,7 +479,7 @@ This document outlines the improvements made to the SyncBot application and addi
 - Database layer benefits from connection pooling, automatic retry with safe disposal, and `SELECT COUNT(*)` for counting
 - All Slack API calls have rate-limit handling with exponential backoff
 - Error isolation in sync loops ensures partial failures don't cascade
-- 60 unit tests cover core helper functions, encryption, caching, event parsing, bot filtering, invite codes, and sync creation
+- The pytest suite covers core helper functions, encryption, caching, event parsing, bot filtering, invite codes, DB behavior, and sync creation
 - Structured JSON logging with correlation IDs enables fast CloudWatch Logs Insights queries
 - Pre-commit hooks enforce consistent code style on every commit
 - Admin/owner authorization enforced on all configuration actions with defense-in-depth

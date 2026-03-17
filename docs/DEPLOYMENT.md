@@ -7,6 +7,8 @@ This guide covers deploying SyncBot on **AWS** (default) or **GCP**, with two pa
 
 The app code and [infrastructure contract](INFRA_CONTRACT.md) are provider-agnostic; only the infrastructure in `infra/<provider>/` and the CI workflow differ.
 
+**Runtime baseline:** Python 3.12. Keep `pyproject.toml`, `syncbot/requirements.txt`, Lambda runtimes, and CI Python version aligned.
+
 ---
 
 ## Fork-First Model (Recommended)
@@ -96,6 +98,14 @@ You need: **GitHubDeployRoleArn** → `AWS_ROLE_TO_ASSUME`, **DeploymentBucketNa
 
 3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `SLACK_CLIENT_ID` (Slack app Client ID from Basic Information → App Credentials), `EXISTING_DATABASE_HOST`, `EXISTING_DATABASE_ADMIN_USER` (when using existing RDS host), `DATABASE_USER` (when creating new RDS), `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `EXISTING_DATABASE_ADMIN_PASSWORD` (when using existing host), `DATABASE_PASSWORD` (when creating new RDS). No access keys — the workflow uses OIDC.
 4. Push to `test` or `prod` to build and deploy. The workflow file is `.github/workflows/deploy-aws.yml` (runs when `DEPLOY_TARGET` is not `gcp`).
+   - The AWS workflow runs `pip-audit` against `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt`, so dependency pins should be kept current.
+
+When dependency constraints change in `pyproject.toml`, refresh both lock and deployment requirements:
+
+```bash
+poetry lock
+poetry export --only main --format requirements.txt --without-hashes --output syncbot/requirements.txt
+```
 
 **Important (token encryption key):** Non-local deploys require a secure `TOKEN_ENCRYPTION_KEY`. The AWS app stack **auto-generates** it in Secrets Manager by default. You must **back up the generated key** after first deploy; if it is lost, existing workspaces must reinstall to re-authorize bot tokens. For local development you may set the key manually in `.env` or leave it unset.
 

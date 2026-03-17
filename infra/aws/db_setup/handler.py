@@ -29,13 +29,21 @@ def send(event, context, status, data=None, reason=None, physical_resource_id=No
         event["ResponseURL"],
         data=body,
         method="PUT",
-        headers={"Content-Type": ""},
+        headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req) as f:
+    with urllib.request.urlopen(req, timeout=30) as f:
         f.read()
 
 
 def handler(event, context):
+    try:
+        return _handler_impl(event, context)
+    except Exception as e:
+        send(event, context, "FAILED", reason=f"Unhandled error: {e}")
+        raise
+
+
+def _handler_impl(event, context):
     request_type = event.get("RequestType", "Create")
     props = event.get("ResourceProperties", {})
     host = props.get("Host", "").strip()
@@ -96,6 +104,7 @@ def setup_database(
     app_username: str,
     app_password: str,
 ) -> None:
+    # Fail fast if RDS is unreachable (e.g. not publicly accessible or SG blocks Lambda)
     conn = pymysql.connect(
         host=host,
         user=admin_user,
@@ -103,6 +112,7 @@ def setup_database(
         port=3306,
         charset="utf8mb4",
         cursorclass=DictCursor,
+        connect_timeout=15,
     )
     try:
         with conn.cursor() as cur:

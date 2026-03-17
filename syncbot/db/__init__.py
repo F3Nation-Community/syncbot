@@ -48,7 +48,7 @@ _ALEMBIC_SCRIPT_LOCATION = _PROJECT_ROOT / "db" / "alembic"
 
 
 def _build_mysql_url(include_schema: bool = False) -> tuple[str, dict]:
-    """Build MySQL URL and connect_args from legacy env vars."""
+    """Build MySQL URL and connect_args from DATABASE_* env vars."""
     host = os.environ[constants.DATABASE_HOST]
     user = quote_plus(os.environ[constants.DATABASE_USER])
     passwd = quote_plus(os.environ[constants.DATABASE_PASSWORD])

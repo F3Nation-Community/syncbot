@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - uses: aws-actions/setup-sam@v2
         with:
           use-installer: true
@@ -36,6 +36,12 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - run: sam build -t infra/aws/template.yaml
+
+      - name: Security audit Python dependencies
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r syncbot/requirements.txt
+          pip-audit -r infra/aws/db_setup/requirements.txt
 
       - name: Publish artifact
         uses: actions/upload-artifact@v4
