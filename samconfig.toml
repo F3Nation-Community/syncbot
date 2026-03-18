@@ -1,8 +1,22 @@
-# SAM CLI configuration for local deployment
-# Usage:
-#   sam build --use-container
-#   sam deploy                          # uses [default.deploy.parameters]
-#   sam deploy --config-env prod        # uses [prod.deploy.parameters]
+# SAM CLI configuration for local deployment.
+#
+# Usage examples:
+#   sam build --config-env test-new-rds
+#   sam deploy --config-env test-new-rds
+#
+#   sam build --config-env test-existing-rds
+#   sam deploy --config-env test-existing-rds
+#
+#   sam deploy --config-env prod-new-rds
+#   sam deploy --config-env prod-existing-rds
+#
+# NOTE:
+# - Fill in placeholders (DB host/admin user) before using *-existing-rds configs.
+# - Secrets like SlackSigningSecret, SlackClientSecret, and DatabasePassword are
+#   expected to be provided securely during deploy workflows.
+# - For disaster recovery with existing encrypted tokens, add:
+#   TokenEncryptionKeyOverride=<old_key>
+#   to the relevant environment's parameter_overrides.
 
 version = 0.1
 
@@ -19,11 +33,54 @@ capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 parameter_overrides = "Stage=test"
 
-[prod.deploy.parameters]
+[test-new-rds.build.parameters]
+template_file = "infra/aws/template.yaml"
+use_container = true
+
+[test-new-rds.deploy.parameters]
+stack_name = "syncbot-test"
+resolve_s3 = true
+s3_prefix = "syncbot-test"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+parameter_overrides = "Stage=test ExistingDatabaseHost= ExistingDatabaseAdminUser= ExistingDatabaseAdminPassword="
+
+[test-existing-rds.build.parameters]
+template_file = "infra/aws/template.yaml"
+use_container = true
+
+[test-existing-rds.deploy.parameters]
+stack_name = "syncbot-test"
+resolve_s3 = true
+s3_prefix = "syncbot-test"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+parameter_overrides = "Stage=test ExistingDatabaseHost=REPLACE_ME_RDS_HOST ExistingDatabaseAdminUser=REPLACE_ME_ADMIN_USER ExistingDatabaseAdminPassword=REPLACE_ME_ADMIN_PASSWORD"
+
+[prod-new-rds.build.parameters]
+template_file = "infra/aws/template.yaml"
+use_container = true
+
+[prod-new-rds.deploy.parameters]
 stack_name = "syncbot-prod"
 resolve_s3 = true
 s3_prefix = "syncbot-prod"
 region = "us-east-2"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
-parameter_overrides = "Stage=prod"
+parameter_overrides = "Stage=prod ExistingDatabaseHost= ExistingDatabaseAdminUser= ExistingDatabaseAdminPassword="
+
+[prod-existing-rds.build.parameters]
+template_file = "infra/aws/template.yaml"
+use_container = true
+
+[prod-existing-rds.deploy.parameters]
+stack_name = "syncbot-prod"
+resolve_s3 = true
+s3_prefix = "syncbot-prod"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+parameter_overrides = "Stage=prod ExistingDatabaseHost=REPLACE_ME_RDS_HOST ExistingDatabaseAdminUser=REPLACE_ME_ADMIN_USER ExistingDatabaseAdminPassword=REPLACE_ME_ADMIN_PASSWORD"

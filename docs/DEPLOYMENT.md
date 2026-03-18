@@ -181,6 +181,28 @@ If using GitHub Actions, set optional secret `TOKEN_ENCRYPTION_KEY_OVERRIDE`; th
 
    Or use a dedicated IAM user with the same policy. See [Deployment Guide (legacy detail)](#sharing-infrastructure-across-apps-aws) for shared RDS and parameter overrides.
 
+#### Optional: `samconfig` deploy profiles
+
+This repo includes pre-defined SAM config environments in `samconfig.toml` to reduce guided prompts:
+
+- `test-new-rds` — test stack, creates new RDS
+- `test-existing-rds` — test stack, uses existing RDS host/admin credentials
+- `prod-new-rds` — prod stack, creates new RDS
+- `prod-existing-rds` — prod stack, uses existing RDS host/admin credentials
+
+Examples:
+
+```bash
+sam build --config-env test-new-rds
+sam deploy --config-env test-new-rds
+
+sam deploy --config-env test-existing-rds
+sam deploy --config-env prod-existing-rds
+```
+
+For the `*-existing-rds` profiles, replace `REPLACE_ME_*` placeholders in `samconfig.toml` before deploy.  
+For disaster recovery (preserve token decryption), add `TokenEncryptionKeyOverride=<old_key>` to that profile's `parameter_overrides`.
+
 ---
 
 ## GCP
