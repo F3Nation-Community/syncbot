@@ -39,6 +39,24 @@ oauth_config:
       - team:read
       - users:read
       - users:read.email
+    user:
+      - app_mentions:read
+      - channels:history
+      - channels:join
+      - channels:read
+      - channels:manage
+      - files:read
+      - files:write
+      - groups:history
+      - groups:read
+      - groups:write
+      - im:write
+      - chat:write:user
+      - reactions:read
+      - reactions:write
+      - team:read
+      - users:read
+      - users:read.email
 
 settings:
   event_subscriptions:

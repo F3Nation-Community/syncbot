@@ -79,6 +79,26 @@ You need: **GitHubDeployRoleArn** → `AWS_ROLE_TO_ASSUME`, **DeploymentBucketNa
 
 ---
 
+### Fast path: interactive AWS deploy script
+
+For local, end-to-end deploys (bootstrap + build + deploy), use:
+
+```bash
+./infra/aws/scripts/deploy.sh
+```
+
+The script:
+- prompts for stage (`test`/`prod`) and DB mode (new RDS vs existing host),
+- prompts for required secrets/credentials,
+- auto-detects bootstrap outputs (region, deploy bucket, suggested stack names) when available,
+- supports existing-RDS `public` or `private` network mode (with VPC subnet/security-group prompts for private mode),
+- supports disaster recovery with `TokenEncryptionKeyOverride`,
+- runs `sam build` and `sam deploy` for you.
+
+If bootstrap is missing, it can deploy bootstrap first.
+
+---
+
 ### Fork and Deploy (AWS, GitHub CI)
 
 1. Complete [One-Time Bootstrap (AWS)](#one-time-bootstrap-aws-both-paths).
@@ -122,21 +142,22 @@ To **reuse only the DB host** and have the deploy create the schema and a dedica
    - **Schema name:** A dedicated schema per app or environment (e.g. `syncbot_test`, `syncbot_prod`). The deploy creates this schema and the app user with full access to it; the app runs Alembic migrations on startup.
 
 3. **Connectivity:**  
-   When using an existing host, Lambda is **not** put in a VPC. It can only reach **publicly accessible** endpoints. Your RDS must be:
-   - Set to **publicly accessible** (in RDS settings), and
-   - Protected by a security group that allows **inbound TCP 3306** from the internet (or restrict to known IPs).  
-   For production, consider a VPC-enabled Lambda and private RDS; that would require template changes.
+   Existing-host deploys support two modes:
+   - **public** (default): Lambda is not VPC-attached; existing RDS must be publicly reachable on 3306.
+   - **private**: Lambda is VPC-attached using `ExistingDatabaseSubnetIdsCsv` and `ExistingDatabaseLambdaSecurityGroupId`.
+
+   For private mode, ensure:
+   - the Lambda security group can reach the DB on TCP 3306, and
+   - the app Lambda has outbound internet egress (typically NAT) so Slack API calls succeed.
 
 4. **First deploy (local `sam deploy`):**  
-   Pass the **existing-host** parameters (admin user/password). When using **guided** mode, SAM will still prompt for **DatabaseUser** and **DatabasePassword**; the stack ignores these when using an existing host (app user/password are auto-generated). If the **DatabasePassword** prompt repeats in a loop (SAM often rejects empty for password fields), type any placeholder (e.g. `ignored`) and continue — it is never used. To avoid interactive prompts, use **parameter-overrides** and set `DatabaseUser=` and `DatabasePassword=ignored` (or any value) for existing-host deploys:
+   Pass the **existing-host** parameters (admin user/password). When using **guided** mode, SAM may still prompt for **DatabaseUser** and **DatabasePassword**; the stack ignores these when using an existing host (app user/password are auto-generated). If a prompt repeats, provide any placeholder and continue. For non-guided deploys, pass only the existing-host parameters you actually use:
    ```bash
    sam deploy --guided ... \
      --parameter-overrides \
        ExistingDatabaseHost=your-db.xxxx.us-east-2.rds.amazonaws.com \
        ExistingDatabaseAdminUser=admin \
        ExistingDatabaseAdminPassword=your_master_password \
-       DatabaseUser= \
-       DatabasePassword=ignored \
        DatabaseSchema=syncbot_test \
        SlackClientID=your_slack_app_client_id \
        SlackSigningSecret=... \
@@ -160,6 +181,12 @@ sam deploy ... --parameter-overrides "... TokenEncryptionKeyOverride=<old_key>"
 ```
 
 If using GitHub Actions, set optional secret `TOKEN_ENCRYPTION_KEY_OVERRIDE`; the AWS workflow will pass it automatically.
+
+If a previous failed deploy already created `syncbot-<stage>-token-encryption-key`, you can also reuse that secret directly (instead of creating a new one) by passing:
+
+```bash
+sam deploy ... --parameter-overrides "... ExistingTokenEncryptionKeySecretArn=<existing_secret_arn>"
+```
 
 ---
 
@@ -275,6 +302,7 @@ No changes are needed under `syncbot/` or to the deployment contract; only `infr
 | Provider | Script | Use |
 |----------|--------|-----|
 | AWS | `./infra/aws/scripts/print-bootstrap-outputs.sh` | Print bootstrap stack outputs and suggested GitHub variables (run from repo root). |
+| AWS | `./infra/aws/scripts/deploy.sh` | Interactive local deploy helper (optional bootstrap, build, deploy, existing/new RDS prompts). |
 | GCP | `./infra/gcp/scripts/print-bootstrap-outputs.sh` | Print Terraform outputs and suggested GitHub variables (run from repo root). |
 
 ---

@@ -57,7 +57,7 @@ Parameters:
   SlackOauthScopes:
     Description: Comma-separated list of Slack OAuth scopes
     Type: String
-    Default: "app_mentions:read,channels:history,channels:join,chat:write,chat:write.customize,commands,files:read,files:write,team:read,users:read,channels:manage,users:read.email,reactions:read,reactions:write"
+    Default: "app_mentions:read,channels:history,channels:join,chat:write,chat:write:user,chat:write.customize,commands,files:read,files:write,team:read,users:read,channels:manage,users:read.email,reactions:read,reactions:write"
 
   # --- Database (RDS) ---
 
@@ -80,6 +80,33 @@ Parameters:
     Description: Password for ExistingDatabaseAdminUser. Used only when using existing host.
     Type: String
     NoEcho: true
+    Default: ""
+
+  ExistingDatabaseNetworkMode:
+    Description: >
+      Network mode for existing database host. Use "public" when the existing RDS
+      endpoint is reachable from the public internet. Use "private" when it is only
+      reachable from within a VPC.
+    Type: String
+    Default: public
+    AllowedValues:
+      - public
+      - private
+
+  ExistingDatabaseSubnetIdsCsv:
+    Description: >
+      Comma-separated subnet IDs for Lambda VPC attachment when using an existing
+      private database host (for example "subnet-aaa,subnet-bbb").
+      Ignored unless ExistingDatabaseHost is set and ExistingDatabaseNetworkMode=private.
+    Type: String
+    Default: ""
+
+  ExistingDatabaseLambdaSecurityGroupId:
+    Description: >
+      Security group ID for Lambda VPC attachment when using an existing private
+      database host. This security group must be allowed to connect to the DB on port 3306.
+      Ignored unless ExistingDatabaseHost is set and ExistingDatabaseNetworkMode=private.
+    Type: String
     Default: ""
 
   DatabaseUser:
@@ -136,6 +163,14 @@ Parameters:
     NoEcho: true
     Default: ""
 
+  ExistingTokenEncryptionKeySecretArn:
+    Description: >
+      Optional existing Secrets Manager secret ARN containing TOKEN_ENCRYPTION_KEY.
+      Use this when the secret already exists (for example after a failed create/delete cycle)
+      to avoid secret name collisions.
+    Type: String
+    Default: ""
+
   RequireAdmin:
     Description: >
       When "true" (default), only workspace admins and owners can
@@ -153,7 +188,14 @@ Parameters:
 Conditions:
   CreateDatabase: !Equals [!Ref ExistingDatabaseHost, ""]
   UseExistingDatabase: !Not [!Equals [!Ref ExistingDatabaseHost, ""]]
+  UseExistingDatabasePrivateVpc: !And
+    - !Condition UseExistingDatabase
+    - !Equals [!Ref ExistingDatabaseNetworkMode, "private"]
   HasTokenEncryptionKeyOverride: !Not [!Equals [!Ref TokenEncryptionKeyOverride, ""]]
+  HasExistingTokenEncryptionKeySecretArn: !Not [!Equals [!Ref ExistingTokenEncryptionKeySecretArn, ""]]
+  CreateTokenEncryptionKeySecret: !And
+    - !Not [!Condition HasTokenEncryptionKeyOverride]
+    - !Not [!Condition HasExistingTokenEncryptionKeySecretArn]
   HasSlackClientID: !Not [!Equals [!Ref SlackClientID, ""]]
 
 Mappings:
@@ -328,6 +370,7 @@ Resources:
 
   TokenEncryptionKeySecret:
     Type: AWS::SecretsManager::Secret
+    Condition: CreateTokenEncryptionKeySecret
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -364,11 +407,18 @@ Resources:
       Timeout: 60
       MemorySize: 256
       Policies:
+        - AWSLambdaVPCAccessExecutionRole
         - Version: "2012-10-17"
           Statement:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
               Resource: !Ref AppDbCredentialsSecret
+      VpcConfig: !If
+        - UseExistingDatabasePrivateVpc
+        - SubnetIds: !Split [",", !Ref ExistingDatabaseSubnetIdsCsv]
+          SecurityGroupIds:
+            - !Ref ExistingDatabaseLambdaSecurityGroupId
+        - !Ref AWS::NoValue
 
   AppDbSetup:
     Type: Custom::ExistingRDSSetup
@@ -397,6 +447,14 @@ Resources:
         - x86_64
       Timeout: 30
       MemorySize: 128
+      Policies:
+        - AWSLambdaVPCAccessExecutionRole
+      VpcConfig: !If
+        - UseExistingDatabasePrivateVpc
+        - SubnetIds: !Split [",", !Ref ExistingDatabaseSubnetIdsCsv]
+          SecurityGroupIds:
+            - !Ref ExistingDatabaseLambdaSecurityGroupId
+        - !Ref AWS::NoValue
       Events:
         SyncBot:
           Type: Api
@@ -452,7 +510,12 @@ Resources:
           TOKEN_ENCRYPTION_KEY: !If
             - HasTokenEncryptionKeyOverride
             - !Ref TokenEncryptionKeyOverride
-            - !Sub "{{resolve:secretsmanager:${TokenEncryptionKeySecret}:SecretString}}"
+            - !If
+              - HasExistingTokenEncryptionKeySecretArn
+              - !Sub
+                - "{{resolve:secretsmanager:${SecretArn}:SecretString}}"
+                - { SecretArn: !Ref ExistingTokenEncryptionKeySecretArn }
+              - !Sub "{{resolve:secretsmanager:${TokenEncryptionKeySecret}:SecretString}}"
           REQUIRE_ADMIN: !Ref RequireAdmin
 
   # ============================================================
@@ -574,4 +637,7 @@ Outputs:
 
   TokenEncryptionSecretArn:
     Description: Secrets Manager ARN containing TOKEN_ENCRYPTION_KEY
-    Value: !Ref TokenEncryptionKeySecret
+    Value: !If
+      - HasExistingTokenEncryptionKeySecretArn
+      - !Ref ExistingTokenEncryptionKeySecretArn
+      - !Ref TokenEncryptionKeySecret

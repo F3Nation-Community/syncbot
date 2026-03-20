@@ -84,3 +84,15 @@ region = "us-east-2"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 parameter_overrides = "Stage=prod ExistingDatabaseHost=REPLACE_ME_RDS_HOST ExistingDatabaseAdminUser=REPLACE_ME_ADMIN_USER ExistingDatabaseAdminPassword=REPLACE_ME_ADMIN_PASSWORD"
+
+[test.deploy.parameters]
+stack_name = "syncbot-test"
+resolve_s3 = true
+s3_prefix = "syncbot-test"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Stage=\"test\" SlackClientID=\"10361912548384.10524713300870\" SlackOauthScopes=\"app_mentions:read,channels:history,channels:join,chat:write,chat:write:user,chat:write.customize,commands,files:read,files:write,team:read,users:read,channels:manage,users:read.email,reactions:read,reactions:write\" ExistingDatabaseHost=\"f3ttown1.c7im4saakwcy.us-east-2.rds.amazonaws.com\" ExistingDatabaseAdminUser=\"f3ttown1dba\" DatabaseUser=\"syncbot_test_user\" DatabaseSchema=\"syncbot_test\" DatabaseInstanceClass=\"db.t3.micro\" AllowedDBCidr=\"0.0.0.0/0\" VpcCidr=\"10.0.0.0/16\" RequireAdmin=\"true\""
+image_repositories = []
+
+[test.global.parameters]
+region = "us-east-2"
