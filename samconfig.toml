@@ -44,7 +44,7 @@ s3_prefix = "syncbot-test"
 region = "us-east-2"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
-parameter_overrides = "Stage=test ExistingDatabaseHost= ExistingDatabaseAdminUser= ExistingDatabaseAdminPassword="
+parameter_overrides = "Stage=test DatabaseEngine=postgresql ExistingDatabaseHost= ExistingDatabaseAdminUser= ExistingDatabaseAdminPassword="
 
 [test-existing-rds.build.parameters]
 template_file = "infra/aws/template.yaml"
@@ -57,7 +57,7 @@ s3_prefix = "syncbot-test"
 region = "us-east-2"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
-parameter_overrides = "Stage=test ExistingDatabaseHost=REPLACE_ME_RDS_HOST ExistingDatabaseAdminUser=REPLACE_ME_ADMIN_USER ExistingDatabaseAdminPassword=REPLACE_ME_ADMIN_PASSWORD"
+parameter_overrides = "Stage=test DatabaseEngine=postgresql ExistingDatabaseHost=REPLACE_ME_RDS_HOST ExistingDatabaseAdminUser=REPLACE_ME_ADMIN_USER ExistingDatabaseAdminPassword=REPLACE_ME_ADMIN_PASSWORD"
 
 [prod-new-rds.build.parameters]
 template_file = "infra/aws/template.yaml"
@@ -70,7 +70,7 @@ s3_prefix = "syncbot-prod"
 region = "us-east-2"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
-parameter_overrides = "Stage=prod ExistingDatabaseHost= ExistingDatabaseAdminUser= ExistingDatabaseAdminPassword="
+parameter_overrides = "Stage=prod DatabaseEngine=postgresql ExistingDatabaseHost= ExistingDatabaseAdminUser= ExistingDatabaseAdminPassword="
 
 [prod-existing-rds.build.parameters]
 template_file = "infra/aws/template.yaml"
@@ -83,7 +83,7 @@ s3_prefix = "syncbot-prod"
 region = "us-east-2"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
-parameter_overrides = "Stage=prod ExistingDatabaseHost=REPLACE_ME_RDS_HOST ExistingDatabaseAdminUser=REPLACE_ME_ADMIN_USER ExistingDatabaseAdminPassword=REPLACE_ME_ADMIN_PASSWORD"
+parameter_overrides = "Stage=prod DatabaseEngine=postgresql ExistingDatabaseHost=REPLACE_ME_RDS_HOST ExistingDatabaseAdminUser=REPLACE_ME_ADMIN_USER ExistingDatabaseAdminPassword=REPLACE_ME_ADMIN_PASSWORD"
 
 [test.deploy.parameters]
 stack_name = "syncbot-test"

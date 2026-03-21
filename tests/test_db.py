@@ -110,6 +110,37 @@ class TestEngineConfig:
     @patch.dict(
         os.environ,
         {
+            "DATABASE_BACKEND": "postgresql",
+            "DATABASE_HOST": "localhost",
+            "DATABASE_USER": "root",
+            "DATABASE_PASSWORD": "test",
+            "DATABASE_SCHEMA": "syncbot",
+        },
+        clear=False,
+    )
+    def test_engine_uses_queue_pool_postgresql(self):
+        from sqlalchemy.pool import QueuePool
+
+        import db as db_mod
+        from db import get_engine
+
+        old_engine = db_mod.GLOBAL_ENGINE
+        old_schema = db_mod.GLOBAL_SCHEMA
+        engine = None
+        try:
+            db_mod.GLOBAL_ENGINE = None
+            db_mod.GLOBAL_SCHEMA = None
+            engine = get_engine(schema="test_schema_unique_pg")
+            assert isinstance(engine.pool, QueuePool)
+        finally:
+            if engine:
+                engine.dispose()
+            db_mod.GLOBAL_ENGINE = old_engine
+            db_mod.GLOBAL_SCHEMA = old_schema
+
+    @patch.dict(
+        os.environ,
+        {
             "DATABASE_BACKEND": "sqlite",
             "DATABASE_URL": "sqlite:///:memory:",
         },
@@ -189,3 +220,35 @@ class TestBackendParity:
 
             required = get_required_db_vars()
             assert required == ["DATABASE_URL"]
+
+    def test_get_required_db_vars_postgresql_without_url(self):
+        with patch.dict(
+            os.environ,
+            {"DATABASE_BACKEND": "postgresql"},
+            clear=False,
+        ):
+            if "DATABASE_URL" in os.environ:
+                del os.environ["DATABASE_URL"]
+            from constants import get_required_db_vars
+
+            required = get_required_db_vars()
+            assert "DATABASE_HOST" in required
+            assert "DATABASE_USER" in required
+            assert "DATABASE_PASSWORD" in required
+            assert "DATABASE_SCHEMA" in required
+
+    def test_default_database_backend_is_postgresql(self):
+        import importlib
+
+        import constants as c
+
+        old = os.environ.pop("DATABASE_BACKEND", None)
+        try:
+            importlib.reload(c)
+            assert c.get_database_backend() == "postgresql"
+        finally:
+            if old is not None:
+                os.environ["DATABASE_BACKEND"] = old
+            else:
+                os.environ.setdefault("DATABASE_BACKEND", "mysql")
+            importlib.reload(c)

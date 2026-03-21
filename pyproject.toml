@@ -12,6 +12,7 @@ python-dotenv = "^1.2.0"
 slack-bolt = "^1.27.0"
 sqlalchemy = "^2.0"
 pymysql = "^1.1.2"
+psycopg2-binary = "^2.9"
 cryptography = "^46.0.0"
 requests = "^2.32.0"
 
@@ -22,7 +23,7 @@ pytest = "^9.0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["syncbot"]
+pythonpath = ["syncbot", "infra/aws/db_setup"]
 
 [tool.ruff]
 target-version = "py312"

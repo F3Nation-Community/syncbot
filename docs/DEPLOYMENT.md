@@ -40,10 +40,11 @@ See [Swapping providers](#swapping-providers) for changing providers in a fork.
 
 ## Database backend
 
-The app supports **MySQL** (default) or **SQLite**. See [INFRA_CONTRACT.md](INFRA_CONTRACT.md) for required variables per backend. **Pre-release:** DB flow assumes **fresh installs only**; schema is created at startup via Alembic.
+The app supports **PostgreSQL** (default, including Aurora DSQL and RDS PostgreSQL), **MySQL** (legacy), and **SQLite**. See [INFRA_CONTRACT.md](INFRA_CONTRACT.md) for required variables per backend. **Pre-release:** DB flow assumes **fresh installs only**; schema is created at startup via Alembic.
 
-- **MySQL:** Use for production and when using AWS/GCP templates (RDS, Cloud SQL). Set `DATABASE_BACKEND=mysql` (or leave unset) and either `DATABASE_URL` or `DATABASE_HOST` + `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA`.
-- **SQLite:** Use for forks or local runs where you prefer no DB server. Set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:///path/to/syncbot.db`. Single-writer; ensure backups and file durability. AWS/GCP reference templates assume MySQL; for SQLite you deploy the app (e.g. container or Lambda with a writable volume) and set the env vars only.
+- **PostgreSQL / Aurora DSQL (default):** Set `DATABASE_BACKEND=postgresql` (or rely on the app default) and either `DATABASE_URL` (`postgresql+psycopg2://...`) or `DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA`. The AWS SAM template parameter **`DatabaseEngine`** defaults to **`postgresql`** (new RDS PostgreSQL in stack, or existing host with the custom-resource setup).
+- **MySQL:** Set `DATABASE_BACKEND=mysql` and either `DATABASE_URL` or the four host/user/password/schema vars. On AWS, choose **Advanced: legacy MySQL** in `./infra/aws/scripts/deploy.sh` or pass `DatabaseEngine=mysql` to `sam deploy`.
+- **SQLite:** Use for forks or local runs where you prefer no DB server. Set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:///path/to/syncbot.db`. Single-writer; ensure backups and file durability. For SQLite on Lambda you need durable shared storage (e.g. EFS); the reference SAM template targets PostgreSQL/MySQL.
 
 ---
 
@@ -89,6 +90,7 @@ For local, end-to-end deploys (bootstrap + build + deploy), use:
 
 The script:
 - prompts for stage (`test`/`prod`) and DB mode (new RDS vs existing host),
+- defaults to **PostgreSQL** (`DatabaseEngine=postgresql`); optional advanced prompt for **legacy MySQL** (`DatabaseEngine=mysql`),
 - prompts for required secrets/credentials,
 - auto-detects bootstrap outputs (region, deploy bucket, suggested stack names) when available,
 - supports existing-RDS `public` or `private` network mode (with VPC subnet/security-group prompts for private mode),
@@ -116,7 +118,7 @@ If bootstrap is missing, it can deploy bootstrap first.
 
    Use the bootstrap **DeploymentBucketName**. Set parameters (Stage, DB, Slack, etc.) when prompted.
 
-3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `SLACK_CLIENT_ID` (Slack app Client ID from Basic Information → App Credentials), `EXISTING_DATABASE_HOST`, `EXISTING_DATABASE_ADMIN_USER` (when using existing RDS host), `DATABASE_USER` (when creating new RDS), `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `EXISTING_DATABASE_ADMIN_PASSWORD` (when using existing host), `DATABASE_PASSWORD` (when creating new RDS). No access keys — the workflow uses OIDC.
+3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `SLACK_CLIENT_ID` (Slack app Client ID from Basic Information → App Credentials), `EXISTING_DATABASE_HOST`, `EXISTING_DATABASE_ADMIN_USER` (when using existing RDS host), `DATABASE_USER` (when creating new RDS), `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `EXISTING_DATABASE_ADMIN_PASSWORD` (when using existing host), `DATABASE_PASSWORD` (when creating new RDS). No access keys — the workflow uses OIDC. The SAM template defaults **`DatabaseEngine=postgresql`** (Aurora DSQL / RDS PostgreSQL). To deploy **legacy MySQL** from CI, extend the workflow `parameter-overrides` to include `DatabaseEngine=mysql` (or add a repository variable and wire it through).
 4. Push to `test` or `prod` to build and deploy. The workflow file is `.github/workflows/deploy-aws.yml` (runs when `DEPLOY_TARGET` is not `gcp`).
    - The AWS workflow runs `pip-audit` against `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt`, so dependency pins should be kept current.
 

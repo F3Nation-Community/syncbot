@@ -211,12 +211,17 @@ STACK_NAME="$(prompt_default "App stack name" "$DEFAULT_STACK")"
 
 echo
 echo "Database mode:"
-echo "  1) Create new RDS in stack"
-echo "  2) Use existing RDS host (deploy creates schema/app user)"
+echo "  1) Create new RDS in stack (PostgreSQL by default)"
+echo "  2) Use existing RDS / Aurora DSQL host (deploy creates DB and app user)"
 DB_MODE="$(prompt_default "Choose 1 or 2" "1")"
 if [[ "$DB_MODE" != "1" && "$DB_MODE" != "2" ]]; then
   echo "Error: invalid database mode." >&2
   exit 1
+fi
+
+DATABASE_ENGINE="postgresql"
+if prompt_yes_no "Advanced: use legacy MySQL RDS instead of PostgreSQL (Aurora DSQL / RDS PG)?" "n"; then
+  DATABASE_ENGINE="mysql"
 fi
 
 echo
@@ -322,6 +327,7 @@ echo "Stage:            $STAGE"
 echo "Deploy bucket:    $S3_BUCKET"
 if [[ "$DB_MODE" == "2" ]]; then
   echo "DB mode:          existing host"
+  echo "DB engine:        $DATABASE_ENGINE"
   echo "DB host:          $EXISTING_DATABASE_HOST"
   echo "DB network:       $EXISTING_DATABASE_NETWORK_MODE"
   if [[ "$EXISTING_DATABASE_NETWORK_MODE" == "private" ]]; then
@@ -331,6 +337,7 @@ if [[ "$DB_MODE" == "2" ]]; then
   echo "DB schema:        $DATABASE_SCHEMA"
 else
   echo "DB mode:          create new RDS"
+  echo "DB engine:        $DATABASE_ENGINE"
   echo "DB user:          $DATABASE_USER"
   echo "DB schema:        $DATABASE_SCHEMA"
 fi
@@ -357,6 +364,7 @@ sam build -t "$APP_TEMPLATE" --use-container
 
 PARAMS=(
   "Stage=$STAGE"
+  "DatabaseEngine=$DATABASE_ENGINE"
   "SlackSigningSecret=$SLACK_SIGNING_SECRET"
   "SlackClientSecret=$SLACK_CLIENT_SECRET"
   "DatabaseSchema=$DATABASE_SCHEMA"

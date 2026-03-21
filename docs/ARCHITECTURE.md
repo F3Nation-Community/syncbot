@@ -25,7 +25,7 @@ sequenceDiagram
     participant S as Slack API
     participant AG as API Gateway
     participant L as Lambda (SyncBot)
-    participant DB as RDS MySQL
+    participant DB as RDS
     participant SB as Slack API (Workspace B)
 
     U->>S: Posts message in #general
@@ -81,7 +81,7 @@ flowchart TB
             FED["federation/"]
         end
 
-        subgraph Database["RDS MySQL"]
+        subgraph Database["RDS PostgreSQL or MySQL"]
             T1["workspaces"]
             T2["workspace_groups"]
             T2a["workspace_group_members"]

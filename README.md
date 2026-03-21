@@ -36,7 +36,7 @@ SyncBot ships with a full AWS SAM template (`infra/aws/template.yaml`) that prov
 |----------|---------|-----------------|
 | Compute | Lambda (128 MB) | 1M requests/month free |
 | API | API Gateway v1 | 1M calls/month free |
-| Database | RDS MySQL (db.t3.micro) | 750 hrs/month free (12 months) |
+| Database | RDS PostgreSQL or MySQL (db.t3.micro) | Engine-specific; see AWS free tier |
 
 OAuth and app data are stored in RDS. Media is uploaded directly to Slack (no runtime S3). SAM deploy uses an S3 artifact bucket for packaging only.
 
@@ -46,7 +46,7 @@ OAuth and app data are stored in RDS. Media is uploaded directly to Slack (no ru
 |------|---------|---------|
 | **AWS SAM CLI** | latest | Build & deploy Lambda + infra |
 | **Docker** | latest | SAM uses a container to build the Lambda package |
-| **MySQL client** *(optional)* | any | Run schema scripts against the DB |
+| **psql client** *(optional)* | any | Ad-hoc RDS PostgreSQL checks |
 
 ### First-Time Deploy
 

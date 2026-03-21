@@ -28,12 +28,13 @@ SLACK_SIGNING_SECRET = "SLACK_SIGNING_SECRET"
 TOKEN_ENCRYPTION_KEY = "TOKEN_ENCRYPTION_KEY"
 REQUIRE_ADMIN = "REQUIRE_ADMIN"
 
-# Database: backend-agnostic (mysql or sqlite)
+# Database: backend-agnostic (postgresql, mysql, or sqlite)
 DATABASE_BACKEND = "DATABASE_BACKEND"
 DATABASE_URL = "DATABASE_URL"
 
-# MySQL-only vars (used when DATABASE_URL is unset and backend is mysql)
+# Network SQL backends (used when DATABASE_URL is unset)
 DATABASE_HOST = "DATABASE_HOST"
+DATABASE_PORT = "DATABASE_PORT"
 DATABASE_USER = "DATABASE_USER"
 DATABASE_PASSWORD = "DATABASE_PASSWORD"
 DATABASE_SCHEMA = "DATABASE_SCHEMA"
@@ -97,8 +98,11 @@ FEDERATION_ENABLED = os.environ.get("SYNCBOT_FEDERATION_ENABLED", "false").lower
 # ---------------------------------------------------------------------------
 
 def get_database_backend() -> str:
-    """Return 'mysql' or 'sqlite'. Defaults to 'mysql' when unset for backward compatibility."""
-    return os.environ.get(DATABASE_BACKEND, "mysql").lower().strip() or "mysql"
+    """Return ``postgresql``, ``mysql``, or ``sqlite``.
+
+    Defaults to ``postgresql`` (Aurora DSQL / RDS PostgreSQL) when unset.
+    """
+    return os.environ.get(DATABASE_BACKEND, "postgresql").lower().strip() or "postgresql"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -110,7 +114,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def database_tls_enabled() -> bool:
-    """Return True when MySQL TLS should be used.
+    """Return True when MySQL/PostgreSQL TLS should be used.
 
     Defaults:
     - local dev: disabled
@@ -131,7 +135,7 @@ def get_required_db_vars() -> list:
     backend = get_database_backend()
     if backend == "sqlite":
         return [DATABASE_URL]
-    # mysql: require URL or legacy host/user/password/schema
+    # mysql / postgresql: require URL or host/user/password/schema
     if os.environ.get(DATABASE_URL):
         return []  # URL is enough
     return [
@@ -179,7 +183,7 @@ def validate_config() -> None:
 
     In production this raises immediately so the Lambda fails on cold-start
     rather than silently misbehaving.  In local development it only warns.
-    DB requirements depend on DATABASE_BACKEND (mysql vs sqlite).
+    DB requirements depend on DATABASE_BACKEND (postgresql, mysql, or sqlite).
     """
     required = list(_REQUIRED_ALWAYS_NON_DB) + list(get_required_db_vars())
     if not LOCAL_DEVELOPMENT:

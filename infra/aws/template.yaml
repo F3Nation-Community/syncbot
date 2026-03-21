@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
   SyncBot - Slack app that syncs posts and replies across workspaces.
-  Free-tier compatible: Lambda, API Gateway, RDS db.t3.micro.
-  OAuth and app data use RDS (MySQL); media is uploaded directly to Slack.
+  Free-tier compatible: Lambda, API Gateway, RDS PostgreSQL or MySQL (db.t3.micro).
+  OAuth and app data use RDS; media is uploaded directly to Slack.
   SAM deploy uses an S3 artifact bucket for packaging only (not runtime).
   Template lives under infra/aws; CodeUri points at repo-root syncbot/.
 
@@ -32,6 +32,16 @@ Parameters:
     AllowedValues:
       - test
       - prod
+
+  DatabaseEngine:
+    Description: >
+      SQL engine for new or existing RDS host. Use postgresql for Aurora DSQL or RDS PostgreSQL;
+      use mysql for legacy RDS MySQL.
+    Type: String
+    Default: postgresql
+    AllowedValues:
+      - postgresql
+      - mysql
 
   # --- Slack ---
 
@@ -104,7 +114,7 @@ Parameters:
   ExistingDatabaseLambdaSecurityGroupId:
     Description: >
       Security group ID for Lambda VPC attachment when using an existing private
-      database host. This security group must be allowed to connect to the DB on port 3306.
+      database host. This security group must be allowed to connect to the DB (3306 MySQL, 5432 PostgreSQL).
       Ignored unless ExistingDatabaseHost is set and ExistingDatabaseNetworkMode=private.
     Type: String
     Default: ""
@@ -188,6 +198,10 @@ Parameters:
 Conditions:
   CreateDatabase: !Equals [!Ref ExistingDatabaseHost, ""]
   UseExistingDatabase: !Not [!Equals [!Ref ExistingDatabaseHost, ""]]
+  IsMysqlEngine: !Equals [!Ref DatabaseEngine, mysql]
+  IsPostgresqlEngine: !Equals [!Ref DatabaseEngine, postgresql]
+  CreateDatabaseMysql: !And [!Condition CreateDatabase, !Condition IsMysqlEngine]
+  CreateDatabasePostgresql: !And [!Condition CreateDatabase, !Condition IsPostgresqlEngine]
   UseExistingDatabasePrivateVpc: !And
     - !Condition UseExistingDatabase
     - !Equals [!Ref ExistingDatabaseNetworkMode, "private"]
@@ -305,26 +319,41 @@ Resources:
           FromPort: 3306
           ToPort: 3306
           CidrIp: !Ref AllowedDBCidr
-          Description: "MySQL access (Lambda connects over public internet)"
+          Description: "MySQL (if DatabaseEngine=mysql)"
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !Ref AllowedDBCidr
+          Description: "PostgreSQL (if DatabaseEngine=postgresql)"
       Tags:
         - Key: Name
           Value: !Sub "syncbot-${Stage}-rds-sg"
 
   # ============================================================
-  # RDS MySQL Database
+  # RDS MySQL / PostgreSQL
   # ============================================================
 
-  RDSParameterGroup:
+  RDSParameterGroupMysql:
     Type: AWS::RDS::DBParameterGroup
-    Condition: CreateDatabase
+    Condition: CreateDatabaseMysql
     Properties:
       Family: mysql8.0
-      Description: !Sub "SyncBot ${Stage} - enforces SSL connections"
+      Description: !Sub "SyncBot ${Stage} MySQL - SSL"
       Parameters:
         require_secure_transport: "1"
       Tags:
         - Key: Name
-          Value: !Sub "syncbot-${Stage}-db-params"
+          Value: !Sub "syncbot-${Stage}-db-params-mysql"
+
+  RDSParameterGroupPostgres:
+    Type: AWS::RDS::DBParameterGroup
+    Condition: CreateDatabasePostgresql
+    Properties:
+      Family: postgres16
+      Description: !Sub "SyncBot ${Stage} PostgreSQL"
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-db-params-pg"
 
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -338,13 +367,13 @@ Resources:
         - Key: Name
           Value: !Sub "syncbot-${Stage}-db-subnet-group"
 
-  RDSInstance:
+  RDSInstanceMysql:
     Type: AWS::RDS::DBInstance
-    Condition: CreateDatabase
+    Condition: CreateDatabaseMysql
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
     Properties:
-      DBInstanceIdentifier: !Sub "syncbot-${Stage}"
+      DBInstanceIdentifier: !Sub "syncbot-${Stage}-mysql"
       DBInstanceClass: !Ref DatabaseInstanceClass
       Engine: mysql
       EngineVersion: "8.0"
@@ -357,7 +386,7 @@ Resources:
       PubliclyAccessible: true
       MultiAZ: false
       DBSubnetGroupName: !Ref DBSubnetGroup
-      DBParameterGroupName: !Ref RDSParameterGroup
+      DBParameterGroupName: !Ref RDSParameterGroupMysql
       VPCSecurityGroups:
         - !Ref RDSSecurityGroup
       BackupRetentionPeriod: 7
@@ -366,7 +395,37 @@ Resources:
       DeletionProtection: true
       Tags:
         - Key: Name
-          Value: !Sub "syncbot-${Stage}-db"
+          Value: !Sub "syncbot-${Stage}-db-mysql"
+
+  RDSInstancePostgres:
+    Type: AWS::RDS::DBInstance
+    Condition: CreateDatabasePostgresql
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub "syncbot-${Stage}-pg"
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      Engine: postgres
+      EngineVersion: "16.6"
+      MasterUsername: !Ref DatabaseUser
+      MasterUserPassword: !Ref DatabasePassword
+      DBName: !Ref DatabaseSchema
+      AllocatedStorage: 20
+      StorageType: gp2
+      StorageEncrypted: true
+      PubliclyAccessible: true
+      MultiAZ: false
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBParameterGroupName: !Ref RDSParameterGroupPostgres
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: "03:00-04:00"
+      PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
+      DeletionProtection: true
+      Tags:
+        - Key: Name
+          Value: !Sub "syncbot-${Stage}-db-pg"
 
   TokenEncryptionKeySecret:
     Type: AWS::SecretsManager::Secret
@@ -432,6 +491,7 @@ Resources:
       Schema: !Ref DatabaseSchema
       Stage: !Ref Stage
       SecretArn: !Ref AppDbCredentialsSecret
+      DatabaseEngine: !Ref DatabaseEngine
 
   # ============================================================
   # Lambda Function
@@ -492,10 +552,18 @@ Resources:
               - StagesMap
               - !Ref Stage
               - SlackClientID
+          DATABASE_BACKEND: !Ref DatabaseEngine
+          DATABASE_PORT: !If
+            - IsMysqlEngine
+            - "3306"
+            - "5432"
           DATABASE_HOST: !If
-            - CreateDatabase
-            - !GetAtt RDSInstance.Endpoint.Address
+            - UseExistingDatabase
             - !Ref ExistingDatabaseHost
+            - !If
+              - IsMysqlEngine
+              - !GetAtt RDSInstanceMysql.Endpoint.Address
+              - !GetAtt RDSInstancePostgres.Endpoint.Address
           DATABASE_USER: !If
             - UseExistingDatabase
             - !GetAtt AppDbSetup.Username
@@ -616,19 +684,28 @@ Outputs:
   DatabaseHostInUse:
     Description: Database host the Lambda is configured to connect to
     Value: !If
-      - CreateDatabase
-      - !GetAtt RDSInstance.Endpoint.Address
+      - UseExistingDatabase
       - !Ref ExistingDatabaseHost
+      - !If
+        - IsMysqlEngine
+        - !GetAtt RDSInstanceMysql.Endpoint.Address
+        - !GetAtt RDSInstancePostgres.Endpoint.Address
 
   RDSEndpoint:
     Condition: CreateDatabase
-    Description: RDS MySQL endpoint address (only when RDS is created by this stack)
-    Value: !GetAtt RDSInstance.Endpoint.Address
+    Description: RDS endpoint (MySQL or PostgreSQL) when created by this stack
+    Value: !If
+      - IsMysqlEngine
+      - !GetAtt RDSInstanceMysql.Endpoint.Address
+      - !GetAtt RDSInstancePostgres.Endpoint.Address
 
   RDSPort:
     Condition: CreateDatabase
-    Description: RDS MySQL port (only when RDS is created by this stack)
-    Value: !GetAtt RDSInstance.Endpoint.Port
+    Description: RDS port when created by this stack
+    Value: !If
+      - IsMysqlEngine
+      - !GetAtt RDSInstanceMysql.Endpoint.Port
+      - !GetAtt RDSInstancePostgres.Endpoint.Port
 
   VpcId:
     Condition: CreateDatabase

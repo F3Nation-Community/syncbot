@@ -47,6 +47,14 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _ALEMBIC_SCRIPT_LOCATION = _PROJECT_ROOT / "db" / "alembic"
 
 
+def _mysql_port() -> str:
+    return os.environ.get(constants.DATABASE_PORT, "3306")
+
+
+def _pg_port() -> str:
+    return os.environ.get(constants.DATABASE_PORT, "5432")
+
+
 def _build_mysql_url(include_schema: bool = False) -> tuple[str, dict]:
     """Build MySQL URL and connect_args from DATABASE_* env vars."""
     host = os.environ[constants.DATABASE_HOST]
@@ -54,7 +62,8 @@ def _build_mysql_url(include_schema: bool = False) -> tuple[str, dict]:
     passwd = quote_plus(os.environ[constants.DATABASE_PASSWORD])
     schema = os.environ.get(constants.DATABASE_SCHEMA, "syncbot")
     path = f"/{schema}" if include_schema else ""
-    db_url = f"mysql+pymysql://{user}:{passwd}@{host}:3306{path}?charset=utf8mb4"
+    port = _mysql_port()
+    db_url = f"mysql+pymysql://{user}:{passwd}@{host}:{port}{path}?charset=utf8mb4"
     connect_args: dict = {}
     if constants.database_tls_enabled():
         ca_path = constants.database_ssl_ca_path()
@@ -64,6 +73,43 @@ def _build_mysql_url(include_schema: bool = False) -> tuple[str, dict]:
             ssl_ctx = ssl.create_default_context()
         connect_args["ssl"] = ssl_ctx
     return db_url, connect_args
+
+
+def _build_postgresql_url(include_schema: bool = False) -> tuple[str, dict]:
+    """Build PostgreSQL URL and connect_args from DATABASE_* env vars (RDS / Aurora DSQL)."""
+    host = os.environ[constants.DATABASE_HOST]
+    user = quote_plus(os.environ[constants.DATABASE_USER])
+    passwd = quote_plus(os.environ[constants.DATABASE_PASSWORD])
+    schema = os.environ.get(constants.DATABASE_SCHEMA, "syncbot")
+    port = _pg_port()
+    # Target database: schema name maps to PostgreSQL database name (same as MySQL DB name).
+    dbname = schema if include_schema else "postgres"
+    db_url = f"postgresql+psycopg2://{user}:{passwd}@{host}:{port}/{dbname}"
+    connect_args: dict = {}
+    if constants.database_tls_enabled():
+        ca_path = constants.database_ssl_ca_path()
+        connect_args["sslmode"] = "verify-full"
+        connect_args["sslrootcert"] = ca_path
+    return db_url, connect_args
+
+
+def _network_sql_connect_args_from_url() -> dict:
+    """TLS connect_args when using DATABASE_URL for MySQL or PostgreSQL."""
+    connect_args: dict = {}
+    if not constants.database_tls_enabled():
+        return connect_args
+    backend = constants.get_database_backend()
+    ca_path = constants.database_ssl_ca_path()
+    if backend == "mysql":
+        try:
+            ssl_ctx = ssl.create_default_context(cafile=ca_path)
+        except (OSError, ssl.SSLError):
+            ssl_ctx = ssl.create_default_context()
+        connect_args["ssl"] = ssl_ctx
+    elif backend == "postgresql":
+        connect_args["sslmode"] = "verify-full"
+        connect_args["sslrootcert"] = ca_path
+    return connect_args
 
 
 def _get_database_url_and_args(schema: str = None) -> tuple[str, dict]:
@@ -78,18 +124,15 @@ def _get_database_url_and_args(schema: str = None) -> tuple[str, dict]:
                 url = f"sqlite:///{_PROJECT_ROOT / path_part}"
         connect_args = {"check_same_thread": False}
         return url, connect_args
+    if backend == "postgresql":
+        if os.environ.get(constants.DATABASE_URL):
+            url = os.environ[constants.DATABASE_URL]
+            return url, _network_sql_connect_args_from_url()
+        return _build_postgresql_url(include_schema=True)
     # mysql
     if os.environ.get(constants.DATABASE_URL):
         url = os.environ[constants.DATABASE_URL]
-        connect_args = {}
-        if constants.database_tls_enabled():
-            ca_path = constants.database_ssl_ca_path()
-            try:
-                ssl_ctx = ssl.create_default_context(cafile=ca_path)
-            except (OSError, ssl.SSLError):
-                ssl_ctx = ssl.create_default_context()
-            connect_args["ssl"] = ssl_ctx
-        return url, connect_args
+        return url, _network_sql_connect_args_from_url()
     return _build_mysql_url(include_schema=True)
 
 
@@ -97,20 +140,49 @@ def _is_sqlite(engine) -> bool:
     return engine.dialect.name == "sqlite"
 
 
+def _is_network_sql_backend() -> bool:
+    return constants.get_database_backend() in ("mysql", "postgresql")
+
+
 def _ensure_database_exists() -> None:
-    """Create the configured schema if it does not already exist (MySQL only)."""
-    if constants.get_database_backend() != "mysql":
+    """Create the configured database/schema if missing (MySQL or PostgreSQL)."""
+    backend = constants.get_database_backend()
+    if backend not in ("mysql", "postgresql"):
         return
     if os.environ.get(constants.DATABASE_URL):
         return  # URL already points at a database
     schema = os.environ.get(constants.DATABASE_SCHEMA, "syncbot")
-    url_no_db, connect_args = _build_mysql_url(include_schema=False)
-    engine_no_db = create_engine(url_no_db, connect_args=connect_args, pool_pre_ping=True)
+    if backend == "mysql":
+        url_no_db, connect_args = _build_mysql_url(include_schema=False)
+        engine_no_db = create_engine(url_no_db, connect_args=connect_args, pool_pre_ping=True)
+        try:
+            with engine_no_db.begin() as conn:
+                conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{schema}` CHARACTER SET utf8mb4"))
+        finally:
+            engine_no_db.dispose()
+        return
+
+    # postgresql: connect to maintenance DB, CREATE DATABASE if needed
+    url_admin, connect_args = _build_postgresql_url(include_schema=False)
+    safe = "".join(c for c in schema if c.isalnum() or c == "_")
+    if not safe or safe != schema:
+        raise ValueError(f"Invalid DATABASE_SCHEMA for PostgreSQL (use letters, digits, underscore): {schema}")
+    engine_admin = create_engine(
+        url_admin,
+        connect_args=connect_args,
+        pool_pre_ping=True,
+        isolation_level="AUTOCOMMIT",
+    )
     try:
-        with engine_no_db.begin() as conn:
-            conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{schema}` CHARACTER SET utf8mb4"))
+        with engine_admin.connect() as conn:
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :n"),
+                {"n": schema},
+            ).scalar()
+            if exists is None:
+                conn.execute(text(f'CREATE DATABASE "{safe}"'))
     finally:
-        engine_no_db.dispose()
+        engine_admin.dispose()
 
 
 def _alembic_config():
@@ -132,7 +204,7 @@ def _run_alembic_upgrade() -> None:
 def initialize_database() -> None:
     """Initialize schema via Alembic migrations (fresh install only; pre-release).
 
-    Ensures DB exists (MySQL only), then runs Alembic upgrade head.
+    Ensures DB exists (MySQL/PostgreSQL), then runs Alembic upgrade head.
     """
     for attempt in range(1, _DB_INIT_MAX_ATTEMPTS + 1):
         try:
@@ -154,14 +226,26 @@ def initialize_database() -> None:
 
 
 def _drop_all_tables_dialect_aware(engine) -> None:
-    """Drop all tables in the current schema. MySQL: information_schema + FK off; SQLite: metadata reflect + drop."""
+    """Drop all tables in the current schema. MySQL / PostgreSQL / SQLite dialect-aware."""
     if _is_sqlite(engine):
         from sqlalchemy import MetaData
+
         meta = MetaData()
         meta.reflect(bind=engine)
         with engine.begin() as conn:
             for table in reversed(meta.sorted_tables):
                 table.drop(conn, checkfirst=True)
+        return
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    "SELECT tablename FROM pg_tables "
+                    "WHERE schemaname = 'public' ORDER BY tablename"
+                )
+            )
+            for (table_name,) in result:
+                conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
         return
     with engine.begin() as conn:
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
@@ -194,7 +278,7 @@ def drop_and_init_db() -> None:
         db_url,
         connect_args=connect_args,
         poolclass=pool.NullPool if constants.get_database_backend() == "sqlite" else pool.QueuePool,
-        pool_pre_ping=constants.get_database_backend() == "mysql",
+        pool_pre_ping=_is_network_sql_backend(),
     )
 
     _drop_all_tables_dialect_aware(engine)
@@ -212,12 +296,16 @@ def drop_and_init_db() -> None:
 def get_engine(echo: bool = False, schema: str = None):
     """Return the global SQLAlchemy engine, creating it on first call.
 
-    Uses QueuePool with pool_pre_ping for MySQL; NullPool for SQLite.
+    Uses QueuePool with pool_pre_ping for MySQL/PostgreSQL; NullPool for SQLite.
     """
     global GLOBAL_ENGINE, GLOBAL_SCHEMA
 
     backend = constants.get_database_backend()
-    target_schema = (schema or os.environ.get(constants.DATABASE_SCHEMA, "syncbot")) if backend == "mysql" else ""
+    target_schema = (
+        (schema or os.environ.get(constants.DATABASE_SCHEMA, "syncbot"))
+        if backend in ("mysql", "postgresql")
+        else ""
+    )
     cache_key = target_schema or backend
 
     if cache_key == GLOBAL_SCHEMA and GLOBAL_ENGINE is not None:

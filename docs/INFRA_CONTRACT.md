@@ -27,18 +27,21 @@ poetry export --only main --format requirements.txt --without-hashes --output sy
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_BACKEND` | `mysql` (default) or `sqlite`. |
-| `DATABASE_URL` | Full SQLAlchemy URL. When set, overrides legacy MySQL vars. **Required for SQLite** (e.g. `sqlite:///path/to/syncbot.db`). For MySQL, optional (if unset, legacy vars below are used). |
-| `DATABASE_HOST` | MySQL hostname (IP or FQDN). Required when backend is `mysql` and `DATABASE_URL` is unset. |
-| `DATABASE_USER` | MySQL username. Required when backend is `mysql` and `DATABASE_URL` is unset. |
-| `DATABASE_PASSWORD` | MySQL password. Required when backend is `mysql` and `DATABASE_URL` is unset. |
-| `DATABASE_SCHEMA` | MySQL database/schema name (e.g. `syncbot`, `syncbot_prod`). Required when backend is `mysql` and `DATABASE_URL` is unset. |
-| `DATABASE_TLS_ENABLED` | Optional MySQL TLS toggle (`true`/`false`). Defaults to enabled outside local dev. |
-| `DATABASE_SSL_CA_PATH` | Optional CA bundle path used when TLS is enabled (default `/etc/pki/tls/certs/ca-bundle.crt`). |
+| `DATABASE_BACKEND` | `postgresql` (default), `mysql`, or `sqlite`. |
+| `DATABASE_URL` | Full SQLAlchemy URL. When set, overrides host/user/password/schema. **Required for SQLite** (e.g. `sqlite:///path/to/syncbot.db`). For `mysql` / `postgresql`, optional if unset (legacy vars below are used). |
+| `DATABASE_HOST` | Database hostname (IP or FQDN). Required when backend is `mysql` or `postgresql` and `DATABASE_URL` is unset. |
+| `DATABASE_PORT` | Optional. Defaults to **5432** for `postgresql`, **3306** for `mysql`. |
+| `DATABASE_USER` | Username. Required when backend is `mysql` or `postgresql` and `DATABASE_URL` is unset. |
+| `DATABASE_PASSWORD` | Password. Required when backend is `mysql` or `postgresql` and `DATABASE_URL` is unset. |
+| `DATABASE_SCHEMA` | Database name (MySQL) or PostgreSQL database name (same convention as MySQL). Use alphanumeric and underscore only for PostgreSQL when the app must `CREATE DATABASE` at bootstrap. |
+| `DATABASE_TLS_ENABLED` | Optional TLS toggle (`true`/`false`). Defaults to enabled outside local dev. |
+| `DATABASE_SSL_CA_PATH` | Optional CA bundle path when TLS is enabled (default `/etc/pki/tls/certs/ca-bundle.crt`). |
 
-**SQLite (forks / local):** Set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:///path/to/file.db`. Single-writer; suitable for small teams and dev. Caveats: single-writer behavior, file durability, and backup expectations are your responsibility. For production at scale, prefer MySQL.
+**SQLite (forks / local):** Set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:///path/to/file.db`. Single-writer; suitable for small teams and dev.
 
-**MySQL (default):** Set `DATABASE_BACKEND=mysql` (or leave unset) and either `DATABASE_URL` or the four legacy vars above. Deploy-time bootstrap credentials (e.g. `ExistingDatabaseAdmin*` in AWS) are used only for one-time schema setup; the app reads `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA` at runtime.
+**PostgreSQL / Aurora DSQL (default):** Set `DATABASE_BACKEND=postgresql` (or rely on the default) and either `DATABASE_URL` (`postgresql+psycopg2://...`) or `DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA`. The AWS SAM template parameter `DatabaseEngine=postgresql` matches this backend.
+
+**MySQL (legacy):** Set `DATABASE_BACKEND=mysql` and either `DATABASE_URL` (`mysql+pymysql://...`) or the four host/user/password/schema vars. Deploy-time bootstrap credentials (e.g. `ExistingDatabaseAdmin*` in AWS) are used only for one-time setup; the app reads `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA` at runtime.
 
 ### Required in production (non–local)
 
@@ -79,13 +82,13 @@ The provider must deliver:
    Slack and DB credentials must be available as environment variables (or equivalent) at process start. No assumption of a specific secret store; provider chooses (e.g. Lambda env, Secret Manager, Parameter Store).
 
 3. **Database**  
-   **MySQL:** In non–local environments the app uses TLS; the provider must allow outbound TCP to the MySQL host (typically 3306). **SQLite:** No network; the app uses a local file. Single-writer; ensure backups and file durability for production use.
+   **PostgreSQL / MySQL:** In non–local environments the app uses TLS by default; allow outbound TCP to the DB host (typically **5432** for PostgreSQL, **3306** for MySQL). **SQLite:** No network; the app uses a local file. Single-writer; ensure backups and file durability for production use.
 
 4. **Keep-warm / scheduled ping (optional but recommended)**  
    To avoid cold-start latency, the app supports a periodic HTTP GET to a configurable path. The provider should support a scheduled job (e.g. CloudWatch Events, Cloud Scheduler) that hits the service on an interval (e.g. 5 minutes).
 
 5. **Stateless execution**  
-   The app is stateless; state lives in the configured database (MySQL or SQLite). Horizontal scaling is supported with MySQL as long as all instances share the same DB and env; SQLite is single-writer.
+   The app is stateless; state lives in the configured database (PostgreSQL, MySQL, or SQLite). Horizontal scaling is supported with PostgreSQL/MySQL as long as all instances share the same DB and env; SQLite is single-writer.
 
 ## CI Auth Model
 
