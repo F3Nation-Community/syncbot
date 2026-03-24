@@ -1,17 +1,23 @@
-"""Alembic env: use SyncBot's engine from db.get_engine(). Run from project root with syncbot on PYTHONPATH."""
+"""Alembic env: use SyncBot's engine from db.get_engine().
+
+Run from repo root: ``alembic -c alembic.ini upgrade head``
+(with ``syncbot/`` on ``PYTHONPATH`` via ``prepend_sys_path`` in alembic.ini).
+"""
 
 import sys
 from pathlib import Path
 
-# Project root (db/alembic/env.py -> db -> project root)
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+# syncbot/db/alembic/env.py -> syncbot/ (directory that must be on PYTHONPATH for ``import db``)
+_SYNCBOT_DIR = Path(__file__).resolve().parent.parent.parent
+_REPO_ROOT = _SYNCBOT_DIR.parent
+if str(_SYNCBOT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SYNCBOT_DIR))
 
 # Load .env when running via CLI (alembic upgrade head)
 try:
     from dotenv import load_dotenv
-    load_dotenv(_PROJECT_ROOT / ".env")
+
+    load_dotenv(_REPO_ROOT / ".env")
 except ImportError:
     pass
 

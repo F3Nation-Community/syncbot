@@ -25,7 +25,7 @@ Minimal Terraform scaffold to run SyncBot on Google Cloud. Satisfies the [infras
 
    ```bash
    echo -n "YOUR_SLACK_SIGNING_SECRET" | gcloud secrets versions add syncbot-test-syncbot-slack-signing-secret --data-file=-
-   # Repeat for ENV_SLACK_CLIENT_ID, ENV_SLACK_CLIENT_SECRET, ENV_SLACK_SCOPES, syncbot-db-password (if existing DB)
+   # Repeat for SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_BOT_SCOPES (comma-separated list must match oauth_config.scopes.bot / BOT_SCOPES), syncbot-db-password (if existing DB)
    ```
 
    `TOKEN_ENCRYPTION_KEY` is generated once automatically by Terraform and stored in Secret Manager. Back it up. If lost, existing workspaces must reinstall to re-authorize bot tokens.
@@ -49,6 +49,9 @@ Minimal Terraform scaffold to run SyncBot on Google Cloud. Satisfies the [infras
 | `use_existing_database` | If `true`, use `existing_db_*` vars instead of creating Cloud SQL |
 | `existing_db_host`, `existing_db_schema`, `existing_db_user` | Existing MySQL connection (when `use_existing_database = true`) |
 | `cloud_run_image` | Container image URL for Cloud Run (set after first build) |
+| `secret_slack_bot_scopes` | Secret Manager secret ID for **bot** OAuth scopes (runtime `SLACK_BOT_SCOPES`; default `syncbot-slack-scopes`). The **secret value** must match `oauth_config.scopes.bot` / `BOT_SCOPES` (same requirement as AWS SAM `SlackOauthBotScopes`). |
+| `slack_user_scopes` | Plain-text **user** OAuth scopes for Cloud Run (`SLACK_USER_SCOPES`). Default matches repo standard (same comma-separated string as AWS SAM `SlackOauthUserScopes`); must match manifest `oauth_config.scopes.user` and `USER_SCOPES` in `slack_manifest_scopes.py`. |
+| `log_level` | Python logging level for the app (`LOG_LEVEL`): `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL` (default `INFO`). |
 | `enable_keep_warm` | Create Cloud Scheduler job to ping the service (default `true`) |
 
 See [variables.tf](variables.tf) for all options.

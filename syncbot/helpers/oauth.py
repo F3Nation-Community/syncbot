@@ -1,4 +1,9 @@
-"""Slack OAuth flow construction."""
+"""Slack OAuth flow construction.
+
+Bot scopes: :envvar:`SLACK_BOT_SCOPES` (``slack_manifest_scopes.BOT_SCOPES`` / manifest bot).
+User scopes: :envvar:`SLACK_USER_SCOPES` (defaults to ``USER_SCOPES`` when unset).
+Requesting user scopes that do not match the Slack app manifest causes ``invalid_scope`` on install.
+"""
 
 import logging
 import os
@@ -9,6 +14,7 @@ from slack_sdk.oauth.installation_store.sqlalchemy import SQLAlchemyInstallation
 from slack_sdk.oauth.state_store.sqlalchemy import SQLAlchemyOAuthStateStore
 
 import constants
+from slack_manifest_scopes import USER_SCOPES
 
 _logger = logging.getLogger(__name__)
 
@@ -24,7 +30,8 @@ def get_oauth_flow():
     """
     client_id = os.environ.get(constants.SLACK_CLIENT_ID, "").strip()
     client_secret = os.environ.get(constants.SLACK_CLIENT_SECRET, "").strip()
-    scopes_raw = os.environ.get(constants.SLACK_SCOPES, "").strip()
+    scopes_raw = os.environ.get(constants.SLACK_BOT_SCOPES, "").strip()
+    user_scopes_raw = os.environ.get(constants.SLACK_USER_SCOPES, "").strip()
 
     if constants.LOCAL_DEVELOPMENT and not (client_id and client_secret and scopes_raw):
         _logger.info("OAuth credentials not set — running in single-workspace mode")
@@ -42,11 +49,19 @@ def get_oauth_flow():
         engine=engine,
     )
 
+    bot_scopes = [s.strip() for s in scopes_raw.split(",") if s.strip()]
+    user_scopes = (
+        [s.strip() for s in user_scopes_raw.split(",") if s.strip()]
+        if user_scopes_raw
+        else list(USER_SCOPES)
+    )
+
     return OAuthFlow(
         settings=OAuthSettings(
             client_id=client_id,
             client_secret=client_secret,
-            scopes=scopes_raw.split(","),
+            scopes=bot_scopes,
+            user_scopes=user_scopes,
             installation_store=installation_store,
             state_store=state_store,
         ),

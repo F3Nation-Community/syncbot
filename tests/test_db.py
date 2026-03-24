@@ -237,7 +237,7 @@ class TestBackendParity:
             assert "DATABASE_PASSWORD" in required
             assert "DATABASE_SCHEMA" in required
 
-    def test_default_database_backend_is_postgresql(self):
+    def test_default_database_backend_is_mysql(self):
         import importlib
 
         import constants as c
@@ -245,7 +245,7 @@ class TestBackendParity:
         old = os.environ.pop("DATABASE_BACKEND", None)
         try:
             importlib.reload(c)
-            assert c.get_database_backend() == "postgresql"
+            assert c.get_database_backend() == "mysql"
         finally:
             if old is not None:
                 os.environ["DATABASE_BACKEND"] = old

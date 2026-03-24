@@ -170,3 +170,7 @@ syncbot/.oauth-data/
 
 # Cursor
 .cursor/
+
+# Generated deploy artifacts
+slack-manifest_*.json
+deploy-receipts/

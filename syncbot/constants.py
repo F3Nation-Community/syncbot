@@ -21,9 +21,10 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 SLACK_BOT_TOKEN = "SLACK_BOT_TOKEN"
-SLACK_CLIENT_ID = "ENV_SLACK_CLIENT_ID"
-SLACK_CLIENT_SECRET = "ENV_SLACK_CLIENT_SECRET"
-SLACK_SCOPES = "ENV_SLACK_SCOPES"
+SLACK_CLIENT_ID = "SLACK_CLIENT_ID"
+SLACK_CLIENT_SECRET = "SLACK_CLIENT_SECRET"
+SLACK_BOT_SCOPES = "SLACK_BOT_SCOPES"
+SLACK_USER_SCOPES = "SLACK_USER_SCOPES"
 SLACK_SIGNING_SECRET = "SLACK_SIGNING_SECRET"
 TOKEN_ENCRYPTION_KEY = "TOKEN_ENCRYPTION_KEY"
 REQUIRE_ADMIN = "REQUIRE_ADMIN"
@@ -100,9 +101,9 @@ FEDERATION_ENABLED = os.environ.get("SYNCBOT_FEDERATION_ENABLED", "false").lower
 def get_database_backend() -> str:
     """Return ``postgresql``, ``mysql``, or ``sqlite``.
 
-    Defaults to ``postgresql`` (Aurora DSQL / RDS PostgreSQL) when unset.
+    Defaults to ``mysql`` when unset.
     """
-    return os.environ.get(DATABASE_BACKEND, "postgresql").lower().strip() or "postgresql"
+    return os.environ.get(DATABASE_BACKEND, "mysql").lower().strip() or "mysql"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -154,7 +155,7 @@ _REQUIRED_PRODUCTION = [
     SLACK_SIGNING_SECRET,
     SLACK_CLIENT_ID,
     SLACK_CLIENT_SECRET,
-    SLACK_SCOPES,
+    SLACK_BOT_SCOPES,
     TOKEN_ENCRYPTION_KEY,
 ]
 

@@ -1,310 +1,111 @@
 # SyncBot
 <img src="assets/icon.png" alt="SyncBot Icon" width="128">
 
-SyncBot is a Slack app originally developed for the [F3 Community](https://github.com/F3Nation-Community/syncbot) and has been forked here for general use by other Slack Workspace admins. It provides a replication ("Sync") service for messages and replies across Slack Workspaces on the free tier. Once configured, messages, threads, edits, deletes, reactions, images, videos, and GIFs are automatically mirrored to every channel in a Sync group.
+SyncBot is a Slack app for replicating messages and replies across workspaces on the free tier. Once configured, messages, threads, edits, deletes, reactions, images, videos, and GIFs mirror to every channel in a Sync group.
 
-> **New to SyncBot?** See the [User Guide](docs/USER_GUIDE.md) for a walkthrough of all features.
-
----
-
-## Create a Slack App
-
-Before deploying (or developing locally) you need a Slack app:
-
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App** → **From an app manifest**
-2. Select your workspace, then paste the contents of [`slack-manifest.yaml`](slack-manifest.yaml)
-3. After creating the app, upload the icon from [`assets/icon.png`](assets/icon.png) on the **Basic Information** page under **Display Information**
-4. Note these values — you'll need them for deploy and/or local development:
-
-| Where to find it | Value | Used for |
-|-------------------|-------|----------|
-| Basic Information → **App Credentials** | Signing Secret | Production deploy |
-| Basic Information → **App Credentials** | Client ID, Client Secret | Production deploy (OAuth) |
-| **OAuth & Permissions** → **Install to Workspace** → Install, then copy | Bot User OAuth Token (`xoxb-...`) | **Local development** |
-
-5. After your first deploy, come back and replace the placeholder URLs in the app settings with your actual API Gateway endpoint (shown in the CloudFormation stack outputs)
-
-> **Why do I need to install the app manually for local dev?** In production, SyncBot uses OAuth so each workspace gets its own token automatically. In local development mode, there's no OAuth flow — you connect to a single workspace using a bot token you copy from the Slack app settings.
+> **Using SyncBot in Slack?** See the [User Guide](docs/USER_GUIDE.md).
 
 ---
 
-## Deploying to AWS
+## Deploy (AWS or GCP)
 
-SyncBot ships with a full AWS SAM template (`infra/aws/template.yaml`) that provisions everything on the **free tier**:
+From the **repository root**, use the infra-agnostic launcher:
 
-| Resource | Service | Free-Tier Detail |
-|----------|---------|-----------------|
-| Compute | Lambda (128 MB) | 1M requests/month free |
-| API | API Gateway v1 | 1M calls/month free |
-| Database | RDS PostgreSQL or MySQL (db.t3.micro) | Engine-specific; see AWS free tier |
+| OS | Command |
+|----|---------|
+| macOS / Linux | `./deploy.sh` |
+| Windows (PowerShell) | `.\deploy.ps1` |
 
-OAuth and app data are stored in RDS. Media is uploaded directly to Slack (no runtime S3). SAM deploy uses an S3 artifact bucket for packaging only.
+The launcher lists providers under `infra/<provider>/scripts/deploy.sh` (e.g. **aws**, **gcp**), prompts for a choice, and runs that script. Shortcuts: `./deploy.sh aws`, `./deploy.sh gcp`, `./deploy.sh 1`. On **Windows**, `deploy.ps1` checks for **Git Bash** or **WSL** bash, then runs the same `deploy.sh` paths (provider prerequisites are enforced inside those bash scripts).
 
-### Prerequisites
+### What to install first
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| **AWS SAM CLI** | latest | Build & deploy Lambda + infra |
-| **Docker** | latest | SAM uses a container to build the Lambda package |
-| **psql client** *(optional)* | any | Ad-hoc RDS PostgreSQL checks |
+| Tool | Why |
+|------|-----|
+| **Git** | Clone the repo; on Windows, **Git for Windows** supplies **Git Bash**, which the deploy scripts use. |
+| **Bash** | Required for `./deploy.sh` and `infra/*/scripts/deploy.sh`. On Windows use Git Bash or **WSL** (then run `./deploy.sh` from Linux). |
 
-### First-Time Deploy
+**AWS** (`infra/aws/scripts/deploy.sh`): **AWS CLI v2**, **AWS SAM CLI**, **Docker** (for `sam build --use-container`), **Python 3** (`python3`), **`curl`** (Slack manifest API). **Optional:** **`gh`** (GitHub Actions setup); if `gh` is missing, the script shows install hints and asks whether to continue.
 
-1. **Build** the Lambda package:
+**GCP** (`infra/gcp/scripts/deploy.sh`): **Terraform**, **Google Cloud SDK (`gcloud`)**, **Python 3**, **`curl`**. **Optional:** **`gh`** — same behavior as AWS.
 
-```bash
-sam build --use-container
-```
-
-2. **Deploy** with guided prompts:
-
-```bash
-sam deploy --guided
-```
-
-You'll be prompted for parameters like `DatabaseUser`, `DatabasePassword`, `SlackSigningSecret`, `SlackClientId`, `SlackClientSecret`, `EncryptionKey`, and `AllowedDBCidr`. These are stored as CloudFormation parameters (secrets use `NoEcho`).
-
-3. **Auto-initialize check** — on first startup, SyncBot creates the database schema and applies pending Alembic migrations automatically.
-
-4. **Update your Slack app URLs** to point at the API Gateway endpoint shown in the stack outputs (e.g., `https://xxxxx.execute-api.us-east-2.amazonaws.com/Prod/slack/events`).
-
-### Subsequent Deploys
-
-```bash
-sam build --use-container
-sam deploy                        # test (default profile)
-sam deploy --config-env prod      # production profile
-```
-
-The `samconfig.toml` file stores per-environment settings so you don't have to re-enter parameters. Each deploy automatically runs DB bootstrap/migrations during app startup.
-
-> For one-time bootstrap, **fork-and-deploy** (GitHub OIDC) and **download-and-deploy** (local limited credentials), see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Full behavior, manual `sam` / Terraform steps, GitHub variables, and troubleshooting: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
 
 ---
 
-## Local Development
+## Slack app (before deploy or local dev)
 
-### Option A: Dev Container (recommended)
+1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From an app manifest** → paste [`slack-manifest.json`](slack-manifest.json).
+2. Upload [`assets/icon.png`](assets/icon.png) under **Basic Information** → **Display Information**.
+3. Copy **Signing Secret**, **Client ID**, and **Client Secret** (needed for deploy). For **local dev**, install the app under **OAuth & Permissions** and copy the **Bot User OAuth Token** (`xoxb-...`).
 
-Opens the project inside a Docker container with full editor integration — IntelliSense, debugging, terminal, and linting all run in the container. No local Python or MySQL install needed.
-
-**Prerequisites:** Docker Desktop + the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
-
-#### 1. Clone the repo and create a `.env` file
-
-```bash
-git clone https://github.com/GITHUB_ORG_NAME/syncbot.git
-cd syncbot
-cp .env.example .env
-```
-
-Set `SLACK_BOT_TOKEN` to the `xoxb-...` token you copied from **OAuth & Permissions** after installing the app.
-
-#### 2. Open in Dev Container
-
-Open the project folder in your editor, then:
-
-- Press `Cmd+Shift+P` → **Dev Containers: Reopen in Container**
-- Or click the green remote indicator in the bottom-left corner → **Reopen in Container**
-
-The first build takes a minute or two. After that, your editor is running inside the container with Python, MySQL, and all dependencies ready.
-
-Want SQLite instead of MySQL in the dev container? Set in `.env` before reopening:
-
-```bash
-DATABASE_BACKEND=sqlite
-DATABASE_URL=sqlite:////app/syncbot/syncbot.db
-```
-
-The app will use SQLite and ignore MySQL connection vars.
-
-#### 3. Run the app
-
-```bash
-cd syncbot && python app.py
-```
-
-The app starts on **port 3000** (auto-forwarded to your host).
-
-#### 4. Expose to Slack
-
-In a **local** terminal (outside the container), start a tunnel:
-
-```bash
-cloudflared tunnel --url http://localhost:3000/
-```
-or
-```bash
-ngrok http 3000
-```
-
-Then update your Slack app's **Event Subscriptions** and **Interactivity** URLs to the public URL.
-
-#### 5. Run tests
-
-```bash
-python -m pytest tests -v
-```
-
-#### 6. Connect to the database
-
-```bash
-mysql -h db -u root -prootpass syncbot
-```
-
-The database schema is initialized automatically on first run. To reset it, rebuild the container with **Dev Containers: Rebuild Container**.
+After deployment, point Event Subscriptions and Interactivity at your real HTTPS URL (the deploy script can generate a stage-specific `slack-manifest_<stage>.json` and optional Slack API updates). Details: [DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
-### Option B: Docker Compose (without Dev Container)
+## Local development
 
-Runs everything in containers but you edit files on your host.
+### Dev Container (recommended)
 
-**Prerequisites:** Docker Desktop
+**Needs:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine on Linux) + [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) in VS Code.
+
+1. `cp .env.example .env` and set `SLACK_BOT_TOKEN` (`xoxb-...`).
+2. **Dev Containers: Reopen in Container** — Python, MySQL, and deps run inside the container.
+3. `cd syncbot && python app.py` → app on **port 3000** (forwarded).
+4. Expose to Slack with **cloudflared** or **ngrok** from the host; set Slack **Event Subscriptions** / **Interactivity** URLs to the public URL.
+
+Optional **SQLite**: in `.env` set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:////app/syncbot/syncbot.db`.
+
+### Docker Compose (no Dev Container)
 
 ```bash
-git clone https://github.com/GITHUB_ORG_NAME/syncbot.git
-cd syncbot
-cp .env.example .env          # set SLACK_BOT_TOKEN
+cp .env.example .env   # set SLACK_BOT_TOKEN
 docker compose up --build
 ```
 
-The app listens on **port 3000**. Code changes require `docker compose restart app`. Only rebuild when `requirements.txt` changes.
+App on port **3000**; restart the `app` service after code changes.
 
-**SQLite mode (optional):** set this in `.env` before `docker compose up`:
+### Native Python
 
-```bash
-DATABASE_BACKEND=sqlite
-DATABASE_URL=sqlite:////app/syncbot/syncbot.db
-```
-
-This stores the SQLite file inside the bind-mounted app folder. You can still leave the `db` service running; the app will ignore MySQL vars when `DATABASE_BACKEND=sqlite`.
-
-```bash
-docker compose exec app python -m pytest /app/tests -v    # run tests
-docker compose exec db mysql -u root -prootpass syncbot    # database shell
-docker compose down -v                                     # stop + delete DB volume
-```
+**Needs:** Python 3.12+, Poetry. Run MySQL locally (e.g. `docker run ... mysql:8`) or SQLite. See `.env.example` and [INFRA_CONTRACT.md](docs/INFRA_CONTRACT.md).
 
 ---
 
-### Option C: Native Python
+## Configuration reference
 
-**Prerequisites:** Python 3.12+, Poetry 1.6+ (2.x recommended), Docker *(optional, for MySQL)*
-
-```bash
-git clone https://github.com/GITHUB_ORG_NAME/syncbot.git
-cd syncbot
-poetry install --with dev
-```
-
-If you change dependencies in `pyproject.toml`, refresh lock and deployment pins:
-
-```bash
-poetry lock
-poetry export --only main --format requirements.txt --without-hashes --output syncbot/requirements.txt
-```
-
-Start a local MySQL instance:
-
-```bash
-docker run -d --name syncbot-db \
-  -e MYSQL_ROOT_PASSWORD=rootpass \
-  -e MYSQL_DATABASE=syncbot \
-  -p 3306:3306 \
-  mysql:8
-```
-
-Configure and run:
-
-```bash
-cp .env.example .env          # set SLACK_BOT_TOKEN + verify DATABASE_HOST=127.0.0.1
-source .env
-poetry run python syncbot/app.py
-```
-
-The app starts on **port 3000**. Use a tunnel to expose it to Slack. Run tests with `poetry run pytest -v`.
+- **[`.env.example`](.env.example)** — local env vars with comments.
+- **[docs/INFRA_CONTRACT.md](docs/INFRA_CONTRACT.md)** — runtime contract for any cloud (DB, Slack, OAuth, production vs local).
 
 ---
 
-## Environment Variables
+## Further reading
 
-See [`.env.example`](.env.example) for all available options with descriptions.
+| Doc | Contents |
+|-----|----------|
+| [USER_GUIDE.md](docs/USER_GUIDE.md) | End-user features (Home tab, syncs, groups) |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Guided + manual AWS/GCP deploy, CI, GitHub |
+| [INFRA_CONTRACT.md](docs/INFRA_CONTRACT.md) | Environment variables and platform expectations |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Sync flow, AWS reference architecture |
+| [BACKUP_AND_MIGRATION.md](docs/BACKUP_AND_MIGRATION.md) | Backup/restore and federation migration |
+| [API_REFERENCE.md](docs/API_REFERENCE.md) | HTTP routes and Slack events |
+| [IMPROVEMENTS.md](docs/IMPROVEMENTS.md) | Changelog / planned work |
 
-### Always Required
-
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_HOST` | MySQL hostname |
-| `DATABASE_USER` | MySQL username |
-| `DATABASE_PASSWORD` | MySQL password |
-| `DATABASE_SCHEMA` | MySQL database name |
-
-### Required in Production (Lambda)
-
-| Variable | Description |
-|----------|-------------|
-| `SLACK_SIGNING_SECRET` | Verifies incoming Slack requests |
-| `ENV_SLACK_CLIENT_ID` | OAuth client ID |
-| `ENV_SLACK_CLIENT_SECRET` | OAuth client secret |
-| `ENV_SLACK_SCOPES` | Comma-separated OAuth scopes |
-| `TOKEN_ENCRYPTION_KEY` | Passphrase for Fernet bot-token encryption |
-
-OAuth state and installation data are stored in the same RDS MySQL database.
-
-### Local Development Only
-
-| Variable | Description |
-|----------|-------------|
-| `SLACK_BOT_TOKEN` | Bot token (`xoxb-...`) — presence triggers local-dev mode |
-| `LOCAL_DEVELOPMENT` | Set to `true` to skip token verification and use readable logs |
-
-### Optional
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REQUIRE_ADMIN` | `true` | Only admins/owners can configure syncs |
-| `SOFT_DELETE_RETENTION_DAYS` | `30` | Days before soft-deleted data is purged |
-| `SYNCBOT_FEDERATION_ENABLED` | `false` | Enable External Connections |
-| `SYNCBOT_PUBLIC_URL` | *(none)* | Public URL for external connections |
-| `ENABLE_DB_RESET` | `false` | Show a "Reset Database" button on the Home tab |
-
----
-
-## Further Reading
-
-| Document | Description |
-|----------|-------------|
-| [User Guide](docs/USER_GUIDE.md) | End-user walkthrough of all features |
-| [Architecture](docs/ARCHITECTURE.md) | Message sync flow, AWS infrastructure, caching |
-| [Backup & Migration](docs/BACKUP_AND_MIGRATION.md) | Full-instance backup/restore, workspace data migration |
-| [Deployment](docs/DEPLOYMENT.md) | Bootstrap, fork-and-deploy (GitHub OIDC), download-and-deploy |
-| [API Reference](docs/API_REFERENCE.md) | HTTP endpoints and subscribed Slack events |
-| [Improvements](docs/IMPROVEMENTS.md) | Completed and planned improvements |
-
-## Project Structure
+### Project layout
 
 ```
 syncbot/
-├── syncbot/                   # Application code (Lambda function)
-│   ├── app.py                 # Entry point — Slack Bolt app + Lambda handler
-│   ├── constants.py           # Env-var names, startup validation
-│   ├── routing.py             # Event/action → handler dispatcher
-│   ├── builders/              # Slack UI construction (Home tab, modals, forms)
-│   ├── handlers/              # Slack event & action handlers
-│   ├── helpers/               # Business logic, Slack API wrappers, utilities
-│   ├── federation/            # Cross-instance sync (opt-in)
-│   ├── db/                    # Engine, session, ORM models
-│   └── slack/                 # Action IDs, forms, Block Kit helpers
-├── db/alembic/                # Alembic migrations (backend-agnostic schema source)
-├── db/alembic.ini             # Alembic configuration
-├── tests/                     # pytest unit tests
-├── docs/                      # Extended documentation
-├── infra/aws/                 # AWS SAM templates (template.yaml, template.bootstrap.yaml)
-├── slack-manifest.yaml        # Slack app manifest
-└── docker-compose.yml         # Local development stack
+├── syncbot/           # App (app.py); slack_manifest_scopes.py = bot/user OAuth scope lists (manifest + SLACK_BOT_SCOPES / SLACK_USER_SCOPES)
+├── syncbot/db/alembic/  # Migrations (bundled with app for Lambda)
+├── tests/
+├── docs/
+├── infra/aws/         # SAM, bootstrap stack
+├── infra/gcp/         # Terraform
+├── deploy.sh          # Root launcher (macOS / Linux / Git Bash)
+├── deploy.ps1         # Windows launcher → Git Bash or WSL → infra/.../deploy.sh
+├── slack-manifest.json
+└── docker-compose.yml
 ```
 
 ## License
 
-This project is licensed under **AGPL-3.0**, which means you can use and modify it, just keep it open and shareable. See [LICENSE](LICENSE) for details.
+**AGPL-3.0** — see [LICENSE](LICENSE).

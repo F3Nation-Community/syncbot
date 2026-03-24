@@ -61,6 +61,8 @@ The same pattern applies to edits (`chat.update`), deletes (`chat.delete`), thre
 
 ## AWS Infrastructure
 
+How to deploy or update this stack (guided script, `sam`, GitHub Actions) is documented in **[DEPLOYMENT.md](DEPLOYMENT.md)**. The diagram below reflects the **reference** SAM template (`infra/aws/template.yaml`).
+
 ```mermaid
 flowchart TB
     subgraph Slack["Slack Platform"]

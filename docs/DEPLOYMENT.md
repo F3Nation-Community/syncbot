@@ -1,62 +1,106 @@
 # Deployment Guide
 
-This guide covers deploying SyncBot on **AWS** (default) or **GCP**, with two paths per provider:
+This guide explains **what the guided deploy scripts do**, how to perform the **same steps manually** on **AWS** or **GCP**, and how **GitHub Actions** fits in. For the runtime environment variables the app expects in any cloud, see [INFRA_CONTRACT.md](INFRA_CONTRACT.md).
 
-- **Fork and deploy** — One-time bootstrap, then all deploys via GitHub Actions (OIDC on AWS, Workload Identity Federation on GCP; no long-lived keys).
-- **Download and deploy** — One-time bootstrap, then updates via local CLI (`sam` on AWS, `gcloud`/Terraform on GCP) using limited credentials.
-
-The app code and [infrastructure contract](INFRA_CONTRACT.md) are provider-agnostic; only the infrastructure in `infra/<provider>/` and the CI workflow differ.
-
-**Runtime baseline:** Python 3.12. Keep `pyproject.toml`, `syncbot/requirements.txt`, Lambda runtimes, and CI Python version aligned.
+**Runtime baseline:** Python 3.12 — keep `pyproject.toml`, `syncbot/requirements.txt`, Lambda/Cloud Run runtimes, and CI aligned.
 
 ---
 
-## Fork-First Model (Recommended)
+## Quick start: root launcher
 
-If your goal is "fork and deploy on a different cloud, while still PR'ing app improvements back to SyncBot", use this model:
+From the **repository root**:
 
-1. Keep `syncbot/` provider-neutral and depend only on env vars from [INFRA_CONTRACT.md](INFRA_CONTRACT.md).
-2. Put provider implementation in `infra/<provider>/` and `.github/workflows/deploy-<provider>.yml`.
-3. Keep AWS path as the reference implementation; treat other providers as swappable scaffolds.
-4. Send upstream PRs for provider-neutral changes (DB abstraction, docs contract, tests) and keep fork-only deploy glue isolated.
+| OS | Command |
+|----|---------|
+| macOS / Linux | `./deploy.sh` |
+| Windows (PowerShell) | `.\deploy.ps1` |
 
-This is the intended maintenance path for long-lived forks.
+The launcher discovers `infra/<provider>/scripts/deploy.sh`, shows a numbered menu, and runs the script you pick.
 
----
+**Non-interactive:** `./deploy.sh aws`, `./deploy.sh gcp`, `./deploy.sh 1` (same for `deploy.ps1`).
 
-## Provider selection
+**Windows:** `deploy.ps1` requires **Git Bash** or **WSL** with bash, then runs the same `infra/.../deploy.sh` as macOS/Linux. Alternatively install [Git for Windows](https://git-scm.com/download/win) or [WSL](https://learn.microsoft.com/windows/wsl/install) and run `./deploy.sh` from Git Bash or a WSL shell.
 
-| Provider | Infra folder | CI workflow | Default |
-|----------|--------------|-------------|---------|
-| **AWS**  | `infra/aws/` | `.github/workflows/deploy-aws.yml` | Yes |
-| **GCP**  | `infra/gcp/` | `.github/workflows/deploy-gcp.yml` | No (opt-in) |
+**Prerequisites** (also summarized in the root [README](../README.md)):
 
-- **Use AWS:** Do nothing; the AWS workflow runs on push to `test`/`prod` unless you set `DEPLOY_TARGET=gcp`.
-- **Use GCP:** Run `infra/gcp/` Terraform, configure Workload Identity Federation, set repository variable **`DEPLOY_TARGET`** = **`gcp`**, and disable or remove the AWS workflow so only `deploy-gcp.yml` runs.
+- **AWS path:** AWS CLI v2, SAM CLI, Docker (`sam build --use-container`), Python 3 (`python3`), **`curl`** (Slack manifest API). **Optional:** `gh` (GitHub Actions setup). The script prints a CLI status line per tool (✓ / !) and Slack doc links; if `gh` is missing, it asks whether to continue.
+- **GCP path:** Terraform, `gcloud`, Python 3, **`curl`**. **Optional:** `gh` — same behavior as AWS.
 
-See [Swapping providers](#swapping-providers) for changing providers in a fork.
+**Slack install error `invalid_scope` / “Invalid permissions requested”:** The OAuth authorize URL is built from **`SLACK_BOT_SCOPES`** and **`SLACK_USER_SCOPES`** in your deployed app (Lambda / Cloud Run). They must **exactly match** the scopes on your Slack app (`slack-manifest.json` → **OAuth & Permissions** after manifest update) and `BOT_SCOPES` / `USER_SCOPES` in `syncbot/slack_manifest_scopes.py`. SAM and GCP Terraform defaults include both bot and user scope strings; if your environment has **stale** overrides, redeploy with parameters matching the manifest or update the Slack app to match. On GCP, `slack_user_scopes` must stay aligned with `oauth_config.scopes.user`. **Renames (older stacks):** `SLACK_SCOPES` → `SLACK_BOT_SCOPES`; SAM `SlackOauthScopes` → `SlackOauthBotScopes`; SAM `SlackUserOauthScopes` → `SlackOauthUserScopes` (`SLACK_USER_SCOPES` unchanged).
 
 ---
 
-## Database backend
+## What the deploy scripts do
 
-The app supports **PostgreSQL** (default, including Aurora DSQL and RDS PostgreSQL), **MySQL** (legacy), and **SQLite**. See [INFRA_CONTRACT.md](INFRA_CONTRACT.md) for required variables per backend. **Pre-release:** DB flow assumes **fresh installs only**; schema is created at startup via Alembic.
+### Root: `deploy.sh` / `deploy.ps1`
 
-- **PostgreSQL / Aurora DSQL (default):** Set `DATABASE_BACKEND=postgresql` (or rely on the app default) and either `DATABASE_URL` (`postgresql+psycopg2://...`) or `DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA`. The AWS SAM template parameter **`DatabaseEngine`** defaults to **`postgresql`** (new RDS PostgreSQL in stack, or existing host with the custom-resource setup).
-- **MySQL:** Set `DATABASE_BACKEND=mysql` and either `DATABASE_URL` or the four host/user/password/schema vars. On AWS, choose **Advanced: legacy MySQL** in `./infra/aws/scripts/deploy.sh` or pass `DatabaseEngine=mysql` to `sam deploy`.
-- **SQLite:** Use for forks or local runs where you prefer no DB server. Set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:///path/to/syncbot.db`. Single-writer; ensure backups and file durability. For SQLite on Lambda you need durable shared storage (e.g. EFS); the reference SAM template targets PostgreSQL/MySQL.
+- Scans `infra/*/scripts/deploy.sh` and lists providers (e.g. **aws**, **gcp**).
+- Runs the selected provider script in Bash.
+- **`./deploy.sh` (macOS / Linux):** Invokes `bash` with the chosen `infra/<provider>/scripts/deploy.sh`.
+- **`.\deploy.ps1` (Windows):** Verifies **Git Bash** or **WSL** bash is available (shows which one will be used), then runs the same `deploy.sh` path. There are **no** `deploy.ps1` files under `infra/` — only the repo-root launcher uses PowerShell. Provider prerequisite checks (AWS/GCP tools, optional `gh`, Slack links) run **inside** the bash `deploy.sh` scripts.
+
+### AWS: `infra/aws/scripts/deploy.sh`
+
+Runs from repo root (or via `./deploy.sh` → **aws**). It:
+
+1. **Prerequisites** — Verifies `aws`, `sam`, `docker`, `python3`, `curl` are on `PATH` (with install hints). Prints a status matrix; if optional `gh` is missing, shows install hints and asks whether to continue. Prints Slack app / API token / manifest API links.
+2. **AWS auth** — Checks credentials; suggests `aws login`, SSO, or `aws configure` as appropriate.
+3. **Bootstrap** — Reads or deploys the CloudFormation bootstrap stack (`infra/aws/template.bootstrap.yaml`): OIDC deploy role, S3 artifact bucket, etc.
+4. **App stack** — Prompts for stage (`test`/`prod`) and stack name; **database source** (stack-managed RDS vs existing RDS host) and **engine** (MySQL vs PostgreSQL). Then **Slack app credentials** (signing secret, client secret, client ID). **Existing database host** mode: RDS endpoint, admin user/password, **public vs private** network mode, and for **private** mode: subnet IDs and Lambda security group (with optional auto-detect and **connectivity preflight**). **New RDS in stack** mode: summarizes auto-generated DB users and prompts for **DatabaseSchema**. After that: optional **token encryption** recovery override, **log level** (numbered list `1`–`5` with `Choose level [N]:`, default from prior stack or **INFO**), and a **deploy summary** before you proceed to the build.
+5. **Deploy artifacts** — `sam build -t infra/aws/template.yaml --use-container` then `sam deploy` with assembled parameters (including optional token/app-secret overrides for recovery).
+6. **Post-deploy** — Prints stack outputs, can generate `slack-manifest_<stage>.json`, optional Slack API configure, **backup summary** of secrets, optional **`gh`** setup for GitHub environments/variables/secrets, and a local **deploy receipt** under `deploy-receipts/` (gitignored).
+
+You can **skip infra** on an existing stack and jump to GitHub-only setup when prompted.
+
+### GCP: `infra/gcp/scripts/deploy.sh`
+
+Runs from repo root (or `./deploy.sh` → **gcp**). It:
+
+1. Verifies **Terraform**, **gcloud**, **python3**, **curl**; optional **gh** handling (same as AWS).
+2. Guides **auth** (`gcloud auth application-default login` / quota project as needed).
+3. **Terraform** — `init` / `plan` / `apply` in `infra/gcp` with prompts for project, stage, image, DB mode, Slack secrets, etc.; can detect existing Cloud Run / Cloud SQL for defaults.
+4. **Post-deploy** — Manifest generation, optional Slack API, deploy receipt, optional **`gh`** for GitHub.
+
+See [infra/gcp/README.md](../infra/gcp/README.md) for Terraform variables and outputs.
 
 ---
 
-## AWS
+## Fork-First model (recommended for forks)
 
-### One-Time Bootstrap (AWS, both paths)
+1. Keep `syncbot/` provider-neutral; use only env vars from [INFRA_CONTRACT.md](INFRA_CONTRACT.md).
+2. Put provider code in `infra/<provider>/` and `.github/workflows/deploy-<provider>.yml`.
+3. Prefer the AWS layout as reference; treat other providers as swappable scaffolds.
 
-Deploy the bootstrap stack **once** from your machine with credentials that can create IAM roles, OIDC providers, and S3 buckets.
+---
 
-**Prerequisites:** AWS CLI, [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html). For fork-and-deploy: a GitHub repo `owner/repo`.
+## Provider selection (CI)
 
-From the project root:
+| Provider | Infra | CI workflow | Default |
+|----------|-------|-------------|---------|
+| **AWS** | `infra/aws/` | `.github/workflows/deploy-aws.yml` | Yes |
+| **GCP** | `infra/gcp/` | `.github/workflows/deploy-gcp.yml` | Opt-in |
+
+- **AWS only:** Do not set `DEPLOY_TARGET=gcp` (or set it to something other than `gcp`).
+- **GCP only:** Set repository variable **`DEPLOY_TARGET`** = **`gcp`**, complete GCP bootstrap + WIF, and disable or skip the AWS workflow so only `deploy-gcp.yml` runs.
+
+---
+
+## Database backends
+
+The app supports **MySQL** (default), **PostgreSQL**, and **SQLite**. **Pre-release:** DB flow targets **fresh installs**; schema is applied at startup via Alembic.
+
+- **AWS:** Choose engine in the deploy script or pass `DatabaseEngine=mysql` / `postgresql` to `sam deploy`.
+- **Contract:** [INFRA_CONTRACT.md](INFRA_CONTRACT.md) — `DATABASE_BACKEND`, `DATABASE_URL` or host/user/password/schema.
+
+---
+
+## AWS — manual steps (no helper script)
+
+Use this when you already know SAM/CloudFormation or are debugging.
+
+### 1. One-time bootstrap
+
+**Prerequisites:** AWS CLI, SAM CLI (for later app deploy).
 
 ```bash
 aws cloudformation deploy \
@@ -68,265 +112,161 @@ aws cloudformation deploy \
   --region us-east-2
 ```
 
-Replace `YOUR_GITHUB_OWNER/YOUR_REPO` with your repo. Optionally set `CreateOIDCProvider=false` if the account already has the GitHub OIDC provider. The bootstrap template only accepts `GitHubRepository`, `CreateOIDCProvider`, and `DeploymentBucketPrefix` (database options go in the main app deploy, not bootstrap).
+Optional: `CreateOIDCProvider=false` if the GitHub OIDC provider already exists.
 
-**Capture outputs:**
+**Outputs:**
 
 ```bash
 ./infra/aws/scripts/print-bootstrap-outputs.sh
 ```
 
-You need: **GitHubDeployRoleArn** → `AWS_ROLE_TO_ASSUME`, **DeploymentBucketName** → `AWS_S3_BUCKET`, **BootstrapRegion** → `AWS_REGION`, and suggested stack names for test/prod.
+Map **GitHubDeployRoleArn** → `AWS_ROLE_TO_ASSUME`, **DeploymentBucketName** → `AWS_S3_BUCKET`, **BootstrapRegion** → `AWS_REGION`.
 
----
-
-### Fast path: interactive AWS deploy script
-
-For local, end-to-end deploys (bootstrap + build + deploy), use:
+### 2. Build and deploy the app stack
 
 ```bash
-./infra/aws/scripts/deploy.sh
+sam build -t infra/aws/template.yaml --use-container
+sam deploy \
+  -t .aws-sam/build/template.yaml \
+  --stack-name syncbot-test \
+  --s3-bucket YOUR_DEPLOYMENT_BUCKET_NAME \
+  --capabilities CAPABILITY_IAM \
+  --region us-east-2 \
+  --parameter-overrides \
+    Stage=test \
+    SlackSigningSecret=... \
+    SlackClientID=... \
+    SlackClientSecret=... \
+    SlackOauthBotScopes=... \
+    SlackOauthUserScopes=... \
+    DatabaseEngine=mysql \
+    ...
 ```
 
-The script:
-- prompts for stage (`test`/`prod`) and DB mode (new RDS vs existing host),
-- defaults to **PostgreSQL** (`DatabaseEngine=postgresql`); optional advanced prompt for **legacy MySQL** (`DatabaseEngine=mysql`),
-- prompts for required secrets/credentials,
-- auto-detects bootstrap outputs (region, deploy bucket, suggested stack names) when available,
-- supports existing-RDS `public` or `private` network mode (with VPC subnet/security-group prompts for private mode),
-- supports disaster recovery with `TokenEncryptionKeyOverride`,
-- runs `sam build` and `sam deploy` for you.
+Use **`sam deploy --guided`** the first time if you prefer prompts. For **existing RDS**, set `ExistingDatabaseHost`, `ExistingDatabaseAdminUser`, `ExistingDatabaseAdminPassword`, and for **private** DBs also `ExistingDatabaseNetworkMode=private`, `ExistingDatabaseSubnetIdsCsv`, `ExistingDatabaseLambdaSecurityGroupId`. Omit `ExistingDatabaseHost` to create a **new** RDS in the stack.
 
-If bootstrap is missing, it can deploy bootstrap first.
+**samconfig:** Predefined profiles in `samconfig.toml` (`test-new-rds`, `test-existing-rds`, etc.) — adjust placeholders before use.
 
----
+**Token key:** The stack can auto-generate `TOKEN_ENCRYPTION_KEY` in Secrets Manager. Back it up after first deploy. Optional: `TokenEncryptionKeyOverride`, `ExistingTokenEncryptionKeySecretArn` for recovery.
 
-### Fork and Deploy (AWS, GitHub CI)
+### 3. GitHub Actions (AWS)
 
-1. Complete [One-Time Bootstrap (AWS)](#one-time-bootstrap-aws-both-paths).
-2. **First app deploy** (with credentials that can create RDS/VPC/Lambda/API Gateway):
+Workflow: `.github/workflows/deploy-aws.yml` (runs on push to `test`/`prod` when not using GCP).
 
-   ```bash
-   sam build -t infra/aws/template.yaml --use-container
-   sam deploy --guided \
-     --template-file infra/aws/template.yaml \
-     --stack-name syncbot-test \
-     --s3-bucket YOUR_DEPLOYMENT_BUCKET_NAME \
-     --capabilities CAPABILITY_IAM \
-     --region us-east-2
-   ```
+Configure **repository** variables: `AWS_ROLE_TO_ASSUME`, `AWS_S3_BUCKET`, `AWS_REGION`.
 
-   Use the bootstrap **DeploymentBucketName**. Set parameters (Stage, DB, Slack, etc.) when prompted.
+Configure **per-environment** (`test` / `prod`) variables and secrets so they match your stack — especially if you use **existing RDS** or **private** networking:
 
-3. **GitHub:** Create environments `test` and `prod`. In **Settings → Secrets and variables → Actions**, set **Variables** (per env): `AWS_ROLE_TO_ASSUME`, `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_STACK_NAME`, `STAGE_NAME`, `SLACK_CLIENT_ID` (Slack app Client ID from Basic Information → App Credentials), `EXISTING_DATABASE_HOST`, `EXISTING_DATABASE_ADMIN_USER` (when using existing RDS host), `DATABASE_USER` (when creating new RDS), `DATABASE_SCHEMA`. Set **Secrets**: `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET`, `EXISTING_DATABASE_ADMIN_PASSWORD` (when using existing host), `DATABASE_PASSWORD` (when creating new RDS). No access keys — the workflow uses OIDC. The SAM template defaults **`DatabaseEngine=postgresql`** (Aurora DSQL / RDS PostgreSQL). To deploy **legacy MySQL** from CI, extend the workflow `parameter-overrides` to include `DatabaseEngine=mysql` (or add a repository variable and wire it through).
-4. Push to `test` or `prod` to build and deploy. The workflow file is `.github/workflows/deploy-aws.yml` (runs when `DEPLOY_TARGET` is not `gcp`).
-   - The AWS workflow runs `pip-audit` against `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt`, so dependency pins should be kept current.
+| Type | Name | Notes |
+|------|------|--------|
+| Var | `AWS_STACK_NAME` | CloudFormation stack name |
+| Var | `STAGE_NAME` | `test` or `prod` |
+| Var | `DATABASE_SCHEMA` | e.g. `syncbot_test` |
+| Var | `LOG_LEVEL` | Optional. `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Passed to SAM as `LogLevel`; defaults to `INFO` in the workflow when unset. |
+| Var | `SLACK_CLIENT_ID` | From Slack app |
+| Var | `DATABASE_ENGINE` | `mysql` or `postgresql` (workflow defaults to `mysql` if unset) |
+| Var | `EXISTING_DATABASE_HOST` | Empty for **new** RDS in stack |
+| Var | `EXISTING_DATABASE_ADMIN_USER` | When using existing host |
+| Var | `EXISTING_DATABASE_NETWORK_MODE` | `public` or `private` |
+| Var | `EXISTING_DATABASE_SUBNET_IDS_CSV` | **Private** mode: comma-separated subnet IDs (no spaces) |
+| Var | `EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID` | **Private** mode: Lambda ENI security group |
+| Secret | `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET` | |
+| Secret | `EXISTING_DATABASE_ADMIN_PASSWORD` | When `EXISTING_DATABASE_HOST` is set |
+| Secret | `TOKEN_ENCRYPTION_KEY_OVERRIDE` | Optional DR only |
 
-When dependency constraints change in `pyproject.toml`, refresh both lock and deployment requirements:
+The interactive deploy script can set these via `gh` when you opt in. Re-run that step after changing DB mode or engine so CI stays aligned.
+
+**Dependency hygiene:** The workflow runs `pip-audit` on `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt`. After changing `pyproject.toml`:
 
 ```bash
 poetry lock
 poetry export --only main --format requirements.txt --without-hashes --output syncbot/requirements.txt
 ```
 
-**Important (token encryption key):** Non-local deploys require a secure `TOKEN_ENCRYPTION_KEY`. The AWS app stack **auto-generates** it in Secrets Manager by default. You must **back up the generated key** after first deploy; if it is lost, existing workspaces must reinstall to re-authorize bot tokens. For local development you may set the key manually in `.env` or leave it unset.
+### 4. Ongoing local deploys (least privilege)
 
-#### Using an existing RDS host (AWS)
-
-To **reuse only the DB host** and have the deploy create the schema and a dedicated app user (and generated password) for you:
-
-1. **What the stack does:**  
-   When you set **ExistingDatabaseHost**, the template skips creating VPC, subnets, and RDS. A custom resource runs during deploy: it connects to your existing MySQL with a **bootstrap** (master) user you provide, creates the schema, creates an app user `syncbot_<stage>` with a **generated** password (stored in Secrets Manager), and grants that user full access to the schema. The app Lambda then uses that app user and generated password. You never manage the app DB password.
-
-2. **What you provide:**
-   - **Host:** The RDS endpoint (e.g. `mydb.xxxx.us-east-2.rds.amazonaws.com`). No `:3306` or path.
-   - **Admin user & password:** A MySQL user that can create databases and users (e.g. RDS master). Used only by the deploy step; the app uses a separate `syncbot_<stage>` user.
-   - **Schema name:** A dedicated schema per app or environment (e.g. `syncbot_test`, `syncbot_prod`). The deploy creates this schema and the app user with full access to it; the app runs Alembic migrations on startup.
-
-3. **Connectivity:**  
-   Existing-host deploys support two modes:
-   - **public** (default): Lambda is not VPC-attached; existing RDS must be publicly reachable on 3306.
-   - **private**: Lambda is VPC-attached using `ExistingDatabaseSubnetIdsCsv` and `ExistingDatabaseLambdaSecurityGroupId`.
-
-   For private mode, ensure:
-   - the Lambda security group can reach the DB on TCP 3306, and
-   - the app Lambda has outbound internet egress (typically NAT) so Slack API calls succeed.
-
-4. **First deploy (local `sam deploy`):**  
-   Pass the **existing-host** parameters (admin user/password). When using **guided** mode, SAM may still prompt for **DatabaseUser** and **DatabasePassword**; the stack ignores these when using an existing host (app user/password are auto-generated). If a prompt repeats, provide any placeholder and continue. For non-guided deploys, pass only the existing-host parameters you actually use:
-   ```bash
-   sam deploy --guided ... \
-     --parameter-overrides \
-       ExistingDatabaseHost=your-db.xxxx.us-east-2.rds.amazonaws.com \
-       ExistingDatabaseAdminUser=admin \
-       ExistingDatabaseAdminPassword=your_master_password \
-       DatabaseSchema=syncbot_test \
-       SlackClientID=your_slack_app_client_id \
-       SlackSigningSecret=... \
-       SlackClientSecret=...
-   ```
-   Omit **ExistingDatabaseHost** (or leave it empty) to have the stack create a new RDS instance; then you must pass **DatabaseUser** and **DatabasePassword** for the new RDS master.
-
-5. **GitHub Actions:**  
-   For **existing host** (deploy creates schema and app user), set **Variables**:
-   - **EXISTING_DATABASE_HOST** — Full RDS hostname. Leave **empty** to create a new RDS instead.
-   - **EXISTING_DATABASE_ADMIN_USER** — MySQL user that can create DBs/users (e.g. master).
-   - **DATABASE_SCHEMA** — Schema name (e.g. `syncbot_test` or `syncbot_prod`).  
-   Set **Secrets**:
-   - **EXISTING_DATABASE_ADMIN_PASSWORD** — Password for the admin user.  
-   For **new RDS** (stack creates the instance), set **DATABASE_USER**, **DATABASE_SCHEMA**, and secret **DATABASE_PASSWORD** instead, and leave **EXISTING_DATABASE_HOST** empty. The workflow passes all of these; the template uses the right set based on whether **EXISTING_DATABASE_HOST** is set.
-
-**Disaster recovery:** if you must rebuild and keep existing encrypted tokens working, deploy with the old key:
-
-```bash
-sam deploy ... --parameter-overrides "... TokenEncryptionKeyOverride=<old_key>"
-```
-
-If using GitHub Actions, set optional secret `TOKEN_ENCRYPTION_KEY_OVERRIDE`; the AWS workflow will pass it automatically.
-
-If a previous failed deploy already created `syncbot-<stage>-token-encryption-key`, you can also reuse that secret directly (instead of creating a new one) by passing:
-
-```bash
-sam deploy ... --parameter-overrides "... ExistingTokenEncryptionKeySecretArn=<existing_secret_arn>"
-```
+Assume the bootstrap **GitHubDeployRole** (or equivalent) and run `sam build` / `sam deploy` as in step 2.
 
 ---
 
-### Download and Deploy (AWS, local)
+## GCP — manual steps
 
-1. Run [One-Time Bootstrap (AWS)](#one-time-bootstrap-aws-both-paths) and the [first app deploy](#fork-and-deploy-aws-github-ci) once with admin (or equivalent) credentials.
-2. **Future deploys** with limited credentials: assume the bootstrap deploy role (recommended):
+### 1. Terraform bootstrap
 
-   ```bash
-   export AWS_PROFILE=syncbot-deploy   # profile with role_arn = GitHubDeployRoleArn
-   sam build -t infra/aws/template.yaml --use-container
-   sam deploy \
-     -t .aws-sam/build/template.yaml \
-     --stack-name syncbot-test \
-     --s3-bucket YOUR_DEPLOYMENT_BUCKET_NAME \
-     --capabilities CAPABILITY_IAM \
-     --region us-east-2
-   ```
-
-   Or use a dedicated IAM user with the same policy. See [Deployment Guide (legacy detail)](#sharing-infrastructure-across-apps-aws) for shared RDS and parameter overrides.
-
-#### Optional: `samconfig` deploy profiles
-
-This repo includes pre-defined SAM config environments in `samconfig.toml` to reduce guided prompts:
-
-- `test-new-rds` — test stack, creates new RDS
-- `test-existing-rds` — test stack, uses existing RDS host/admin credentials
-- `prod-new-rds` — prod stack, creates new RDS
-- `prod-existing-rds` — prod stack, uses existing RDS host/admin credentials
-
-Examples:
+From `infra/gcp` (or repo root with paths adjusted):
 
 ```bash
-sam build --config-env test-new-rds
-sam deploy --config-env test-new-rds
-
-sam deploy --config-env test-existing-rds
-sam deploy --config-env prod-existing-rds
-```
-
-For the `*-existing-rds` profiles, replace `REPLACE_ME_*` placeholders in `samconfig.toml` before deploy.  
-For disaster recovery (preserve token decryption), add `TokenEncryptionKeyOverride=<old_key>` to that profile's `parameter_overrides`.
-
----
-
-## GCP
-
-### One-Time Bootstrap (GCP, both paths)
-
-From the project root (or `infra/gcp`):
-
-```bash
-cd infra/gcp
 terraform init
 terraform plan -var="project_id=YOUR_PROJECT_ID" -var="stage=test"
 terraform apply -var="project_id=YOUR_PROJECT_ID" -var="stage=test"
 ```
 
-Set Secret Manager secret values for Slack and DB (see [infra/gcp/README.md](../infra/gcp/README.md)). `TOKEN_ENCRYPTION_KEY` is auto-generated once and stored in Secret Manager during apply. Set **cloud_run_image** after building and pushing your container image. Capture outputs for CI: **service_url**, **region**, **project_id**, **artifact_registry_repository**, **deploy_service_account_email**.
-
-**Disaster recovery:** if rebuilding and you need to preserve existing token decryption, re-apply with:
-
-```bash
-terraform apply -var="project_id=YOUR_PROJECT_ID" -var="stage=test" -var='token_encryption_key_override=<old_key>'
-```
-
-Helper script for GitHub vars:
+Set Secret Manager values for Slack/DB as in [infra/gcp/README.md](../infra/gcp/README.md). Set **`cloud_run_image`** after building and pushing the container. Capture outputs: service URL, region, project, Artifact Registry, deploy service account.
 
 ```bash
 ./infra/gcp/scripts/print-bootstrap-outputs.sh
 ```
 
+**DR:** Optional `token_encryption_key_override` if you must preserve existing encrypted tokens.
+
+### 2. GitHub Actions (GCP)
+
+1. Configure [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation) for GitHub → deploy service account.
+2. Set **`DEPLOY_TARGET=gcp`** at repo level so `deploy-gcp.yml` runs and `deploy-aws.yml` is skipped.
+3. Set variables: `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`, etc.
+
+**Note:** `.github/workflows/deploy-gcp.yml` may still contain **placeholder** steps in upstream; replace with real **build + push + Cloud Run deploy** (or `terraform apply` with a new image tag) in your fork. The guided `infra/gcp/scripts/deploy.sh` is the source of truth for an interactive path.
+
+### 3. Ongoing deploys
+
+Build and push an image to Artifact Registry, then `gcloud run deploy` or `terraform apply` with updated `cloud_run_image`.
+
 ---
 
-### Fork and Deploy (GCP, GitHub CI)
+## Using an existing RDS host (AWS)
 
-1. Complete [One-Time Bootstrap (GCP)](#one-time-bootstrap-gcp-both-paths).
-2. Configure [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation) for GitHub so the repo can impersonate the deploy service account without a key file.
-3. In GitHub: set **Variables** (e.g. `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`). Set **DEPLOY_TARGET** = **gcp** so `.github/workflows/deploy-gcp.yml` runs and `deploy-aws.yml` is skipped.
-4. Replace the placeholder steps in `deploy-gcp.yml` with real build (e.g. Cloud Build or Docker push to Artifact Registry) and `gcloud run deploy` (or Terraform apply). See `deploy-gcp.yml` comments and [infra/gcp/README.md](../infra/gcp/README.md).
-5. Keep those changes inside your fork's infra/workflow files so future upstream rebases remain straightforward.
+When **ExistingDatabaseHost** is set, the template **does not** create VPC/RDS; a custom resource creates the schema and `syncbot_user_<stage>` with a generated app password in Secrets Manager.
 
----
+- **Public:** Lambda is not in your VPC; RDS must be reachable on the Internet on port **3306** or **5432**.
+- **Private:** Lambda uses `ExistingDatabaseSubnetIdsCsv` and `ExistingDatabaseLambdaSecurityGroupId`; DB security group must allow the Lambda SG; subnets need **NAT** egress for Slack API calls.
 
-### Download and Deploy (GCP, local)
-
-1. Run [One-Time Bootstrap (GCP)](#one-time-bootstrap-gcp-both-paths).
-2. Build and push the container image to the Terraform output **artifact_registry_repository**, then update the Cloud Run service:
-
-   ```bash
-   gcloud run deploy syncbot-test --image=REGION-docker.pkg.dev/PROJECT/REPO/syncbot:latest --region=REGION
-   ```
-
-   Or run `terraform apply` with an updated `cloud_run_image` variable.
+See also [Sharing infrastructure across apps](#sharing-infrastructure-across-apps-aws) below.
 
 ---
 
 ## Swapping providers
 
-To switch from AWS to GCP (or the other way) in a fork:
-
-1. **Keep app code and [INFRA_CONTRACT.md](INFRA_CONTRACT.md) unchanged.** Only infra and CI are provider-specific.
-2. **Disable the old provider:** Remove or disable the workflow for the provider you are leaving (e.g. delete or disable `deploy-aws.yml` when moving to GCP). If using the same repo, set `DEPLOY_TARGET` accordingly.
-3. **Use the new provider folder:** Run bootstrap for the new provider (`infra/aws/` or `infra/gcp/`) and configure GitHub vars/secrets (and WIF for GCP) as in the sections above.
-4. **Point Slack** at the new **service_url** (and run DB migrations or attach an existing DB as required by the contract).
-
-No changes are needed under `syncbot/` or to the deployment contract; only `infra/<provider>/` and the chosen workflow change.
+1. Keep [INFRA_CONTRACT.md](INFRA_CONTRACT.md) satisfied.
+2. Disable the old provider’s workflow; set `DEPLOY_TARGET` if using GCP.
+3. Bootstrap the new provider; reconfigure GitHub and Slack URLs.
 
 ---
 
 ## Helper scripts
 
-| Provider | Script | Use |
-|----------|--------|-----|
-| AWS | `./infra/aws/scripts/print-bootstrap-outputs.sh` | Print bootstrap stack outputs and suggested GitHub variables (run from repo root). |
-| AWS | `./infra/aws/scripts/deploy.sh` | Interactive local deploy helper (optional bootstrap, build, deploy, existing/new RDS prompts). |
-| GCP | `./infra/gcp/scripts/print-bootstrap-outputs.sh` | Print Terraform outputs and suggested GitHub variables (run from repo root). |
+| Script | Purpose |
+|--------|---------|
+| `infra/aws/scripts/print-bootstrap-outputs.sh` | Bootstrap stack outputs → suggested GitHub vars |
+| `infra/aws/scripts/deploy.sh` | Interactive AWS deploy (see [What the deploy scripts do](#what-the-deploy-scripts-do)) |
+| `infra/gcp/scripts/print-bootstrap-outputs.sh` | Terraform outputs → suggested GitHub vars |
+| `infra/gcp/scripts/deploy.sh` | Interactive GCP deploy |
 
 ---
 
 ## Security summary
 
-- **Bootstrap** runs once with elevated credentials; it creates a deploy identity (IAM role or GCP service account) and artifact storage (S3 bucket or Artifact Registry).
-- **GitHub** uses short-lived federation only: **AWS** OIDC with `AWS_ROLE_TO_ASSUME`; **GCP** Workload Identity Federation with a deploy service account. No long-lived API keys in secrets for deploy.
-- **Local** future deploys use assume-role (AWS) or the same deploy service account (GCP) with limited scope.
-- **Prod** can be protected with GitHub environment **Required reviewers**.
+- **Bootstrap** runs once with elevated credentials; creates deploy identity + artifact storage.
+- **GitHub:** Short-lived **AWS OIDC** or **GCP WIF** — no long-lived cloud API keys in repos for deploy.
+- **Prod:** Use GitHub environment protection rules as needed.
 
 ---
 
-## Database schema (Alembic, fresh install only)
+## Database schema (Alembic)
 
-Schema is managed by **Alembic** (see `db/alembic/`). On startup the app runs **`alembic upgrade head`** only (pre-release: fresh installs only; no stamping of existing DBs).
-
-- **Fresh installs:** A new database (MySQL or SQLite) gets all tables from the baseline migration at first run.
-- **Rollback:** If bootstrap fails, fix the migration issue, reset the DB file/schema, and rerun; no manual downgrade is required for the baseline.
+Schema lives under `syncbot/db/alembic/`. On startup the app runs **`alembic upgrade head`** (pre-release: fresh installs).
 
 ---
 
 ## Sharing infrastructure across apps (AWS)
 
-To use an existing RDS instance instead of creating one per stack, see **[Using an existing RDS host (AWS)](#using-an-existing-rds-host-aws)**. Set **ExistingDatabaseHost** and use a **different DatabaseSchema** per app or environment (e.g. `syncbot_test`, `syncbot_prod`). API Gateway and Lambda are per stack; free-tier quotas are account-wide.
+Reuse one RDS with **different `DatabaseSchema`** per app/environment; set **ExistingDatabaseHost** and distinct schemas. API Gateway and Lambda remain per stack.

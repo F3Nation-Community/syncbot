@@ -1,4 +1,7 @@
 # GCP Terraform variables for SyncBot (see docs/INFRA_CONTRACT.md)
+#
+# Sections: project / region / stage → database mode → Cloud Run → keep-warm →
+# Secret Manager IDs and scope envs → optional overrides.
 
 variable "project_id" {
   type        = string
@@ -79,6 +82,17 @@ variable "cloud_run_max_instances" {
   description = "Maximum number of Cloud Run instances"
 }
 
+variable "log_level" {
+  type        = string
+  default     = "INFO"
+  description = "Python logging level for the app (LOG_LEVEL). DEBUG, INFO, WARNING, ERROR, or CRITICAL."
+
+  validation {
+    condition     = contains(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], var.log_level)
+    error_message = "log_level must be DEBUG, INFO, WARNING, ERROR, or CRITICAL."
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Keep-warm (Cloud Scheduler)
 # ---------------------------------------------------------------------------
@@ -108,19 +122,25 @@ variable "secret_slack_signing_secret" {
 variable "secret_slack_client_id" {
   type        = string
   default     = "syncbot-slack-client-id"
-  description = "Secret Manager secret ID for ENV_SLACK_CLIENT_ID"
+  description = "Secret Manager secret ID for SLACK_CLIENT_ID"
 }
 
 variable "secret_slack_client_secret" {
   type        = string
   default     = "syncbot-slack-client-secret"
-  description = "Secret Manager secret ID for ENV_SLACK_CLIENT_SECRET"
+  description = "Secret Manager secret ID for SLACK_CLIENT_SECRET"
 }
 
-variable "secret_slack_scopes" {
+variable "secret_slack_bot_scopes" {
   type        = string
   default     = "syncbot-slack-scopes"
-  description = "Secret Manager secret ID for ENV_SLACK_SCOPES"
+  description = "Secret Manager secret ID whose value is comma-separated bot OAuth scopes (runtime env SLACK_BOT_SCOPES)"
+}
+
+variable "slack_user_scopes" {
+  type        = string
+  default     = "chat:write,channels:history,channels:read,files:read,files:write,groups:history,groups:read,groups:write,im:write,reactions:read,reactions:write,team:read,users:read,users:read.email"
+  description = "Comma-separated user OAuth scopes for Cloud Run (SLACK_USER_SCOPES). Must match slack-manifest.json oauth_config.scopes.user and syncbot/slack_manifest_scopes.py USER_SCOPES; default matches repo standard (same string as AWS SAM SlackOauthUserScopes Default)."
 }
 
 variable "secret_token_encryption_key" {

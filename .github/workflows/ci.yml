@@ -1,0 +1,40 @@
+# PR / branch checks without cloud credentials. Deploy workflows stay in deploy-*.yml.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master, test, prod]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sam-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+      - name: sam validate --lint
+        run: |
+          sam validate -t infra/aws/template.yaml --lint
+          sam validate -t infra/aws/template.bootstrap.yaml --lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry install --with dev
+      # Infra + deploy-script smoke tests (fast). Use `poetry run pytest` locally for the full suite.
+      - name: pytest (infra & deploy scripts)
+        run: poetry run pytest -q tests/test_deploy_script_syntax.py infra/aws/tests infra/gcp/tests

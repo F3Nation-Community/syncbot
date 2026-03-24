@@ -43,8 +43,14 @@ GLOBAL_SCHEMA = None
 _MAX_RETRIES = 2
 _DB_INIT_MAX_ATTEMPTS = 15
 _DB_INIT_RETRY_SECONDS = 2
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-_ALEMBIC_SCRIPT_LOCATION = _PROJECT_ROOT / "db" / "alembic"
+# Migrations live next to this package so they are included in the Lambda bundle (SAM CodeUri: syncbot/).
+_ALEMBIC_SCRIPT_LOCATION = Path(__file__).resolve().parent / "alembic"
+
+# Repo root locally; Lambda deployment root (/var/task) in AWS — used for relative SQLite paths.
+_syncbot_dir = Path(__file__).resolve().parent.parent
+_PROJECT_ROOT = (
+    _syncbot_dir if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") else _syncbot_dir.parent
+)
 
 
 def _mysql_port() -> str:
@@ -76,7 +82,7 @@ def _build_mysql_url(include_schema: bool = False) -> tuple[str, dict]:
 
 
 def _build_postgresql_url(include_schema: bool = False) -> tuple[str, dict]:
-    """Build PostgreSQL URL and connect_args from DATABASE_* env vars (RDS / Aurora DSQL)."""
+    """Build PostgreSQL URL and connect_args from DATABASE_* env vars."""
     host = os.environ[constants.DATABASE_HOST]
     user = quote_plus(os.environ[constants.DATABASE_USER])
     passwd = quote_plus(os.environ[constants.DATABASE_PASSWORD])
@@ -186,7 +192,7 @@ def _ensure_database_exists() -> None:
 
 
 def _alembic_config():
-    """Build Alembic config with script_location set to project db/alembic."""
+    """Build Alembic config with script_location set to syncbot/db/alembic."""
     from alembic.config import Config  # pyright: ignore[reportMissingImports]
     config = Config()
     config.set_main_option("script_location", str(_ALEMBIC_SCRIPT_LOCATION))

@@ -26,7 +26,9 @@ Parameters:
   DeploymentBucketPrefix:
     Type: String
     Default: "syncbot-deploy"
-    Description: Prefix for the deployment artifact bucket name (account + region will be appended).
+    Description: >
+      Prefix for the deployment artifact bucket. The bucket resource name is
+      DeploymentBucketPrefix + account ID + region (see DeploymentBucket in Resources).
 
 Conditions:
   CreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]

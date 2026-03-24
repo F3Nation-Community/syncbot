@@ -3,6 +3,8 @@
 import os
 from unittest.mock import patch
 
+from slack_manifest_scopes import USER_SCOPES
+
 os.environ.setdefault("DATABASE_HOST", "localhost")
 os.environ.setdefault("DATABASE_USER", "root")
 os.environ.setdefault("DATABASE_PASSWORD", "test")
@@ -22,9 +24,9 @@ class TestGetOAuthFlow:
     @patch.dict(
         os.environ,
         {
-            "ENV_SLACK_CLIENT_ID": "cid",
-            "ENV_SLACK_CLIENT_SECRET": "csecret",
-            "ENV_SLACK_SCOPES": "chat:write,channels:read",
+            "SLACK_CLIENT_ID": "cid",
+            "SLACK_CLIENT_SECRET": "csecret",
+            "SLACK_BOT_SCOPES": "chat:write,channels:read",
         },
         clear=True,
     )
@@ -51,9 +53,9 @@ class TestGetOAuthFlow:
     @patch.dict(
         os.environ,
         {
-            "ENV_SLACK_CLIENT_ID": "prod-cid",
-            "ENV_SLACK_CLIENT_SECRET": "prod-secret",
-            "ENV_SLACK_SCOPES": "chat:write,groups:read",
+            "SLACK_CLIENT_ID": "prod-cid",
+            "SLACK_CLIENT_SECRET": "prod-secret",
+            "SLACK_BOT_SCOPES": "chat:write,groups:read",
         },
         clear=True,
     )
@@ -72,6 +74,35 @@ class TestGetOAuthFlow:
         flow = get_oauth_flow()
 
         assert flow is not None
+        assert flow.settings.scopes == ["chat:write", "groups:read"]
+        assert flow.settings.user_scopes == list(USER_SCOPES)
         mock_get_engine.assert_called_once_with()
         mock_installation_store_cls.assert_called_once_with(client_id="prod-cid", engine=engine)
         mock_state_store_cls.assert_called_once_with(expiration_seconds=600, engine=engine)
+
+    @patch("helpers.oauth.constants.LOCAL_DEVELOPMENT", True)
+    @patch.dict(
+        os.environ,
+        {
+            "SLACK_CLIENT_ID": "cid",
+            "SLACK_CLIENT_SECRET": "csecret",
+            "SLACK_BOT_SCOPES": "chat:write",
+            "SLACK_USER_SCOPES": "chat:write,users:read",
+        },
+        clear=True,
+    )
+    @patch("db.get_engine")
+    @patch("helpers.oauth.SQLAlchemyOAuthStateStore")
+    @patch("helpers.oauth.SQLAlchemyInstallationStore")
+    def test_slack_user_scopes_env_overrides_default(
+        self,
+        mock_installation_store_cls,
+        mock_state_store_cls,
+        mock_get_engine,
+    ):
+        mock_get_engine.return_value = object()
+
+        flow = get_oauth_flow()
+
+        assert flow is not None
+        assert flow.settings.user_scopes == ["chat:write", "users:read"]

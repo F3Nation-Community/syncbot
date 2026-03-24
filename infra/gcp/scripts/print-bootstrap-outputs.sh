@@ -2,6 +2,8 @@
 # Print SyncBot GCP Terraform outputs for GitHub variables (WIF, deploy).
 # Run from repo root:  infra/gcp/scripts/print-bootstrap-outputs.sh
 # Requires: terraform in PATH; run from repo root so infra/gcp is available.
+#
+# Flow: terraform output (full) -> suggested variable names for CI.
 
 set -euo pipefail
 
@@ -13,7 +15,7 @@ if [[ ! -d "$GCP_DIR" ]] || [[ ! -f "$GCP_DIR/main.tf" ]]; then
   exit 1
 fi
 
-echo "GCP Terraform outputs (infra/gcp)"
+echo "=== Terraform Outputs (Infra/GCP) ==="
 echo ""
 
 cd "$GCP_DIR"
@@ -25,7 +27,7 @@ fi
 terraform output
 
 echo ""
-echo "--- GitHub Actions variables (suggested) ---"
+echo "=== Suggested GitHub Actions Variables ==="
 echo "GCP_PROJECT_ID      = $(terraform output -raw project_id 2>/dev/null || echo '<set from output project_id>')"
 echo "GCP_REGION          = $(terraform output -raw region 2>/dev/null || echo '<set from output region>')"
 echo "GCP_SERVICE_ACCOUNT = $(terraform output -raw deploy_service_account_email 2>/dev/null || echo '<set from output deploy_service_account_email>')"

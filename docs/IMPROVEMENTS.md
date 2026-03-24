@@ -103,7 +103,7 @@ This document outlines the improvements made to the SyncBot application and addi
 
 ### 15. Infrastructure as Code
 - **AWS SAM template** (`infra/aws/template.yaml`) defining VPC, RDS, Lambda, API Gateway (SAM artifact S3 used for deploy packaging only)
-- **Free-tier optimized** (128 MB Lambda, db.t3.micro RDS, gp2 storage, no NAT Gateway)
+- **Free-tier optimized** (128 MB Lambda, db.t4g.micro RDS, gp2 storage, no NAT Gateway)
 - **CI/CD pipeline** (`.github/workflows/sam-pipeline.yml`) for automated build/deploy
 - **SAM config** (`samconfig.toml`) for staging and production environments
 
@@ -455,11 +455,11 @@ This document outlines the improvements made to the SyncBot application and addi
   - GCP Terraform variable: `token_encryption_key_override`
 - **Admin/operator warning surface** — deploy helper scripts and deployment docs now explicitly warn that losing the token key requires workspace reinstall/re-authorization.
 
-### 49. PostgreSQL / Aurora DSQL Parallel Backend (Completed)
-- **Runtime** — Added `DATABASE_BACKEND=postgresql` (default), `psycopg2` + `postgresql+psycopg2://` URLs, `DATABASE_PORT` (default 5432), PostgreSQL-safe `CREATE DATABASE`, table drop/reset, and TLS via `sslmode`/`sslrootcert`.
-- **AWS SAM** — `DatabaseEngine` parameter (`postgresql` default, `mysql` legacy); split `RDSInstanceMysql` / `RDSInstancePostgres`; Lambda env sets `DATABASE_BACKEND`, `DATABASE_PORT`, and `DATABASE_HOST` accordingly.
+### 49. PostgreSQL Parallel Backend (Completed)
+- **Runtime** — Added `DATABASE_BACKEND=postgresql`, `psycopg2` + `postgresql+psycopg2://` URLs, `DATABASE_PORT` (default 5432), PostgreSQL-safe `CREATE DATABASE`, table drop/reset, and TLS via `sslmode`/`sslrootcert`.
+- **AWS SAM** — `DatabaseEngine` parameter (MySQL default, PostgreSQL supported); split `RDSInstanceMysql` / `RDSInstancePostgres`; Lambda env sets `DATABASE_BACKEND`, `DATABASE_PORT`, and `DATABASE_HOST` accordingly.
 - **Custom resource** — `infra/aws/db_setup/handler.py` branches on `DatabaseEngine` for MySQL vs PostgreSQL user/database creation.
-- **Deploy UX** — `./infra/aws/scripts/deploy.sh` defaults to PostgreSQL; **Advanced: legacy MySQL** toggles `DatabaseEngine=mysql`. `samconfig.toml` profiles pass `DatabaseEngine=postgresql` where applicable.
+- **Deploy UX** — `./infra/aws/scripts/deploy.sh` supports both engines with a numbered choice prompt.
 - **Docs/tests** — `INFRA_CONTRACT.md`, `DEPLOYMENT.md`, `README.md`, `.env.example` updated; `tests/conftest.py` defaults tests to `mysql` for compatibility; added PostgreSQL pool/required-vars tests and `tests/test_db_setup.py`.
 
 ## Remaining Recommendations

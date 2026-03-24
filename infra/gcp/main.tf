@@ -26,19 +26,27 @@ locals {
     var.secret_slack_signing_secret,
     var.secret_slack_client_id,
     var.secret_slack_client_secret,
-    var.secret_slack_scopes,
+    var.secret_slack_bot_scopes,
     var.secret_token_encryption_key,
     var.secret_db_password,
   ]
   # Map deploy-contract env var names to Secret Manager secret variable keys (used in app_secrets)
   env_to_secret_key = {
-    "SLACK_SIGNING_SECRET"        = var.secret_slack_signing_secret
-    "ENV_SLACK_CLIENT_ID"         = var.secret_slack_client_id
-    "ENV_SLACK_CLIENT_SECRET"     = var.secret_slack_client_secret
-    "ENV_SLACK_SCOPES"            = var.secret_slack_scopes
-    "TOKEN_ENCRYPTION_KEY"       = var.secret_token_encryption_key
-    "DATABASE_PASSWORD"         = var.secret_db_password
+    "SLACK_SIGNING_SECRET" = var.secret_slack_signing_secret
+    "SLACK_CLIENT_ID"      = var.secret_slack_client_id
+    "SLACK_CLIENT_SECRET"  = var.secret_slack_client_secret
+    "SLACK_BOT_SCOPES"     = var.secret_slack_bot_scopes
+    "TOKEN_ENCRYPTION_KEY" = var.secret_token_encryption_key
+    "DATABASE_PASSWORD"    = var.secret_db_password
   }
+  # Runtime DB connection: existing host or Cloud SQL public IP after create
+  db_host = var.use_existing_database ? var.existing_db_host : (
+    length(google_sql_database_instance.main) > 0 ? google_sql_database_instance.main[0].public_ip_address : ""
+  )
+  db_schema = var.use_existing_database ? var.existing_db_schema : "syncbot"
+  db_user   = var.use_existing_database ? var.existing_db_user : "syncbot_app"
+  # Image: variable or placeholder until first image push
+  cloud_run_image_effective = var.cloud_run_image != "" ? var.cloud_run_image : "us-docker.pkg.dev/cloudrun/container/hello"
 }
 
 # ---------------------------------------------------------------------------
@@ -227,14 +235,6 @@ resource "google_secret_manager_secret_version" "token_encryption_key" {
 # Cloud Run service
 # ---------------------------------------------------------------------------
 
-locals {
-  db_host = var.use_existing_database ? var.existing_db_host : (length(google_sql_database_instance.main) > 0 ? google_sql_database_instance.main[0].public_ip_address : "")
-  db_schema = var.use_existing_database ? var.existing_db_schema : "syncbot"
-  db_user   = var.use_existing_database ? var.existing_db_user : "syncbot_app"
-  # Image: use variable or a placeholder until first deploy
-  image = var.cloud_run_image != "" ? var.cloud_run_image : "us-docker.pkg.dev/cloudrun/container/hello"
-}
-
 resource "google_cloud_run_v2_service" "syncbot" {
   project  = var.project_id
   name     = local.name_prefix
@@ -250,7 +250,7 @@ resource "google_cloud_run_v2_service" "syncbot" {
     }
 
     containers {
-      image = local.image
+      image = local.cloud_run_image_effective
 
       resources {
         limits = {
@@ -270,6 +270,15 @@ resource "google_cloud_run_v2_service" "syncbot" {
       env {
         name  = "DATABASE_SCHEMA"
         value = local.db_schema
+      }
+      # Runtime user OAuth scopes — must match slack-manifest.json and USER_SCOPES in slack_manifest_scopes.py
+      env {
+        name  = "SLACK_USER_SCOPES"
+        value = var.slack_user_scopes
+      }
+      env {
+        name  = "LOG_LEVEL"
+        value = var.log_level
       }
 
       dynamic "env" {
@@ -295,11 +304,11 @@ resource "google_cloud_run_v2_service" "syncbot" {
 
 # Allow unauthenticated invocations (Slack calls the URL; use IAP or Cloud Armor in prod if needed)
 resource "google_cloud_run_v2_service_iam_member" "public" {
-  project   = google_cloud_run_v2_service.syncbot.project
-  location  = google_cloud_run_v2_service.syncbot.location
-  name      = google_cloud_run_v2_service.syncbot.name
-  role      = "roles/run.invoker"
-  member    = "allUsers"
+  project  = google_cloud_run_v2_service.syncbot.project
+  location = google_cloud_run_v2_service.syncbot.location
+  name     = google_cloud_run_v2_service.syncbot.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
 
 # ---------------------------------------------------------------------------
@@ -307,12 +316,12 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
 # ---------------------------------------------------------------------------
 
 resource "google_cloud_scheduler_job" "keep_warm" {
-  count           = var.enable_keep_warm ? 1 : 0
-  project         = var.project_id
-  name            = "${local.name_prefix}-keep-warm"
-  region          = var.region
-  schedule        = "*/${var.keep_warm_interval_minutes} * * * *"
-  time_zone       = "UTC"
+  count            = var.enable_keep_warm ? 1 : 0
+  project          = var.project_id
+  name             = "${local.name_prefix}-keep-warm"
+  region           = var.region
+  schedule         = "*/${var.keep_warm_interval_minutes} * * * *"
+  time_zone        = "UTC"
   attempt_deadline = "60s"
 
   http_target {

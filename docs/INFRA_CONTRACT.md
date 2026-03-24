@@ -2,6 +2,8 @@
 
 This document defines what any infrastructure provider (AWS, GCP, Azure, etc.) must supply so SyncBot runs correctly. Forks can swap provider-specific IaC in `infra/<provider>/` as long as they satisfy this contract.
 
+**Deploy entrypoint:** From the repo root, `./deploy.sh` (macOS/Linux, or Git Bash/WSL bash) or `.\deploy.ps1` (Windows PowerShell — finds Git Bash or WSL, then bash) runs an interactive helper that delegates to `infra/<provider>/scripts/deploy.sh`. That flow sets Cloud/Terraform resources and runtime env vars consistent with this document. Step-by-step and manual alternatives: [DEPLOYMENT.md](DEPLOYMENT.md).
+
 **Pre-release:** This repo is pre-release. Database rollout assumes **fresh installs only** (no legacy schema migration or stamping). New databases are initialized via Alembic `upgrade head` at startup.
 
 ## Runtime Environment Variables
@@ -27,7 +29,7 @@ poetry export --only main --format requirements.txt --without-hashes --output sy
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_BACKEND` | `postgresql` (default), `mysql`, or `sqlite`. |
+| `DATABASE_BACKEND` | `mysql` (default), `postgresql`, or `sqlite`. |
 | `DATABASE_URL` | Full SQLAlchemy URL. When set, overrides host/user/password/schema. **Required for SQLite** (e.g. `sqlite:///path/to/syncbot.db`). For `mysql` / `postgresql`, optional if unset (legacy vars below are used). |
 | `DATABASE_HOST` | Database hostname (IP or FQDN). Required when backend is `mysql` or `postgresql` and `DATABASE_URL` is unset. |
 | `DATABASE_PORT` | Optional. Defaults to **5432** for `postgresql`, **3306** for `mysql`. |
@@ -39,19 +41,22 @@ poetry export --only main --format requirements.txt --without-hashes --output sy
 
 **SQLite (forks / local):** Set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:///path/to/file.db`. Single-writer; suitable for small teams and dev.
 
-**PostgreSQL / Aurora DSQL (default):** Set `DATABASE_BACKEND=postgresql` (or rely on the default) and either `DATABASE_URL` (`postgresql+psycopg2://...`) or `DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA`. The AWS SAM template parameter `DatabaseEngine=postgresql` matches this backend.
+**MySQL (default):** Set `DATABASE_BACKEND=mysql` (or rely on the default) and either `DATABASE_URL` (`mysql+pymysql://...`) or the four host/user/password/schema vars. The AWS SAM template parameter `DatabaseEngine=mysql` (default) matches this backend.
 
-**MySQL (legacy):** Set `DATABASE_BACKEND=mysql` and either `DATABASE_URL` (`mysql+pymysql://...`) or the four host/user/password/schema vars. Deploy-time bootstrap credentials (e.g. `ExistingDatabaseAdmin*` in AWS) are used only for one-time setup; the app reads `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA` at runtime.
+**PostgreSQL:** Set `DATABASE_BACKEND=postgresql` and either `DATABASE_URL` (`postgresql+psycopg2://...`) or `DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA`. Deploy-time bootstrap credentials (e.g. `ExistingDatabaseAdmin*` in AWS) are used only for one-time setup; the app reads `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SCHEMA` at runtime.
 
 ### Required in production (non–local)
 
 | Variable | Description |
 |----------|-------------|
 | `SLACK_SIGNING_SECRET` | Slack request verification (Basic Information → App Credentials). |
-| `ENV_SLACK_CLIENT_ID` | Slack OAuth client ID. |
-| `ENV_SLACK_CLIENT_SECRET` | Slack OAuth client secret. |
-| `ENV_SLACK_SCOPES` | Comma-separated OAuth scopes (see `.env.example`). |
+| `SLACK_CLIENT_ID` | Slack OAuth client ID. |
+| `SLACK_CLIENT_SECRET` | Slack OAuth client secret. |
+| `SLACK_BOT_SCOPES` | Comma-separated OAuth **bot** scopes. Must match `slack-manifest.json` `oauth_config.scopes.bot` and `syncbot/slack_manifest_scopes.py` `BOT_SCOPES`. |
+| `SLACK_USER_SCOPES` | Comma-separated OAuth **user** scopes. Must match `oauth_config.scopes.user` and `syncbot/slack_manifest_scopes.py` `USER_SCOPES`. If this env requests scopes that are not declared on the Slack app, install fails with `invalid_scope`. |
 | `TOKEN_ENCRYPTION_KEY` | **Required** in production; must be a strong, random value (e.g. 16+ characters). Providers may auto-generate it (e.g. AWS Secrets Manager). Back up the key after first deploy. In local dev you may set it manually or leave unset. |
+
+**Reference wiring:** AWS SAM (`infra/aws/template.yaml`) uses CloudFormation parameters **`SlackOauthBotScopes`** and **`SlackOauthUserScopes`** (defaults match `BOT_SCOPES` / `USER_SCOPES`) to populate **`SLACK_BOT_SCOPES`** and **`SLACK_USER_SCOPES`**, and **`LogLevel`** (default `INFO`) → **`LOG_LEVEL`**. GCP Terraform uses **`secret_slack_bot_scopes`** (Secret Manager → `SLACK_BOT_SCOPES`; you set the secret **value** to the same comma-separated bot list) and **`slack_user_scopes`** (plain env → `SLACK_USER_SCOPES`, default matches SAM); **`log_level`** (default `INFO`) sets **`LOG_LEVEL`** on Cloud Run; see [infra/gcp/README.md](../infra/gcp/README.md).
 
 ### Optional
 
@@ -115,6 +120,7 @@ To use a different cloud or IaC stack:
 
 1. Keep `syncbot/` and app behavior unchanged.
 2. Add or replace contents of `infra/<provider>/` with templates/scripts that satisfy the contract above.
+   - To integrate with the repo-level launcher (`./deploy.sh` and `.\deploy.ps1`), provide `infra/<provider>/scripts/deploy.sh` only. On Windows, `deploy.ps1` invokes that bash script via Git Bash or WSL; do not add a separate `deploy.ps1` under `infra/`.
 3. Point CI (e.g. `.github/workflows/deploy-<provider>.yml`) at the new infra paths and provider-specific auth (OIDC, WIF, etc.).
 4. Update [DEPLOYMENT.md](DEPLOYMENT.md) (or provider-specific README under `infra/<provider>/`) with bootstrap and deploy steps that emit the bootstrap output contract.
 

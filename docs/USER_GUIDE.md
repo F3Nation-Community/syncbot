@@ -1,5 +1,7 @@
 # SyncBot User Guide
 
+This guide is for **workspace admins and end users** configuring SyncBot in Slack. For **installing or hosting** the app (AWS, GCP, Docker, GitHub Actions), see **[DEPLOYMENT.md](DEPLOYMENT.md)** and the root **[README](../README.md)**.
+
 ## Getting Started
 
 1. Click the install link from a desktop browser (make sure you've selected the correct workspace in the upper right)

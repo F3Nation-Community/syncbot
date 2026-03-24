@@ -1,30 +1,26 @@
 # SAM CLI configuration for local deployment.
 #
-# Usage examples:
-#   sam build --config-env test-new-rds
-#   sam deploy --config-env test-new-rds
+# Full list of CloudFormation parameters is in infra/aws/template.yaml (Parameters).
+# Interactive deploy (infra/aws/scripts/deploy.sh) passes overrides on the CLI.
+# This file is for quick sam build / sam deploy with minimal Stage-only overrides.
 #
-#   sam build --config-env test-existing-rds
-#   sam deploy --config-env test-existing-rds
+# Usage:
+#   sam build --config-env test
+#   sam deploy --config-env test
+#   sam deploy --config-env prod
 #
-#   sam deploy --config-env prod-new-rds
-#   sam deploy --config-env prod-existing-rds
-#
-# NOTE:
-# - Fill in placeholders (DB host/admin user) before using *-existing-rds configs.
-# - Secrets like SlackSigningSecret, SlackClientSecret, and DatabasePassword are
-#   expected to be provided securely during deploy workflows.
-# - For disaster recovery with existing encrypted tokens, add:
-#   TokenEncryptionKeyOverride=<old_key>
-#   to the relevant environment's parameter_overrides.
-
 version = 0.1
 
 [default.build.parameters]
 template_file = "infra/aws/template.yaml"
 use_container = true
 
-[default.deploy.parameters]
+[test.build.parameters]
+template_file = "infra/aws/template.yaml"
+use_container = true
+
+# test: minimal Stage; add other template parameters via --parameter-overrides or guided deploy.
+[test.deploy.parameters]
 stack_name = "syncbot-test"
 resolve_s3 = true
 s3_prefix = "syncbot-test"
@@ -33,66 +29,15 @@ capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 parameter_overrides = "Stage=test"
 
-[test-new-rds.build.parameters]
+[prod.build.parameters]
 template_file = "infra/aws/template.yaml"
 use_container = true
 
-[test-new-rds.deploy.parameters]
-stack_name = "syncbot-test"
-resolve_s3 = true
-s3_prefix = "syncbot-test"
-region = "us-east-2"
-capabilities = "CAPABILITY_IAM"
-confirm_changeset = true
-parameter_overrides = "Stage=test DatabaseEngine=postgresql ExistingDatabaseHost= ExistingDatabaseAdminUser= ExistingDatabaseAdminPassword="
-
-[test-existing-rds.build.parameters]
-template_file = "infra/aws/template.yaml"
-use_container = true
-
-[test-existing-rds.deploy.parameters]
-stack_name = "syncbot-test"
-resolve_s3 = true
-s3_prefix = "syncbot-test"
-region = "us-east-2"
-capabilities = "CAPABILITY_IAM"
-confirm_changeset = true
-parameter_overrides = "Stage=test DatabaseEngine=postgresql ExistingDatabaseHost=REPLACE_ME_RDS_HOST ExistingDatabaseAdminUser=REPLACE_ME_ADMIN_USER ExistingDatabaseAdminPassword=REPLACE_ME_ADMIN_PASSWORD"
-
-[prod-new-rds.build.parameters]
-template_file = "infra/aws/template.yaml"
-use_container = true
-
-[prod-new-rds.deploy.parameters]
+[prod.deploy.parameters]
 stack_name = "syncbot-prod"
 resolve_s3 = true
 s3_prefix = "syncbot-prod"
 region = "us-east-2"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
-parameter_overrides = "Stage=prod DatabaseEngine=postgresql ExistingDatabaseHost= ExistingDatabaseAdminUser= ExistingDatabaseAdminPassword="
-
-[prod-existing-rds.build.parameters]
-template_file = "infra/aws/template.yaml"
-use_container = true
-
-[prod-existing-rds.deploy.parameters]
-stack_name = "syncbot-prod"
-resolve_s3 = true
-s3_prefix = "syncbot-prod"
-region = "us-east-2"
-capabilities = "CAPABILITY_IAM"
-confirm_changeset = true
-parameter_overrides = "Stage=prod DatabaseEngine=postgresql ExistingDatabaseHost=REPLACE_ME_RDS_HOST ExistingDatabaseAdminUser=REPLACE_ME_ADMIN_USER ExistingDatabaseAdminPassword=REPLACE_ME_ADMIN_PASSWORD"
-
-[test.deploy.parameters]
-stack_name = "syncbot-test"
-resolve_s3 = true
-s3_prefix = "syncbot-test"
-confirm_changeset = true
-capabilities = "CAPABILITY_IAM"
-parameter_overrides = "Stage=\"test\" SlackClientID=\"10361912548384.10524713300870\" SlackOauthScopes=\"app_mentions:read,channels:history,channels:join,chat:write,chat:write:user,chat:write.customize,commands,files:read,files:write,team:read,users:read,channels:manage,users:read.email,reactions:read,reactions:write\" ExistingDatabaseHost=\"f3ttown1.c7im4saakwcy.us-east-2.rds.amazonaws.com\" ExistingDatabaseAdminUser=\"f3ttown1dba\" DatabaseUser=\"syncbot_test_user\" DatabaseSchema=\"syncbot_test\" DatabaseInstanceClass=\"db.t3.micro\" AllowedDBCidr=\"0.0.0.0/0\" VpcCidr=\"10.0.0.0/16\" RequireAdmin=\"true\""
-image_repositories = []
-
-[test.global.parameters]
-region = "us-east-2"
+parameter_overrides = "Stage=prod"
