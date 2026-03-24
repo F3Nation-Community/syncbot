@@ -398,12 +398,7 @@ configure_github_actions_gcp() {
   echo "Detected service account: $deploy_sa_email"
   echo "Detected artifact repo:   $artifact_registry_url"
   echo "Detected service URL:     $service_url"
-  repo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
-  if [[ -z "$repo" ]]; then
-    repo="$(prompt_line "GitHub repository (owner/repo) for environment setup" "")"
-  else
-    echo "Detected GitHub repository: $repo"
-  fi
+  repo="$(prompt_github_repo_for_actions "$REPO_ROOT")"
 
   if ! ensure_gh_authenticated; then
     echo
@@ -423,16 +418,16 @@ configure_github_actions_gcp() {
   fi
 
   if prompt_yn "Set repo variables with gh now (GCP_PROJECT_ID, GCP_REGION, GCP_SERVICE_ACCOUNT, DEPLOY_TARGET=gcp)?" "y"; then
-    gh variable set GCP_PROJECT_ID --body "$gcp_project_id"
-    gh variable set GCP_REGION --body "$gcp_region"
-    [[ -n "$deploy_sa_email" ]] && gh variable set GCP_SERVICE_ACCOUNT --body "$deploy_sa_email"
-    gh variable set DEPLOY_TARGET --body "gcp"
+    gh variable set GCP_PROJECT_ID --body "$gcp_project_id" -R "$repo"
+    gh variable set GCP_REGION --body "$gcp_region" -R "$repo"
+    [[ -n "$deploy_sa_email" ]] && gh variable set GCP_SERVICE_ACCOUNT --body "$deploy_sa_email" -R "$repo"
+    gh variable set DEPLOY_TARGET --body "gcp" -R "$repo"
     echo "GitHub repository variables updated."
     echo "Remember to set GCP_WORKLOAD_IDENTITY_PROVIDER."
   fi
 
   if prompt_yn "Set environment variable STAGE_NAME for '$env_name' now?" "y"; then
-    gh variable set STAGE_NAME --env "$env_name" --body "$deploy_stage"
+    gh variable set STAGE_NAME --env "$env_name" --body "$deploy_stage" -R "$repo"
     echo "Environment variable STAGE_NAME updated for '$env_name'."
   fi
 }

@@ -112,6 +112,8 @@ After running provider-specific bootstrap (e.g. AWS CloudFormation bootstrap sta
 | `region` | Primary region for the deployment | GitHub variable (e.g. `AWS_REGION`, `GCP_REGION`) |
 | `service_url` | Public base URL of the deployed app (optional at bootstrap; may come from app stack) | For Slack app configuration and docs |
 
+**AWS:** `artifact_bucket` is `DeploymentBucketName` in bootstrap outputs; this repo stores it as the GitHub variable `AWS_S3_BUCKET` (SAM/CI packaging for `sam deploy` only; not Slack or app media).
+
 Provider-specific implementations may use different names (e.g. `GitHubDeployRoleArn`, `DeploymentBucketName`) but should document the mapping to this contract.
 
 ## Swapping Providers

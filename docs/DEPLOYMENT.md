@@ -155,6 +155,8 @@ Workflow: `.github/workflows/deploy-aws.yml` (runs on push to `test`/`prod` when
 
 Configure **repository** variables: `AWS_ROLE_TO_ASSUME`, `AWS_S3_BUCKET`, `AWS_REGION`.
 
+`AWS_S3_BUCKET` is the bootstrap **SAM deploy artifact** bucket (`DeploymentBucketName`): CI uses it for `sam deploy --s3-bucket` (Lambda package uploads) only. It is **not** for Slack file hosting or other app media. The guided deploy script resolves the target repo from **git remotes** (origin, upstream, then others): if your fork and upstream differ, it asks which `owner/repo` should receive variables, then passes `-R owner/repo` to `gh` so writes go there (not whatever `gh` infers from context alone).
+
 Configure **per-environment** (`test` / `prod`) variables and secrets so they match your stack — especially if you use **existing RDS** or **private** networking:
 
 | Type | Name | Notes |
@@ -214,6 +216,8 @@ Set Secret Manager values for Slack/DB as in [infra/gcp/README.md](../infra/gcp/
 1. Configure [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation) for GitHub → deploy service account.
 2. Set **`DEPLOY_TARGET=gcp`** at repo level so `deploy-gcp.yml` runs and `deploy-aws.yml` is skipped.
 3. Set variables: `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`, etc.
+
+   The interactive `infra/gcp/scripts/deploy.sh` uses the same GitHub `owner/repo` selection as the AWS script (based on git remotes when fork and upstream differ).
 
 **Note:** `.github/workflows/deploy-gcp.yml` may still contain **placeholder** steps in upstream; replace with real **build + push + Cloud Run deploy** (or `terraform apply` with a new image tag) in your fork. The guided `infra/gcp/scripts/deploy.sh` is the source of truth for an interactive path.
 

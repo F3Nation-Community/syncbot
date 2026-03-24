@@ -234,6 +234,156 @@ prompt_log_level() {
   done
 }
 
+# Parse owner/repo from a github.com git remote URL (ssh, https, ssh://). Empty if not GitHub.
+github_owner_repo_from_url() {
+  local url="$1"
+  url="${url%.git}"
+  url="${url%/}"
+  if [[ "$url" =~ ^git@github\.com:([^/]+)/(.+)$ ]]; then
+    echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+    return 0
+  fi
+  if [[ "$url" =~ ^ssh://git@github\.com/([^/]+)/(.+)$ ]]; then
+    echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+    return 0
+  fi
+  if [[ "$url" =~ ^https://([^/@]+@)?github\.com/([^/]+)/([^/]+)$ ]]; then
+    echo "${BASH_REMATCH[2]}/${BASH_REMATCH[3]}"
+    return 0
+  fi
+  return 1
+}
+
+# Emit owner/repo for GitHub Actions variables. Uses git remotes (origin, upstream, others) so forks
+# are not confused with `gh repo view` (which often follows upstream). If there are no github.com
+# remotes, falls back to `gh repo view` or a manual prompt. Prints chosen repo to stdout; hints to stderr.
+prompt_github_repo_for_actions() {
+  local git_dir="${1:-$REPO_ROOT}"
+  local canon tmp url or n gh_inf nlines choice i line or_only lab_only
+  local _cr_done
+  _cr_done() {
+    rm -f "$canon" "$tmp"
+  }
+  canon="$(mktemp)"
+  tmp="$(mktemp)"
+
+  if ! git -C "$git_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "Not a git checkout; enter GitHub owner/repo manually." >&2
+    while true; do
+      read -r -p "GitHub repository (owner/repo): " choice
+      if [[ "$choice" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+        _cr_done
+        echo "$choice"
+        return 0
+      fi
+      echo "Expected owner/repo (e.g. myorg/syncbot)." >&2
+    done
+  fi
+
+  _github_repo_add_unique() {
+    local o="$1"
+    local label="$2"
+    [[ -z "$o" ]] && return
+    if ! grep -Fxq "$o" "$tmp" 2>/dev/null; then
+      echo "$o" >>"$tmp"
+      printf '%s\t%s\n' "$o" "$label" >>"$canon"
+    fi
+  }
+
+  for n in origin upstream; do
+    url="$(git -C "$git_dir" remote get-url "$n" 2>/dev/null || true)"
+    or="$(github_owner_repo_from_url "$url" || true)"
+    _github_repo_add_unique "$or" "git remote $n"
+  done
+  while IFS= read -r n; do
+    [[ "$n" == "origin" || "$n" == "upstream" ]] && continue
+    url="$(git -C "$git_dir" remote get-url "$n" 2>/dev/null || true)"
+    or="$(github_owner_repo_from_url "$url" || true)"
+    _github_repo_add_unique "$or" "git remote $n"
+  done < <(git -C "$git_dir" remote 2>/dev/null | LC_ALL=C sort)
+
+  # Do not merge in `gh repo view` when remotes exist: gh often tracks upstream and
+  # disagrees with the fork (origin) the user wants for Actions variables.
+
+  nlines="$(wc -l <"$canon" | tr -d ' ')"
+  gh_inf=""
+  if [[ "$nlines" -eq 0 ]] && command -v gh >/dev/null 2>&1; then
+    gh_inf="$(gh -C "$git_dir" repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+  fi
+
+  if [[ "$nlines" -eq 0 ]]; then
+    if [[ -n "$gh_inf" ]]; then
+      read -r -p "GitHub repository for Actions variables [$gh_inf] (from gh; no github.com remotes): " choice
+      choice="${choice:-$gh_inf}"
+      if [[ "$choice" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+        echo "Using GitHub repository: $choice" >&2
+        _cr_done
+        echo "$choice"
+        return 0
+      fi
+      echo "Using GitHub repository: $gh_inf" >&2
+      _cr_done
+      echo "$gh_inf"
+      return 0
+    fi
+    echo "Could not detect owner/repo from remotes. Enter it manually." >&2
+    while true; do
+      read -r -p "GitHub repository (owner/repo): " choice
+      if [[ "$choice" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+        _cr_done
+        echo "$choice"
+        return 0
+      fi
+      echo "Expected owner/repo (e.g. myorg/syncbot)." >&2
+    done
+  fi
+
+  if [[ "$nlines" -eq 1 ]]; then
+    IFS=$'\t' read -r or_only lab_only <"$canon"
+    read -r -p "GitHub repository for Actions variables [$or_only] ($lab_only): " choice
+    choice="${choice:-$or_only}"
+    if [[ "$choice" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+      echo "Using GitHub repository: $choice" >&2
+      _cr_done
+      echo "$choice"
+      return 0
+    fi
+    echo "Invalid owner/repo; using $or_only." >&2
+    _cr_done
+    echo "$or_only"
+    return 0
+  fi
+
+  echo "Multiple GitHub repositories detected (fork vs upstream, etc.). Choose where to set Actions variables and secrets:" >&2
+  i=1
+  while IFS=$'\t' read -r or lab_only; do
+    echo "  $i) $or  ($lab_only)" >&2
+    i=$((i + 1))
+  done <"$canon"
+
+  while true; do
+    read -r -p "Enter number [1-$nlines] or owner/repo: " choice
+    [[ -z "$choice" ]] && choice=1
+    if [[ "$choice" =~ ^[0-9]+$ ]]; then
+      line="$(sed -n "${choice}p" "$canon")"
+      if [[ -n "$line" ]]; then
+        IFS=$'\t' read -r or_only lab_only <<<"$line"
+        echo "Using GitHub repository: $or_only" >&2
+        _cr_done
+        echo "$or_only"
+        return 0
+      fi
+    fi
+    if [[ "$choice" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+      echo "Using GitHub repository: $choice" >&2
+      _cr_done
+      echo "$choice"
+      return 0
+    fi
+    echo "Invalid choice. Enter 1-$nlines or owner/repo." >&2
+  done
+}
+
 # When sourced by infra/*/scripts/deploy.sh, only load helpers above.
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
   return 0

@@ -358,20 +358,15 @@ configure_github_actions_aws() {
   echo
   echo "=== GitHub Actions (AWS) ==="
   echo "Detected bootstrap role:   $role"
-  echo "Detected deploy bucket:    $bucket"
+  echo "Detected deploy bucket:    $bucket  (SAM/CI packaging for sam deploy — not Slack or app media)"
   echo "Detected bootstrap region: $boot_region"
-  repo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
-  if [[ -z "$repo" ]]; then
-    repo="$(prompt_required "GitHub repository (owner/repo) for environment setup")"
-  else
-    echo "Detected GitHub repository: $repo"
-  fi
+  repo="$(prompt_github_repo_for_actions "$REPO_ROOT")"
 
   if ! ensure_gh_authenticated; then
     echo
-    echo "Set these GitHub Actions Variables manually:"
+    echo "Set these GitHub Actions Variables manually (on the repo you intend):"
     echo "  AWS_ROLE_TO_ASSUME = $role"
-    echo "  AWS_S3_BUCKET      = $bucket"
+    echo "  AWS_S3_BUCKET      = $bucket  (SAM deploy artifact bucket / DeploymentBucketName; not Slack file storage)"
     echo "  AWS_REGION         = $boot_region"
     echo "For environment '$env_name' also set AWS_STACK_NAME, STAGE_NAME, DATABASE_SCHEMA, DATABASE_ENGINE,"
     echo "and (if using existing RDS) EXISTING_DATABASE_* / private VPC vars — see docs/DEPLOYMENT.md."
@@ -384,36 +379,36 @@ configure_github_actions_aws() {
     echo "GitHub environments ensured: test, prod."
   fi
 
-  if prompt_yes_no "Set repo variables with gh now (AWS_ROLE_TO_ASSUME, AWS_S3_BUCKET, AWS_REGION)?" "y"; then
-    [[ -n "$role" ]] && gh variable set AWS_ROLE_TO_ASSUME --body "$role"
-    [[ -n "$bucket" ]] && gh variable set AWS_S3_BUCKET --body "$bucket"
-    [[ -n "$boot_region" ]] && gh variable set AWS_REGION --body "$boot_region"
+  if prompt_yes_no "Set repo variables with gh now (AWS_ROLE_TO_ASSUME, AWS_S3_BUCKET, AWS_REGION)? AWS_S3_BUCKET is SAM/CI packaging only (DeploymentBucketName)." "y"; then
+    [[ -n "$role" ]] && gh variable set AWS_ROLE_TO_ASSUME --body "$role" -R "$repo"
+    [[ -n "$bucket" ]] && gh variable set AWS_S3_BUCKET --body "$bucket" -R "$repo"
+    [[ -n "$boot_region" ]] && gh variable set AWS_REGION --body "$boot_region" -R "$repo"
     echo "GitHub repository variables updated."
   fi
 
   if prompt_yes_no "Set environment variables for '$env_name' now (AWS_STACK_NAME, STAGE_NAME, DATABASE_SCHEMA, DB host/user vars)?" "y"; then
-    gh variable set AWS_STACK_NAME --env "$env_name" --body "$app_stack_name"
-    gh variable set STAGE_NAME --env "$env_name" --body "$deploy_stage"
-    gh variable set DATABASE_SCHEMA --env "$env_name" --body "$database_schema"
-    gh variable set DATABASE_ENGINE --env "$env_name" --body "$database_engine"
+    gh variable set AWS_STACK_NAME --env "$env_name" --body "$app_stack_name" -R "$repo"
+    gh variable set STAGE_NAME --env "$env_name" --body "$deploy_stage" -R "$repo"
+    gh variable set DATABASE_SCHEMA --env "$env_name" --body "$database_schema" -R "$repo"
+    gh variable set DATABASE_ENGINE --env "$env_name" --body "$database_engine" -R "$repo"
     if [[ "$db_mode" == "2" ]]; then
-      gh variable set EXISTING_DATABASE_HOST --env "$env_name" --body "$existing_db_host"
-      gh variable set EXISTING_DATABASE_ADMIN_USER --env "$env_name" --body "$existing_db_admin_user"
-      gh variable set EXISTING_DATABASE_NETWORK_MODE --env "$env_name" --body "$existing_db_network_mode"
+      gh variable set EXISTING_DATABASE_HOST --env "$env_name" --body "$existing_db_host" -R "$repo"
+      gh variable set EXISTING_DATABASE_ADMIN_USER --env "$env_name" --body "$existing_db_admin_user" -R "$repo"
+      gh variable set EXISTING_DATABASE_NETWORK_MODE --env "$env_name" --body "$existing_db_network_mode" -R "$repo"
       if [[ "$existing_db_network_mode" == "private" ]]; then
-        gh variable set EXISTING_DATABASE_SUBNET_IDS_CSV --env "$env_name" --body "$existing_db_subnet_ids_csv"
-        gh variable set EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID --env "$env_name" --body "$existing_db_lambda_sg_id"
+        gh variable set EXISTING_DATABASE_SUBNET_IDS_CSV --env "$env_name" --body "$existing_db_subnet_ids_csv" -R "$repo"
+        gh variable set EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID --env "$env_name" --body "$existing_db_lambda_sg_id" -R "$repo"
       else
-        gh variable set EXISTING_DATABASE_SUBNET_IDS_CSV --env "$env_name" --body ""
-        gh variable set EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID --env "$env_name" --body ""
+        gh variable set EXISTING_DATABASE_SUBNET_IDS_CSV --env "$env_name" --body "" -R "$repo"
+        gh variable set EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID --env "$env_name" --body "" -R "$repo"
       fi
     else
       # Clear existing-host vars for new-RDS mode to avoid stale CI config.
-      gh variable set EXISTING_DATABASE_HOST --env "$env_name" --body ""
-      gh variable set EXISTING_DATABASE_ADMIN_USER --env "$env_name" --body ""
-      gh variable set EXISTING_DATABASE_NETWORK_MODE --env "$env_name" --body "public"
-      gh variable set EXISTING_DATABASE_SUBNET_IDS_CSV --env "$env_name" --body ""
-      gh variable set EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID --env "$env_name" --body ""
+      gh variable set EXISTING_DATABASE_HOST --env "$env_name" --body "" -R "$repo"
+      gh variable set EXISTING_DATABASE_ADMIN_USER --env "$env_name" --body "" -R "$repo"
+      gh variable set EXISTING_DATABASE_NETWORK_MODE --env "$env_name" --body "public" -R "$repo"
+      gh variable set EXISTING_DATABASE_SUBNET_IDS_CSV --env "$env_name" --body "" -R "$repo"
+      gh variable set EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID --env "$env_name" --body "" -R "$repo"
     fi
     echo "Environment variables updated for '$env_name'."
   fi
@@ -427,10 +422,10 @@ configure_github_actions_aws() {
       SLACK_CLIENT_SECRET_SOURCE="prompt"
       SLACK_CLIENT_SECRET="$(required_from_env_or_prompt "SLACK_CLIENT_SECRET" "SlackClientSecret" "secret")"
     fi
-    gh secret set SLACK_SIGNING_SECRET --env "$env_name" --body "$SLACK_SIGNING_SECRET"
-    gh secret set SLACK_CLIENT_SECRET --env "$env_name" --body "$SLACK_CLIENT_SECRET"
+    gh secret set SLACK_SIGNING_SECRET --env "$env_name" --body "$SLACK_SIGNING_SECRET" -R "$repo"
+    gh secret set SLACK_CLIENT_SECRET --env "$env_name" --body "$SLACK_CLIENT_SECRET" -R "$repo"
     if [[ "$db_mode" == "2" && -n "$existing_db_admin_password" ]]; then
-      gh secret set EXISTING_DATABASE_ADMIN_PASSWORD --env "$env_name" --body "$existing_db_admin_password"
+      gh secret set EXISTING_DATABASE_ADMIN_PASSWORD --env "$env_name" --body "$existing_db_admin_password" -R "$repo"
     fi
     echo "Environment secrets updated for '$env_name'."
   fi
