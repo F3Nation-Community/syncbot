@@ -217,7 +217,7 @@ prompt_log_level() {
   for i in 1 2 3 4 5; do
     name="$(menu_index_to_log_level "$i")"
     suf=""
-    [[ "$i" == "$default_idx" ]] && suf=" (default)"
+    [[ "$i" == "$default_idx" ]] && suf=" (default/current)"
     echo "  $i) $name$suf" >&2
   done
 

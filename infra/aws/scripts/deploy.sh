@@ -320,32 +320,34 @@ output_value() {
 
 configure_github_actions_aws() {
   # $1  Bootstrap stack outputs (tab-separated OutputKey / OutputValue)
-  # $2  AWS region for this deploy session (fallback if bootstrap has no BootstrapRegion output)
-  # $3  App CloudFormation stack name
-  # $4  Stage name (test|prod) — GitHub environment name
-  # $5  Database schema name
-  # $6  DB source mode: 1 = stack-managed RDS, 2 = external existing host (matches SAM / prompts)
-  # $7  Existing DB host (mode 2)
-  # $8  Existing DB admin user (mode 2)
-  # $9  Existing DB admin password (mode 2)
-  # $10 Existing DB network mode: public | private
-  # $11 Comma-separated subnet IDs for Lambda in private mode
-  # $12 Lambda ENI security group id in private mode
-  # $13 Database engine: mysql | postgresql
+  # $2  Bootstrap CloudFormation stack name (for OIDC drift check vs gh repo)
+  # $3  AWS region for this deploy session (fallback if bootstrap has no BootstrapRegion output)
+  # $4  App CloudFormation stack name
+  # $5  Stage name (test|prod) — GitHub environment name
+  # $6  Database schema name
+  # $7  DB source mode: 1 = stack-managed RDS, 2 = external or existing host (matches SAM / prompts)
+  # $8  Existing DB host (mode 2)
+  # $9  Existing DB admin user (mode 2)
+  # $10 Existing DB admin password (mode 2)
+  # $11 Existing DB network mode: public | private
+  # $12 Comma-separated subnet IDs for Lambda in private mode
+  # $13 Lambda ENI security group id in private mode
+  # $14 Database engine: mysql | postgresql
   local bootstrap_outputs="$1"
-  local aws_region="$2"
-  local app_stack_name="$3"
-  local deploy_stage="$4"
-  local database_schema="$5"
-  local db_mode="$6"
-  local existing_db_host="$7"
-  local existing_db_admin_user="$8"
-  local existing_db_admin_password="$9"
-  local existing_db_network_mode="${10:-}"
+  local bootstrap_stack_name="$2"
+  local aws_region="$3"
+  local app_stack_name="$4"
+  local deploy_stage="$5"
+  local database_schema="$6"
+  local db_mode="$7"
+  local existing_db_host="$8"
+  local existing_db_admin_user="$9"
+  local existing_db_admin_password="${10}"
+  local existing_db_network_mode="${11:-}"
   [[ -z "$existing_db_network_mode" ]] && existing_db_network_mode="public"
-  local existing_db_subnet_ids_csv="${11:-}"
-  local existing_db_lambda_sg_id="${12:-}"
-  local database_engine="${13:-}"
+  local existing_db_subnet_ids_csv="${12:-}"
+  local existing_db_lambda_sg_id="${13:-}"
+  local database_engine="${14:-}"
   [[ -z "$database_engine" ]] && database_engine="mysql"
   local role bucket boot_region
   role="$(output_value "$bootstrap_outputs" "GitHubDeployRoleArn")"
@@ -361,6 +363,7 @@ configure_github_actions_aws() {
   echo "Detected deploy bucket:    $bucket  (SAM/CI packaging for sam deploy — not Slack or app media)"
   echo "Detected bootstrap region: $boot_region"
   repo="$(prompt_github_repo_for_actions "$REPO_ROOT")"
+  maybe_prompt_bootstrap_github_trust_update "$repo" "$bootstrap_stack_name" "$aws_region"
 
   if ! ensure_gh_authenticated; then
     echo
@@ -922,6 +925,117 @@ stack_param_value() {
   echo "$params" | awk -F'\t' -v k="$key" '$1==k {print $2}'
 }
 
+# Keep bootstrap stack aligned with the checked-in template so IAM/policy fixes
+# (for example CloudFormation changeset permissions) apply before app deploy.
+# Set SYNCBOT_SKIP_BOOTSTRAP_SYNC=1 to opt out.
+sync_bootstrap_stack_from_repo() {
+  local bootstrap_stack="$1"
+  local aws_region="$2"
+  local params github_repo create_oidc bucket_prefix
+
+  if [[ "${SYNCBOT_SKIP_BOOTSTRAP_SYNC:-}" == "1" ]]; then
+    echo "Skipping bootstrap template sync (SYNCBOT_SKIP_BOOTSTRAP_SYNC=1)."
+    return 0
+  fi
+
+  params="$(stack_parameters "$bootstrap_stack" "$aws_region")"
+  if [[ -z "$params" ]]; then
+    echo "Could not read bootstrap stack parameters for '$bootstrap_stack' in $aws_region; skipping bootstrap template sync." >&2
+    return 0
+  fi
+
+  github_repo="$(stack_param_value "$params" "GitHubRepository")"
+  github_repo="${github_repo//$'\r'/}"
+  github_repo="${github_repo#"${github_repo%%[![:space:]]*}"}"
+  github_repo="${github_repo%"${github_repo##*[![:space:]]}"}"
+  if [[ -z "$github_repo" ]]; then
+    echo "Bootstrap stack has no GitHubRepository parameter; skipping bootstrap template sync." >&2
+    return 0
+  fi
+
+  create_oidc="$(stack_param_value "$params" "CreateOIDCProvider")"
+  bucket_prefix="$(stack_param_value "$params" "DeploymentBucketPrefix")"
+  [[ -z "$create_oidc" ]] && create_oidc="true"
+  [[ -z "$bucket_prefix" ]] && bucket_prefix="syncbot-deploy"
+
+  echo
+  echo "Syncing bootstrap stack with repo template..."
+  aws cloudformation deploy \
+    --template-file "$BOOTSTRAP_TEMPLATE" \
+    --stack-name "$bootstrap_stack" \
+    --parameter-overrides \
+      "GitHubRepository=$github_repo" \
+      "CreateOIDCProvider=$create_oidc" \
+      "DeploymentBucketPrefix=$bucket_prefix" \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --no-fail-on-empty-changeset \
+    --region "$aws_region"
+}
+
+# Compare GitHub owner/repo from bootstrap stack to the repo chosen for gh; offer to update OIDC trust.
+maybe_prompt_bootstrap_github_trust_update() {
+  local picked_repo="$1"
+  local bootstrap_stack="$2"
+  local aws_region="$3"
+  local params trusted picked_lc trusted_lc create_oidc bucket_prefix
+
+  if [[ -z "$bootstrap_stack" || -z "$picked_repo" ]]; then
+    return 0
+  fi
+
+  params="$(stack_parameters "$bootstrap_stack" "$aws_region")"
+  if [[ -z "$params" ]]; then
+    echo "Could not read bootstrap stack parameters for '$bootstrap_stack' in $aws_region; skipping OIDC trust drift check." >&2
+    return 0
+  fi
+
+  trusted="$(stack_param_value "$params" "GitHubRepository")"
+  # CloudFormation / CLI sometimes surface trailing whitespace; normalize for compare + display.
+  trusted="${trusted//$'\r'/}"
+  trusted="${trusted#"${trusted%%[![:space:]]*}"}"
+  trusted="${trusted%"${trusted##*[![:space:]]}"}"
+  if [[ -z "$trusted" ]]; then
+    echo "Bootstrap stack has no GitHubRepository parameter; skipping OIDC trust drift check." >&2
+    return 0
+  fi
+
+  picked_lc="$(printf '%s' "$picked_repo" | tr '[:upper:]' '[:lower:]')"
+  trusted_lc="$(printf '%s' "$trusted" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$picked_lc" == "$trusted_lc" ]]; then
+    echo "Bootstrap OIDC: stack '$bootstrap_stack' has GitHubRepository=$trusted — matches your choice; no bootstrap update needed."
+    return 0
+  fi
+
+  echo
+  echo "Warning: Bootstrap stack '$bootstrap_stack' OIDC trust is scoped to:"
+  echo "  GitHubRepository=$trusted"
+  echo "You chose this repository for GitHub Actions variables:"
+  echo "  $picked_repo"
+  echo "GitHub Actions in '$picked_repo' cannot assume the deploy role until trust matches."
+  echo
+  if ! prompt_yes_no "Update bootstrap OIDC trust to '$picked_repo'? (CloudFormation stack update)" "n"; then
+    echo "Leaving bootstrap GitHubRepository unchanged. Fix manually or update the bootstrap stack later." >&2
+    return 0
+  fi
+
+  create_oidc="$(stack_param_value "$params" "CreateOIDCProvider")"
+  bucket_prefix="$(stack_param_value "$params" "DeploymentBucketPrefix")"
+  [[ -z "$create_oidc" ]] && create_oidc="true"
+  [[ -z "$bucket_prefix" ]] && bucket_prefix="syncbot-deploy"
+
+  echo "Updating bootstrap stack '$bootstrap_stack'..."
+  aws cloudformation deploy \
+    --template-file "$BOOTSTRAP_TEMPLATE" \
+    --stack-name "$bootstrap_stack" \
+    --parameter-overrides \
+      "GitHubRepository=$picked_repo" \
+      "CreateOIDCProvider=$create_oidc" \
+      "DeploymentBucketPrefix=$bucket_prefix" \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --region "$aws_region"
+  echo "Bootstrap OIDC trust updated to $picked_repo."
+}
+
 print_recent_stack_failures() {
   local stack_name="$1"
   local region="$2"
@@ -1017,6 +1131,11 @@ if [[ -z "$BOOTSTRAP_OUTPUTS" ]]; then
   fi
 fi
 
+if [[ -n "$BOOTSTRAP_OUTPUTS" ]]; then
+  sync_bootstrap_stack_from_repo "$BOOTSTRAP_STACK" "$REGION"
+  BOOTSTRAP_OUTPUTS="$(bootstrap_describe_outputs "$BOOTSTRAP_STACK" "$REGION")"
+fi
+
 S3_BUCKET="$(output_value "$BOOTSTRAP_OUTPUTS" "DeploymentBucketName")"
 if [[ -n "$S3_BUCKET" ]]; then
   echo "Detected deploy bucket from bootstrap: $S3_BUCKET"
@@ -1095,6 +1214,7 @@ if [[ -n "$EXISTING_STACK_STATUS" && "$EXISTING_STACK_STATUS" != "None" ]]; then
     [[ -z "$PREV_DATABASE_ENGINE" ]] && PREV_DATABASE_ENGINE="mysql"
     configure_github_actions_aws \
       "$BOOTSTRAP_OUTPUTS" \
+      "$BOOTSTRAP_STACK" \
       "$REGION" \
       "$STACK_NAME" \
       "$STAGE" \
@@ -1114,7 +1234,7 @@ fi
 
 echo
 echo "=== Database Source ==="
-# DB_MODE / GH_DB_MODE: 1 = stack-managed RDS in this template; 2 = external existing RDS host.
+# DB_MODE / GH_DB_MODE: 1 = stack-managed RDS in this template; 2 = external or existing RDS host.
 DB_MODE_DEFAULT="1"
 if [[ "$IS_STACK_UPDATE" == "true" ]]; then
   if [[ "$PREV_STACK_USES_EXISTING_DB" == "true" ]]; then
@@ -1122,15 +1242,15 @@ if [[ "$IS_STACK_UPDATE" == "true" ]]; then
     [[ -z "$EXISTING_DB_LABEL" ]] && EXISTING_DB_LABEL="not set"
     DB_MODE_DEFAULT="2"
     echo "  1) Use stack-managed RDS"
-    echo "  2) Use external existing RDS host: $EXISTING_DB_LABEL (default)"
+    echo "  2) Use external or existing RDS host: $EXISTING_DB_LABEL (default)"
   else
     DB_MODE_DEFAULT="1"
     echo "  1) Use stack-managed RDS (default)"
-    echo "  2) Use external existing RDS host"
+    echo "  2) Use external or existing RDS host"
   fi
 else
   echo "  1) Use stack-managed RDS (default)"
-  echo "  2) Use external existing RDS host"
+  echo "  2) Use external or existing RDS host"
 fi
 DB_MODE="$(prompt_default "Choose database source (1 or 2)" "$DB_MODE_DEFAULT")"
 if [[ "$DB_MODE" != "1" && "$DB_MODE" != "2" ]]; then
@@ -1538,6 +1658,7 @@ fi
 if prompt_yes_no "Set up GitHub Actions configuration now?" "n"; then
   configure_github_actions_aws \
     "$BOOTSTRAP_OUTPUTS" \
+    "$BOOTSTRAP_STACK" \
     "$REGION" \
     "$STACK_NAME" \
     "$STAGE" \
