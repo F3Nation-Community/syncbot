@@ -11,17 +11,16 @@ os.environ.setdefault("DATABASE_SCHEMA", "syncbot")
 os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-0-0")
 
 from handlers.channel_sync import (  # noqa: E402
-    handle_publish_channel_submit,
-    handle_publish_mode_submit,
+    handle_publish_channel_submit_ack,
+    handle_publish_mode_submit_ack,
     handle_subscribe_channel_submit,
 )
 
 
-class TestPublishModeSubmit:
+class TestPublishModeSubmitAck:
     def test_missing_group_id_logs_warning(self):
         client = MagicMock()
-        logger = MagicMock()
-        context = {"ack": MagicMock()}
+        context = {}
         workspace = SimpleNamespace(id=10)
         body = {"view": {"team_id": "T1", "private_metadata": "{}"}}
 
@@ -30,18 +29,17 @@ class TestPublishModeSubmit:
             patch("handlers.channel_sync._parse_private_metadata", return_value={}),
             patch("handlers.channel_sync._logger.warning") as warn_log,
         ):
-            handle_publish_mode_submit(body, client, logger, context)
+            result = handle_publish_mode_submit_ack(body, client, context)
 
+        assert result is None
         assert warn_log.call_args is not None
         assert "publish_mode_submit: missing group_id in metadata" in warn_log.call_args.args[0]
-        context["ack"].assert_not_called()
 
 
-class TestPublishChannelSubmit:
+class TestPublishChannelSubmitAck:
     def test_missing_group_id_exits_early(self):
         client = MagicMock()
-        logger = MagicMock()
-        context = {"ack": MagicMock()}
+        context = {}
         workspace = SimpleNamespace(id=10)
 
         with (
@@ -49,16 +47,14 @@ class TestPublishChannelSubmit:
             patch("handlers.channel_sync._parse_private_metadata", return_value={}),
             patch("handlers.channel_sync.DbManager.create_record") as create_record,
         ):
-            handle_publish_channel_submit({}, client, logger, context)
+            result = handle_publish_channel_submit_ack({}, client, context)
 
-        context["ack"].assert_not_called()
+        assert result is None
         create_record.assert_not_called()
 
     def test_missing_channel_selection_returns_ack_error(self):
         client = MagicMock()
-        logger = MagicMock()
-        ack = MagicMock()
-        context = {"ack": ack}
+        context = {}
         workspace = SimpleNamespace(id=10)
 
         with (
@@ -67,19 +63,16 @@ class TestPublishChannelSubmit:
             patch("handlers.channel_sync._get_selected_conversation_or_option", return_value="__none__"),
             patch("handlers.channel_sync.DbManager.create_record") as create_record,
         ):
-            handle_publish_channel_submit({}, client, logger, context)
+            result = handle_publish_channel_submit_ack({}, client, context)
 
-        ack.assert_called_once()
-        kwargs = ack.call_args.kwargs
-        assert kwargs["response_action"] == "errors"
-        assert "Select a Channel to publish." in kwargs["errors"].values()
+        assert result is not None
+        assert result["response_action"] == "errors"
+        assert "Select a Channel to publish." in result["errors"].values()
         create_record.assert_not_called()
 
     def test_existing_sync_channel_returns_ack_error(self):
         client = MagicMock()
-        logger = MagicMock()
-        ack = MagicMock()
-        context = {"ack": ack}
+        context = {}
         workspace = SimpleNamespace(id=10)
 
         with (
@@ -89,12 +82,11 @@ class TestPublishChannelSubmit:
             patch("handlers.channel_sync.DbManager.find_records", return_value=[object()]),
             patch("handlers.channel_sync.DbManager.create_record") as create_record,
         ):
-            handle_publish_channel_submit({}, client, logger, context)
+            result = handle_publish_channel_submit_ack({}, client, context)
 
-        ack.assert_called_once()
-        kwargs = ack.call_args.kwargs
-        assert kwargs["response_action"] == "errors"
-        assert "already being synced" in next(iter(kwargs["errors"].values()))
+        assert result is not None
+        assert result["response_action"] == "errors"
+        assert "already being synced" in next(iter(result["errors"].values()))
         create_record.assert_not_called()
 
 

@@ -182,16 +182,15 @@ def handle_publish_channel(
     )
 
 
-def handle_publish_mode_submit(
+def handle_publish_mode_submit_ack(
     body: dict,
     client: WebClient,
-    logger: Logger,
     context: dict,
-) -> None:
-    """Handle step 1 submission: read the selected sync mode and show step 2."""
+) -> dict | None:
+    """Ack phase for step 1: read sync mode and return ``response_action=update`` for step 2."""
     auth_result = _get_authorized_workspace(body, client, context, "publish_mode_submit")
     if not auth_result:
-        return
+        return None
     _, workspace_record = auth_result
 
     metadata = _parse_private_metadata(body)
@@ -206,11 +205,10 @@ def handle_publish_mode_submit(
                 "private_metadata_len": len(raw_pm) if isinstance(raw_pm, str) else None,
             },
         )
-        return
+        return None
 
     sync_mode = _get_selected_option_value(body, actions.CONFIG_PUBLISH_SYNC_MODE) or "group"
 
-    other_members = []
     group_members = _get_group_members(group_id)
     other_members = [
         member for member in group_members if member.workspace_id != workspace_record.id and member.workspace_id
@@ -222,20 +220,69 @@ def handle_publish_mode_submit(
         submit_button_text="Publish",
         parent_metadata={"group_id": group_id, "sync_mode": sync_mode},
     )
-    ack_fn = context.get("ack")
-    if ack_fn:
-        ack_fn(response_action="update", view=updated_view)
-    else:
-        _logger.warning("handle_publish_mode_submit: no ack function in context")
+    return {"response_action": "update", "view": updated_view}
 
 
-def handle_publish_channel_submit(
+def handle_publish_channel_submit_ack(
+    body: dict,
+    client: WebClient,
+    context: dict,
+) -> dict | None:
+    """Ack phase for publish: validate and close modal (errors) or empty ack (success)."""
+    auth_result = _get_authorized_workspace(body, client, context, "publish_channel_submit")
+    if not auth_result:
+        return None
+    _, workspace_record = auth_result
+
+    metadata = _parse_private_metadata(body)
+    group_id = metadata.get("group_id")
+
+    if not group_id:
+        _logger.warning("publish_channel_submit: missing group_id in metadata")
+        return None
+
+    sync_mode = metadata.get("sync_mode", "group")
+    target_workspace_id = None
+    selected_target = _get_selected_option_value(body, actions.CONFIG_PUBLISH_DIRECT_TARGET)
+    if selected_target:
+        with contextlib.suppress(TypeError, ValueError):
+            target_workspace_id = int(selected_target)
+
+    if sync_mode == "direct" and not target_workspace_id:
+        sync_mode = "group"
+
+    channel_id = _get_selected_conversation_or_option(body, actions.CONFIG_PUBLISH_CHANNEL_SELECT)
+
+    if not channel_id or channel_id == "__none__":
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_PUBLISH_CHANNEL_SELECT: "Select a Channel to publish."},
+        }
+
+    existing = DbManager.find_records(
+        schemas.SyncChannel,
+        [
+            schemas.SyncChannel.channel_id == channel_id,
+            schemas.SyncChannel.workspace_id == workspace_record.id,
+            schemas.SyncChannel.deleted_at.is_(None),
+        ],
+    )
+    if existing:
+        return {
+            "response_action": "errors",
+            "errors": {actions.CONFIG_PUBLISH_CHANNEL_SELECT: "This Channel is already being synced."},
+        }
+
+    return None
+
+
+def handle_publish_channel_submit_work(
     body: dict,
     client: WebClient,
     logger: Logger,
     context: dict,
 ) -> None:
-    """Create a Sync + SyncChannel for the publisher's channel, scoped to a group."""
+    """Lazy work phase: create Sync + SyncChannel after modal closed."""
     auth_result = _get_authorized_workspace(body, client, context, "publish_channel_submit")
     if not auth_result:
         return
@@ -245,7 +292,6 @@ def handle_publish_channel_submit(
     group_id = metadata.get("group_id")
 
     if not group_id:
-        _logger.warning("publish_channel_submit: missing group_id in metadata")
         return
 
     sync_mode = metadata.get("sync_mode", "group")
@@ -258,16 +304,9 @@ def handle_publish_channel_submit(
     if sync_mode == "direct" and not target_workspace_id:
         sync_mode = "group"
 
-    ack_fn = context.get("ack")
-
     channel_id = _get_selected_conversation_or_option(body, actions.CONFIG_PUBLISH_CHANNEL_SELECT)
 
     if not channel_id or channel_id == "__none__":
-        if ack_fn:
-            ack_fn(
-                response_action="errors",
-                errors={actions.CONFIG_PUBLISH_CHANNEL_SELECT: "Select a Channel to publish."},
-            )
         return
 
     existing = DbManager.find_records(
@@ -279,21 +318,13 @@ def handle_publish_channel_submit(
         ],
     )
     if existing:
-        if ack_fn:
-            ack_fn(
-                response_action="errors",
-                errors={actions.CONFIG_PUBLISH_CHANNEL_SELECT: "This Channel is already being synced."},
-            )
         return
-
-    if ack_fn:
-        ack_fn()
 
     try:
         conv_info = client.conversations_info(channel=channel_id)
         channel_name = helpers.safe_get(conv_info, "channel", "name") or channel_id
     except Exception as exc:
-        _logger.debug(f"handle_publish_channel_submit: conversations_info failed for {channel_id}: {exc}")
+        _logger.debug(f"handle_publish_channel_submit_work: conversations_info failed for {channel_id}: {exc}")
         channel_name = channel_id
 
     try:
@@ -330,7 +361,6 @@ def handle_publish_channel_submit(
     except Exception as e:
         _logger.error(f"Failed to publish channel {channel_id}: {e}")
 
-    # Refresh Home for all admins in current workspace, then other group members
     builders.refresh_home_tab_for_workspace(workspace_record, logger, context=context)
     _refresh_group_member_homes(group_id, workspace_record.id, logger, context=context)
 

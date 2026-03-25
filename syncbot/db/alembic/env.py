@@ -21,12 +21,11 @@ try:
 except ImportError:
     pass
 
-from logging.config import fileConfig
+from logging.config import fileConfig  # noqa: E402
 
-from alembic import context
-from sqlalchemy import engine_from_config, pool
+from alembic import context  # noqa: E402
 
-from db import get_engine
+from db import get_engine  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:

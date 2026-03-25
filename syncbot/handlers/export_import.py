@@ -17,6 +17,44 @@ from slack import actions
 
 _logger = logging.getLogger(__name__)
 
+# Uploaded JSON (backup / migration) download limits — matches interaction-time budget.
+_UPLOAD_DOWNLOAD_TIMEOUT = 10
+_MAX_IMPORT_BYTES = 50 * 1024 * 1024  # 50 MiB
+
+
+def _download_uploaded_file(file_url: str, token: str) -> tuple[str | None, str | None]:
+    """Download a Slack-hosted uploaded file. Returns ``(utf8_text, None)`` or ``(None, error_message)``."""
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(file_url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=_UPLOAD_DOWNLOAD_TIMEOUT) as resp:
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_IMPORT_BYTES:
+                    return None, "Uploaded file exceeds maximum size (50 MB)."
+                chunks.append(chunk)
+            raw = b"".join(chunks)
+    except urllib.error.HTTPError as e:
+        _logger.exception("upload download HTTP error: %s", e)
+        return None, "Failed to download the uploaded file."
+    except TimeoutError as e:
+        _logger.exception("upload download timed out: %s", e)
+        return None, "Failed to download the uploaded file."
+    except OSError as e:
+        _logger.exception("upload download failed: %s", e)
+        return None, "Failed to download the uploaded file."
+    try:
+        return raw.decode("utf-8"), None
+    except UnicodeDecodeError as e:
+        return None, f"Invalid encoding in uploaded file: {e}"
+
 
 def _is_admin(client: WebClient, user_id: str, body: dict) -> bool:
     return helpers.is_user_authorized(client, user_id)
@@ -140,13 +178,12 @@ def handle_backup_download(
             )
 
 
-def handle_backup_restore_submit(
+def handle_backup_restore_submit_ack(
     body: dict,
     client: WebClient,
-    logger: Logger,
     context: dict,
 ) -> dict | None:
-    """Process restore submission. Returns response dict with errors or None to close."""
+    """Ack phase: validate upload; return errors, push confirm modal, or ``None`` to close."""
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
     if not _is_admin(client, user_id, body):
         return None
@@ -171,17 +208,11 @@ def handle_backup_restore_submit(
             "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: "Could not retrieve the uploaded file."},
         }
 
-    try:
-        import urllib.request
-
-        req = urllib.request.Request(file_url, headers={"Authorization": f"Bearer {client.token}"})
-        with urllib.request.urlopen(req) as resp:
-            json_text = resp.read().decode("utf-8")
-    except Exception as e:
-        _logger.exception("backup_restore: failed to download uploaded file: %s", e)
+    json_text, dl_err = _download_uploaded_file(file_url, client.token)
+    if dl_err:
         return {
             "response_action": "errors",
-            "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: "Failed to download the uploaded file."},
+            "errors": {actions.CONFIG_BACKUP_RESTORE_JSON_INPUT: dl_err},
         }
 
     try:
@@ -203,7 +234,6 @@ def handle_backup_restore_submit(
     hmac_ok = ei.verify_backup_hmac(data)
     key_ok = ei.verify_backup_encryption_key(data)
 
-    # If warnings needed, store payload in cache and show confirmation modal
     if not hmac_ok or not key_ok:
         from helpers._cache import _cache_set
 
@@ -251,9 +281,51 @@ def handle_backup_restore_submit(
             },
         }
 
-    context["ack"]()
-    _do_restore(data, client, user_id)
     return None
+
+
+def handle_backup_restore_submit_work(
+    body: dict,
+    client: WebClient,
+    logger: Logger,
+    context: dict,
+) -> None:
+    """Lazy work phase: run restore after modal closed (happy path)."""
+    user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
+    if not _is_admin(client, user_id, body):
+        return
+
+    values = helpers.safe_get(body, "view", "state", "values") or {}
+    file_data = helpers.safe_get(
+        values, actions.CONFIG_BACKUP_RESTORE_JSON_INPUT, actions.CONFIG_BACKUP_RESTORE_JSON_INPUT
+    )
+    files = file_data.get("files") if file_data else None
+    if not files:
+        return
+
+    file_info = files[0]
+    file_url = file_info.get("url_private_download") or file_info.get("url_private")
+    if not file_url:
+        return
+
+    json_text, dl_err = _download_uploaded_file(file_url, client.token)
+    if dl_err:
+        return
+
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError:
+        return
+
+    if data.get("version") != ei.BACKUP_VERSION:
+        return
+
+    hmac_ok = ei.verify_backup_hmac(data)
+    key_ok = ei.verify_backup_encryption_key(data)
+    if not hmac_ok or not key_ok:
+        return
+
+    _do_restore(data, client, user_id)
 
 
 def handle_backup_restore_proceed(
@@ -393,19 +465,21 @@ def handle_data_migration_export(
         _logger.exception("data_migration_export failed: %s", e)
 
 
-def handle_data_migration_submit(
+def _data_migration_prepare(
     body: dict,
     client: WebClient,
-    logger: Logger,
     context: dict,
-) -> dict | None:
-    """Process migration import submission."""
+) -> tuple[dict | None, dict | None, int | None, dict[str, int] | None, object | None]:
+    """Shared validation for migration ack/work.
+
+    Returns ``(error_ack_dict, data, group_id, team_id_to_workspace_id, workspace_record)``.
+    """
     if not constants.FEDERATION_ENABLED:
-        return None
+        return None, None, None, None, None
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
     team_id = helpers.safe_get(body, "view", "team_id") or helpers.safe_get(body, "team_id")
     if not _is_admin(client, user_id, body):
-        return None
+        return None, None, None, None, None
 
     values = helpers.safe_get(body, "view", "state", "values") or {}
     file_data = helpers.safe_get(
@@ -414,73 +488,107 @@ def handle_data_migration_submit(
     files = file_data.get("files") if file_data else None
 
     if not files:
-        return {
-            "response_action": "errors",
-            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Upload a migration JSON file to import."},
-        }
+        return (
+            {
+                "response_action": "errors",
+                "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Upload a migration JSON file to import."},
+            },
+            None,
+            None,
+            None,
+            None,
+        )
 
     file_info = files[0]
     file_url = file_info.get("url_private_download") or file_info.get("url_private")
     if not file_url:
-        return {
-            "response_action": "errors",
-            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Could not retrieve the uploaded file."},
-        }
+        return (
+            {
+                "response_action": "errors",
+                "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Could not retrieve the uploaded file."},
+            },
+            None,
+            None,
+            None,
+            None,
+        )
 
-    try:
-        import urllib.request
-
-        req = urllib.request.Request(file_url, headers={"Authorization": f"Bearer {client.token}"})
-        with urllib.request.urlopen(req) as resp:
-            json_text = resp.read().decode("utf-8")
-    except Exception as e:
-        _logger.exception("data_migration_submit: failed to download uploaded file: %s", e)
-        return {
-            "response_action": "errors",
-            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Failed to download the uploaded file."},
-        }
+    json_text, dl_err = _download_uploaded_file(file_url, client.token)
+    if dl_err:
+        return (
+            {
+                "response_action": "errors",
+                "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: dl_err},
+            },
+            None,
+            None,
+            None,
+            None,
+        )
 
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError as e:
-        return {
-            "response_action": "errors",
-            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: f"Invalid JSON in uploaded file: {e}"},
-        }
+        return (
+            {
+                "response_action": "errors",
+                "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: f"Invalid JSON in uploaded file: {e}"},
+            },
+            None,
+            None,
+            None,
+            None,
+        )
 
     if data.get("version") != ei.MIGRATION_VERSION:
-        return {
-            "response_action": "errors",
-            "errors": {
-                actions.CONFIG_DATA_MIGRATION_JSON_INPUT: f"Unsupported migration version (expected {ei.MIGRATION_VERSION})."
+        return (
+            {
+                "response_action": "errors",
+                "errors": {
+                    actions.CONFIG_DATA_MIGRATION_JSON_INPUT: f"Unsupported migration version (expected {ei.MIGRATION_VERSION})."
+                },
             },
-        }
+            None,
+            None,
+            None,
+            None,
+        )
 
     workspace_payload = data.get("workspace", {})
     export_team_id = workspace_payload.get("team_id")
     if not export_team_id:
-        return {
-            "response_action": "errors",
-            "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Migration file missing workspace.team_id."},
-        }
+        return (
+            {
+                "response_action": "errors",
+                "errors": {actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "Migration file missing workspace.team_id."},
+            },
+            None,
+            None,
+            None,
+            None,
+        )
 
     workspace_record = helpers.get_workspace_record(team_id, body, context, client)
     if not workspace_record or workspace_record.team_id != export_team_id:
-        return {
-            "response_action": "errors",
-            "errors": {
-                actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "This migration file is for a different workspace. Open the app from the workspace that matches the migration file."
+        return (
+            {
+                "response_action": "errors",
+                "errors": {
+                    actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "This migration file is for a different workspace. Open the app from the workspace that matches the migration file."
+                },
             },
-        }
+            None,
+            None,
+            None,
+            None,
+        )
 
-    # Build team_id -> workspace_id on B
     team_id_to_workspace_id = {workspace_record.team_id: workspace_record.id}
     workspaces_b = DbManager.find_records(schemas.Workspace, [schemas.Workspace.deleted_at.is_(None)])
     for w in workspaces_b:
         if w.team_id:
             team_id_to_workspace_id[w.team_id] = w.id
 
-    # Optional: establish connection if source_instance present
     source = data.get("source_instance")
     if source and source.get("connection_code"):
         import secrets
@@ -544,7 +652,6 @@ def handle_data_migration_submit(
                     )
                 )
 
-    # Resolve federated group (W + connection to source instance)
     my_groups = helpers.get_groups_for_workspace(workspace_record.id)
     my_group_ids = {g.id for g, _ in my_groups}
     fed_members = DbManager.find_records(
@@ -558,16 +665,38 @@ def handle_data_migration_submit(
     candidate_groups = [fm.group_id for fm in fed_members if fm.group_id in my_group_ids]
     group_id = candidate_groups[0] if candidate_groups else None
     if not group_id:
-        return {
-            "response_action": "errors",
-            "errors": {
-                actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "No federation connection found. Connect to the other instance first (Enter Connection Code), then import."
+        return (
+            {
+                "response_action": "errors",
+                "errors": {
+                    actions.CONFIG_DATA_MIGRATION_JSON_INPUT: "No federation connection found. Connect to the other instance first (Enter Connection Code), then import."
+                },
             },
-        }
+            None,
+            None,
+            None,
+            None,
+        )
 
+    return None, data, group_id, team_id_to_workspace_id, workspace_record
+
+
+def handle_data_migration_submit_ack(
+    body: dict,
+    client: WebClient,
+    context: dict,
+) -> dict | None:
+    """Ack phase: validate; return errors, push confirm, or ``None`` to close before lazy import."""
+    user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
+    err, data, group_id, team_id_to_workspace_id, workspace_record = _data_migration_prepare(body, client, context)
+    if err is not None:
+        return err
+    if data is None or group_id is None or team_id_to_workspace_id is None or workspace_record is None:
+        return None
+
+    source = data.get("source_instance")
     sig_ok = ei.verify_migration_signature(data)
     if not sig_ok and source:
-        # Store in cache and show confirmation modal (private_metadata size limit)
         from helpers._cache import _cache_set
 
         cache_key = f"migration_import_pending:{user_id}"
@@ -611,7 +740,27 @@ def handle_data_migration_submit(
             },
         }
 
-    context["ack"]()
+    return None
+
+
+def handle_data_migration_submit_work(
+    body: dict,
+    client: WebClient,
+    logger: Logger,
+    context: dict,
+) -> None:
+    """Lazy work phase: import migration data after modal closed."""
+    if not constants.FEDERATION_ENABLED:
+        return
+    err, data, group_id, team_id_to_workspace_id, workspace_record = _data_migration_prepare(body, client, context)
+    if err is not None or data is None or group_id is None or team_id_to_workspace_id is None or workspace_record is None:
+        return
+
+    source = data.get("source_instance")
+    sig_ok = ei.verify_migration_signature(data)
+    if not sig_ok and source:
+        return
+
     ei.import_migration_data(
         data,
         workspace_record.id,
@@ -619,7 +768,6 @@ def handle_data_migration_submit(
         team_id_to_workspace_id=team_id_to_workspace_id,
     )
     ei.invalidate_home_tab_caches_for_team(workspace_record.team_id)
-    return None
 
 
 def handle_data_migration_proceed(

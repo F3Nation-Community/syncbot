@@ -1,5 +1,6 @@
 """Unit tests for ``syncbot/db`` connection pooling, retry logic, and backend parity (MySQL/SQLite)."""
 
+import contextlib
 import os
 from unittest.mock import patch
 
@@ -197,10 +198,8 @@ class TestBackendParity:
             db_mod.GLOBAL_ENGINE = old_engine
             db_mod.GLOBAL_SCHEMA = old_schema
             if "DATABASE_URL" in os.environ and "test_bootstrap" in os.environ["DATABASE_URL"]:
-                try:
+                with contextlib.suppress(Exception):
                     (__import__("pathlib").Path("test_bootstrap.db")).unlink(missing_ok=True)
-                except Exception:
-                    pass
 
     def test_get_required_db_vars_mysql_without_url(self):
         with patch.dict(os.environ, {"DATABASE_BACKEND": "mysql"}, clear=False):

@@ -6,6 +6,8 @@ Maps incoming Slack request types to handler functions.  The
 the specific identifier (action ID, event type, or callback ID).
 
 :func:`~app.main_response` uses these tables to dispatch every request.
+:data:`VIEW_ACK_MAPPER` lists view submission callback IDs handled by the fast ack
+path in :mod:`app` (``view_ack``) before lazy work runs in :func:`~app.main_response`.
 """
 
 import builders
@@ -69,16 +71,23 @@ VIEW_MAPPER = {
     actions.CONFIG_JOIN_GROUP_SUBMIT: handlers.handle_join_group_submit,
     actions.CONFIG_INVITE_WORKSPACE_SUBMIT: handlers.handle_invite_workspace_submit,
     actions.CONFIG_LEAVE_GROUP_CONFIRM: handlers.handle_leave_group_confirm,
-    actions.CONFIG_PUBLISH_MODE_SUBMIT: handlers.handle_publish_mode_submit,
-    actions.CONFIG_PUBLISH_CHANNEL_SUBMIT: handlers.handle_publish_channel_submit,
+    actions.CONFIG_PUBLISH_CHANNEL_SUBMIT: handlers.handle_publish_channel_submit_work,
     actions.CONFIG_SUBSCRIBE_CHANNEL_SUBMIT: handlers.handle_subscribe_channel_submit,
     actions.CONFIG_STOP_SYNC_CONFIRM: handlers.handle_stop_sync_confirm,
     actions.CONFIG_FEDERATION_CODE_SUBMIT: handlers.handle_federation_code_submit,
     actions.CONFIG_FEDERATION_LABEL_SUBMIT: handlers.handle_federation_label_submit,
-    actions.CONFIG_BACKUP_RESTORE_SUBMIT: handlers.handle_backup_restore_submit,
-    actions.CONFIG_DATA_MIGRATION_SUBMIT: handlers.handle_data_migration_submit,
+    actions.CONFIG_BACKUP_RESTORE_SUBMIT: handlers.handle_backup_restore_submit_work,
+    actions.CONFIG_DATA_MIGRATION_SUBMIT: handlers.handle_data_migration_submit_work,
 }
-"""View submission ``callback_id`` -> handler."""
+"""View submission ``callback_id`` -> lazy work handler (after HTTP ack)."""
+
+VIEW_ACK_MAPPER = {
+    actions.CONFIG_PUBLISH_MODE_SUBMIT: handlers.handle_publish_mode_submit_ack,
+    actions.CONFIG_PUBLISH_CHANNEL_SUBMIT: handlers.handle_publish_channel_submit_ack,
+    actions.CONFIG_BACKUP_RESTORE_SUBMIT: handlers.handle_backup_restore_submit_ack,
+    actions.CONFIG_DATA_MIGRATION_SUBMIT: handlers.handle_data_migration_submit_ack,
+}
+"""Deferred-ack view submissions: fast ack handler (``dict`` or ``None`` for Slack ``ack()``)."""
 
 MAIN_MAPPER = {
     "block_actions": ACTION_MAPPER,

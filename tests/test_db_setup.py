@@ -1,8 +1,28 @@
 """Unit tests for infra/aws/db_setup/handler.py (MySQL vs PostgreSQL branches)."""
 
+import importlib
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# handler.py does ``import psycopg2`` at the top level. The package
+# (psycopg2-binary) may not ship wheels for every Python version
+# (e.g. 3.14). Stub the module so the import succeeds regardless.
+if "psycopg2" not in sys.modules:
+    _pg_stub = MagicMock()
+    _pg_stub.sql = MagicMock()
+    sys.modules["psycopg2"] = _pg_stub
+    sys.modules["psycopg2.sql"] = _pg_stub.sql
+
+
+def _fresh_handler():
+    """(Re-)import handler so patches take effect."""
+    if "handler" in sys.modules:
+        return importlib.reload(sys.modules["handler"])
+    import handler
+
+    return handler
 
 
 @pytest.fixture
@@ -26,14 +46,14 @@ def cfn_create_event():
 
 
 def test_handler_calls_mysql_setup(cfn_create_event):
+    handler = _fresh_handler()
     with (
-        patch("handler.send") as mock_send,
-        patch("handler.get_app_password", return_value="apppw"),
-        patch("handler.setup_database_mysql") as mock_mysql,
-        patch("handler.setup_database_postgresql") as mock_pg,
+        patch.object(handler, "send") as mock_send,
+        patch.object(handler, "get_secret_value", return_value="apppw"),
+        patch.object(handler, "_assert_tcp_reachable"),
+        patch.object(handler, "setup_database_mysql") as mock_mysql,
+        patch.object(handler, "setup_database_postgresql") as mock_pg,
     ):
-        import handler
-
         handler._handler_impl(cfn_create_event, MagicMock())
         mock_mysql.assert_called_once()
         mock_pg.assert_not_called()
@@ -50,9 +70,8 @@ def test_handler_delete_uses_physical_resource_id():
         "LogicalResourceId": "AppDbSetup",
         "PhysicalResourceId": "syncbot_test",
     }
-    with patch("handler.send") as mock_send:
-        import handler
-
+    handler = _fresh_handler()
+    with patch.object(handler, "send") as mock_send:
         handler._handler_impl(delete_event, MagicMock())
     mock_send.assert_called_once()
     assert mock_send.call_args[0][2] == "SUCCESS"
@@ -61,14 +80,14 @@ def test_handler_delete_uses_physical_resource_id():
 
 def test_handler_calls_postgresql_setup(cfn_create_event):
     cfn_create_event["ResourceProperties"]["DatabaseEngine"] = "postgresql"
+    handler = _fresh_handler()
     with (
-        patch("handler.send") as mock_send,
-        patch("handler.get_app_password", return_value="apppw"),
-        patch("handler.setup_database_mysql") as mock_mysql,
-        patch("handler.setup_database_postgresql") as mock_pg,
+        patch.object(handler, "send") as mock_send,
+        patch.object(handler, "get_secret_value", return_value="apppw"),
+        patch.object(handler, "_assert_tcp_reachable"),
+        patch.object(handler, "setup_database_mysql") as mock_mysql,
+        patch.object(handler, "setup_database_postgresql") as mock_pg,
     ):
-        import handler
-
         handler._handler_impl(cfn_create_event, MagicMock())
         mock_pg.assert_called_once()
         mock_mysql.assert_not_called()

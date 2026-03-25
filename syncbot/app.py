@@ -4,8 +4,10 @@ This module is the entry point for both AWS Lambda (via :func:`handler`) and
 local development (``python app.py`` starts a Bolt dev server on port 3000).
 
 All incoming Slack events, actions, view submissions, and slash commands are
-funnelled through :func:`main_response`, which looks up the appropriate
-handler in :data:`~utils.routing.MAIN_MAPPER` and dispatches the request.
+dispatched through :func:`main_response`.  In production (non-local), view
+submissions first run :func:`view_ack` for the HTTP response, then :func:`main_response`
+for the work phase (lazy).  Handlers are looked up in :data:`routing.MAIN_MAPPER`
+and :data:`routing.VIEW_ACK_MAPPER`.
 
 Federation API endpoints (``/api/federation/*``) handle cross-instance
 communication and are dispatched separately from Slack events.
@@ -40,11 +42,7 @@ from logger import (
     get_request_duration_ms,
     set_correlation_id,
 )
-from routing import MAIN_MAPPER
-from slack.deferred_ack_views import DEFERRED_ACK_VIEW_CALLBACK_IDS
-
-_DEFERRED_ACK_VIEWS = DEFERRED_ACK_VIEW_CALLBACK_IDS
-"""view_submission callback_ids whose handlers control their own ack response."""
+from routing import MAIN_MAPPER, VIEW_ACK_MAPPER, VIEW_MAPPER
 
 _SENSITIVE_KEYS = frozenset({
     "token", "bot_token", "access_token", "shared_secret",
@@ -113,12 +111,43 @@ def _lambda_federation_handler(event: dict) -> dict:
 _logger = logging.getLogger(__name__)
 
 
-def main_response(body: dict, logger, client, ack, context: dict) -> None:
-    """Central dispatcher for every Slack request.
+def view_ack(body: dict, logger, client, ack, context: dict) -> None:
+    """Production ack handler for ``view_submission``: fast response to Slack (3s budget).
 
-    For most requests, acknowledges immediately (required by Slack's 3-second
-    timeout).  Certain ``view_submission`` handlers defer the ack so they can
-    return ``response_action`` (see :data:`_DEFERRED_ACK_VIEWS`).
+    Deferred-ack views use :data:`~routing.VIEW_ACK_MAPPER`; all others get an empty ``ack()``.
+    """
+    set_correlation_id()
+    request_type, request_id = get_request_type(body)
+    _logger.info(
+        "request_received",
+        extra={
+            "request_type": request_type,
+            "request_id": request_id,
+            "team_id": safe_get(body, "team_id"),
+            "phase": "view_ack",
+        },
+    )
+    _logger.debug("request_body", extra={"body": json.dumps(_redact_sensitive(body))})
+
+    ack_handler = VIEW_ACK_MAPPER.get(request_id)
+    if ack_handler:
+        result = ack_handler(body, client, context)
+        if isinstance(result, dict):
+            ack(**result)
+        else:
+            ack()
+    else:
+        ack()
+
+
+def main_response(body: dict, logger, client, ack, context: dict) -> None:
+    """Central dispatcher for every Slack request (lazy work phase in production).
+
+    In production, ``view_submission`` HTTP ack is sent by :func:`view_ack` first;
+    this function runs afterward and must not call ``ack()`` again for views.
+
+    In local development, view ack + work run in one invocation: deferred views
+    call the ack handler from :data:`~routing.VIEW_ACK_MAPPER`, then the work handler.
 
     A unique correlation ID is assigned to every incoming request and
     attached to all log entries emitted while processing it.
@@ -126,19 +155,18 @@ def main_response(body: dict, logger, client, ack, context: dict) -> None:
     set_correlation_id()
     request_type, request_id = get_request_type(body)
 
-    # Most requests are acked immediately.  Certain view_submission
-    # handlers need to control the ack themselves (e.g. to respond with
-    # response_action="update" for multi-step modals).  For those, we
-    # defer the ack and expose it via context["ack"].
-    defer_ack = request_type == "view_submission" and request_id in _DEFERRED_ACK_VIEWS
-    ack_called = False
-
-    if defer_ack:
-        def _tracked_ack(*args, **kwargs):
-            nonlocal ack_called
-            ack_called = True
-            return ack(*args, **kwargs)
-        context["ack"] = _tracked_ack
+    if request_type == "view_submission":
+        if LOCAL_DEVELOPMENT:
+            ack_handler = VIEW_ACK_MAPPER.get(request_id)
+            if ack_handler:
+                result = ack_handler(body, client, context)
+                if isinstance(result, dict):
+                    ack(**result)
+                else:
+                    ack()
+            else:
+                ack()
+        # Production: ack already sent by view_ack
     else:
         ack()
 
@@ -155,19 +183,7 @@ def main_response(body: dict, logger, client, ack, context: dict) -> None:
     run_function = MAIN_MAPPER.get(request_type, {}).get(request_id)
     if run_function:
         try:
-            result = run_function(body, client, logger, context)
-            if defer_ack and not ack_called:
-                if isinstance(result, dict):
-                    ack(**result)
-                else:
-                    _logger.warning(
-                        "deferred_view_ack_fallback",
-                        extra={
-                            "request_id": request_id,
-                            "view_callback_id": safe_get(body, "view", "callback_id"),
-                        },
-                    )
-                    ack()
+            run_function(body, client, logger, context)
             emit_metric(
                 "request_handled",
                 duration_ms=round(get_request_duration_ms(), 1),
@@ -175,16 +191,6 @@ def main_response(body: dict, logger, client, ack, context: dict) -> None:
                 request_id=request_id,
             )
         except Exception:
-            if defer_ack and not ack_called:
-                _logger.warning(
-                    "deferred_view_ack_fallback",
-                    extra={
-                        "request_id": request_id,
-                        "view_callback_id": safe_get(body, "view", "callback_id"),
-                        "reason": "exception",
-                    },
-                )
-                ack()
             emit_metric(
                 "request_error",
                 request_type=request_type,
@@ -192,15 +198,18 @@ def main_response(body: dict, logger, client, ack, context: dict) -> None:
             )
             raise
     else:
-        if defer_ack and not ack_called:
-            ack()
-        _logger.error(
-            "no_handler",
-            extra={
-                "request_type": request_type,
-                "request_id": request_id,
-            },
-        )
+        if not (
+            request_type == "view_submission"
+            and request_id in VIEW_ACK_MAPPER
+            and request_id not in VIEW_MAPPER
+        ):
+            _logger.error(
+                "no_handler",
+                extra={
+                    "request_type": request_type,
+                    "request_id": request_id,
+                },
+            )
 
 
 if LOCAL_DEVELOPMENT:
@@ -216,10 +225,10 @@ else:
 MATCH_ALL_PATTERN = re.compile(".*")
 app.event(MATCH_ALL_PATTERN)(*ARGS, **LAZY_KWARGS)
 app.action(MATCH_ALL_PATTERN)(*ARGS, **LAZY_KWARGS)
-# View submissions must run synchronously so deferred ack (response_action:
-# update / errors / push) is returned in the same HTTP response to Slack.
-# Lazy listeners run after the default ack is sent, which breaks multi-step modals.
-app.view(MATCH_ALL_PATTERN)(main_response)
+if LOCAL_DEVELOPMENT:
+    app.view(MATCH_ALL_PATTERN)(main_response)
+else:
+    app.view(MATCH_ALL_PATTERN)(ack=view_ack, lazy=[main_response])
 
 
 if __name__ == "__main__":

@@ -174,9 +174,7 @@ def _encryption_active() -> bool:
     key = (os.environ.get(TOKEN_ENCRYPTION_KEY) or "").strip()
     if not key or len(key) < _TOKEN_ENCRYPTION_KEY_MIN_LEN:
         return False
-    if key.lower() in _TOKEN_ENCRYPTION_KEY_PLACEHOLDERS:
-        return False
-    return True
+    return key.lower() not in _TOKEN_ENCRYPTION_KEY_PLACEHOLDERS
 
 
 def validate_config() -> None:
