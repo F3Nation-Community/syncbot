@@ -7,9 +7,27 @@ SyncBot is a Slack app for replicating messages and replies across workspaces on
 
 ---
 
+## Branching (upstream vs downstream)
+
+This repo is the **canonical** project. **Forks** (downstream installations) should use Git like this:
+
+| Branch | Role |
+|--------|------|
+| **`main`** | Tracks upstream. Use it to merge PRs and to **sync with the upstream repository** (`git pull upstream main`, etc.). |
+| **`test`** / **`prod`** | On your fork, use these for **deployments**: GitHub Actions deploy workflows run on **push** to `test` and `prod` (see [DEPLOYMENT.md](docs/DEPLOYMENT.md)). |
+
+Typical flow: develop on a feature branch → open a PR to **`main`** → merge → when ready to deploy, merge **`main`** into **`test`** or **`prod`** on your fork.
+
+---
+
 ## Deploy (AWS or GCP)
 
-From the **repository root**, use the infra-agnostic launcher:
+You can deploy in two ways:
+
+1. **Download or clone and run the deploy script** — No GitHub Actions required. From the **repository root**, run `./deploy.sh` (or `.\deploy.ps1` on Windows). The script walks you through provider choice, cloud auth, and optional GitHub variable setup.
+2. **Fork the repo and use CI/CD** — Configure repository variables and secrets (see [DEPLOYMENT.md](docs/DEPLOYMENT.md)), then push to **`test`** or **`prod`** on your fork to trigger automated deploys.
+
+From the **repository root**, the infra-agnostic launcher is:
 
 | OS | Command |
 |----|---------|
@@ -17,6 +35,10 @@ From the **repository root**, use the infra-agnostic launcher:
 | Windows (PowerShell) | `.\deploy.ps1` |
 
 The launcher lists providers under `infra/<provider>/scripts/deploy.sh` (e.g. **aws**, **gcp**), prompts for a choice, and runs that script. Shortcuts: `./deploy.sh aws`, `./deploy.sh gcp`, `./deploy.sh 1`. On **Windows**, `deploy.ps1` checks for **Git Bash** or **WSL** bash, then runs the same `deploy.sh` paths (provider prerequisites are enforced inside those bash scripts).
+
+If **Poetry** is on your `PATH`, the root launcher first runs `poetry update` and regenerates `syncbot/requirements.txt` from `poetry.lock` so deploys match the pinned Python deps (Poetry 2.x: install the export plugin once with `poetry self add poetry-plugin-export`). If Poetry is missing, the launcher skips this step and continues.
+
+**GCP CI:** Interactive deploy via `./deploy.sh` → **gcp** is supported. The **GitHub Actions** workflow for GCP (`.github/workflows/deploy-gcp.yml`) is a stub until Workload Identity Federation and image build/push steps are wired — use the guided script for GCP until then.
 
 ### What to install first
 
@@ -95,7 +117,8 @@ poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Sync flow, AWS reference architecture |
 | [BACKUP_AND_MIGRATION.md](docs/BACKUP_AND_MIGRATION.md) | Backup/restore and federation migration |
 | [API_REFERENCE.md](docs/API_REFERENCE.md) | HTTP routes and Slack events |
-| [IMPROVEMENTS.md](docs/IMPROVEMENTS.md) | Changelog / planned work |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
 
 ### Project layout
 

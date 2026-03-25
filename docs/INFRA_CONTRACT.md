@@ -4,7 +4,7 @@ This document defines what any infrastructure provider (AWS, GCP, Azure, etc.) m
 
 **Deploy entrypoint:** From the repo root, `./deploy.sh` (macOS/Linux, or Git Bash/WSL bash) or `.\deploy.ps1` (Windows PowerShell — finds Git Bash or WSL, then bash) runs an interactive helper that delegates to `infra/<provider>/scripts/deploy.sh`. After identity/auth prompts, each provider script shows a **Deploy Tasks** menu (comma-separated numbers, default all): bootstrap (AWS only), build/deploy, CI/CD (GitHub Actions), Slack API configuration, and DR backup secret output—so operators can run subsets (e.g. CI/CD only against an existing stack) without mid-flow surprises. That flow sets Cloud/Terraform resources and runtime env vars consistent with this document. Step-by-step and manual alternatives: [DEPLOYMENT.md](DEPLOYMENT.md).
 
-**Pre-release:** This repo is pre-release. Database rollout assumes **fresh installs only** (no legacy schema migration or stamping). New databases are initialized via Alembic `upgrade head` at startup.
+**Schema:** The database schema is managed by **Alembic**. On startup the app runs **`alembic upgrade head`** so new and existing databases stay current with the latest migrations.
 
 ## Runtime Environment Variables
 

@@ -4,7 +4,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, master, test, prod]
+    branches: [main, test, prod]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -13,8 +13,13 @@ concurrency:
 jobs:
   requirements-sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -23,13 +28,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install poetry
           poetry self add poetry-plugin-export
-      - name: Check requirements.txt is in sync with poetry.lock
+      - name: Sync requirements.txt with poetry.lock
+        env:
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          poetry export -f requirements.txt --without-hashes -o /tmp/expected.txt
-          diff -u syncbot/requirements.txt /tmp/expected.txt || {
-            echo "::error::syncbot/requirements.txt is out of sync with poetry.lock. Run: poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt (Poetry 2.x: poetry self add poetry-plugin-export first)"
+          poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt
+          if git diff --quiet syncbot/requirements.txt; then
+            echo "requirements.txt is already in sync."
+          elif [[ -n "${PR_HEAD_REPO}" && "${PR_HEAD_REPO}" != "${GITHUB_REPOSITORY}" ]]; then
+            echo "::error::syncbot/requirements.txt is out of sync with poetry.lock. From the repo root run: poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt"
             exit 1
-          }
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add syncbot/requirements.txt
+            git commit -m "chore: sync requirements.txt with poetry.lock"
+            git push
+            echo "::notice::requirements.txt was out of sync and has been auto-fixed."
+          fi
 
   sam-lint:
     runs-on: ubuntu-latest

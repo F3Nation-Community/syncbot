@@ -665,6 +665,20 @@ main() {
     exit 1
   fi
 
+  echo "=== Sync Python Dependencies ==="
+  if command -v poetry &>/dev/null; then
+    poetry update --quiet
+    if poetry self show plugins 2>/dev/null | grep -q poetry-plugin-export; then
+      poetry export -f requirements.txt --without-hashes -o "$REPO_ROOT/syncbot/requirements.txt"
+      echo "syncbot/requirements.txt updated from poetry.lock."
+    else
+      echo "Warning: poetry-plugin-export not installed. Run: poetry self add poetry-plugin-export" >&2
+      echo "Skipping requirements.txt sync." >&2
+    fi
+  else
+    echo "Warning: poetry not found. Skipping dependency sync." >&2
+  fi
+
   echo "=== Run Provider Script ==="
   echo "Running: $script_path"
   bash "$script_path"

@@ -1,0 +1,25 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.0] - 2026-03-25
+
+### Added
+
+- Multi-workspace message sync: messages, threads, edits, deletes, reactions, images, videos, and GIFs
+- Cross-workspace @mention resolution (email, name, and manual matching)
+- Workspace Groups with invite codes (many-to-many collaboration; direct and group-wide sync modes)
+- Pause, resume, and stop per-channel sync controls
+- App Home tab for configuration (no slash commands)
+- Cross-instance federation (optional, HMAC-authenticated)
+- Backup/restore and workspace data migration
+- Bot token encryption at rest (Fernet)
+- AWS deployment (SAM/CloudFormation) with optional CI/CD via GitHub Actions
+- GCP deployment (Terraform/Cloud Run) with interactive deploy script; GitHub Actions workflow for GCP is not yet fully wired
+- Dev Container and Docker Compose for local development
+- Structured JSON logging with correlation IDs and CloudWatch alarms (AWS)
+- PostgreSQL, MySQL, and SQLite database backends
+- Alembic-managed schema migrations applied at startup

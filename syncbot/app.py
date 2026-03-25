@@ -17,8 +17,14 @@ import json
 import logging
 import os
 import re
+from importlib.metadata import PackageNotFoundError, version
 
 from dotenv import load_dotenv
+
+try:
+    __version__ = version("syncbot")
+except PackageNotFoundError:
+    __version__ = "dev"
 
 # Load .env before any other app imports so env vars are available everywhere.
 # In production (Lambda) there is no .env file and this is a harmless no-op.

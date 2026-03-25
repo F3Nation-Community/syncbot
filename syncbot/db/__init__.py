@@ -200,7 +200,7 @@ def _alembic_config():
 
 
 def _run_alembic_upgrade() -> None:
-    """Run Alembic upgrade head (fresh-install flow only; pre-release)."""
+    """Run Alembic upgrade head to apply pending migrations."""
     from alembic import command  # pyright: ignore[reportMissingImports]
 
     config = _alembic_config()
@@ -208,9 +208,9 @@ def _run_alembic_upgrade() -> None:
 
 
 def initialize_database() -> None:
-    """Initialize schema via Alembic migrations (fresh install only; pre-release).
+    """Ensure the database exists (MySQL/PostgreSQL) and apply Alembic migrations.
 
-    Ensures DB exists (MySQL/PostgreSQL), then runs Alembic upgrade head.
+    Runs ``alembic upgrade head`` so the schema matches the current revision.
     """
     for attempt in range(1, _DB_INIT_MAX_ATTEMPTS + 1):
         try:

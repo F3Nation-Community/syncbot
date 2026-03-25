@@ -16,8 +16,8 @@ class BaseElement:
     def make_placeholder_field(self):
         return {"placeholder": {"type": "plain_text", "text": self.placeholder, "emoji": True}}
 
-    def get_selected_value():
-        return "Not yet implemented"
+    def get_selected_value(self, input_data, action):
+        raise NotImplementedError
 
 
 @dataclass
@@ -33,7 +33,7 @@ class BaseBlock:
         raise Exception("Not Implemented")
 
     def get_selected_value(self, input_data, action):
-        return "Not yet implemented"
+        raise NotImplementedError
 
 
 @dataclass
@@ -147,9 +147,6 @@ def as_selector_options(names: list[str], values: list[str] | None = None) -> li
 class StaticSelectElement(BaseElement):
     initial_value: str = None
     options: list[SelectorOption] = None
-
-    # def with_options(self, options: List[SelectorOption]):
-    #   return SelectorElement(self.label, self.action, options)
 
     def as_form_field(self, action: str):
         if not self.options:

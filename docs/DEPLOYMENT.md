@@ -68,6 +68,8 @@ See [infra/gcp/README.md](../infra/gcp/README.md) for Terraform variables and ou
 
 ## Fork-First model (recommended for forks)
 
+**Branch roles** (see also the root [README](../README.md) **Branching** section): use **`main`** to track upstream and merge contributions; on your fork, use **`test`** and **`prod`** for automated deploys (CI runs on push to those branches).
+
 1. Keep `syncbot/` provider-neutral; use only env vars from [INFRA_CONTRACT.md](INFRA_CONTRACT.md).
 2. Put provider code in `infra/<provider>/` and `.github/workflows/deploy-<provider>.yml`.
 3. Prefer the AWS layout as reference; treat other providers as swappable scaffolds.
@@ -88,7 +90,7 @@ See [infra/gcp/README.md](../infra/gcp/README.md) for Terraform variables and ou
 
 ## Database backends
 
-The app supports **MySQL** (default), **PostgreSQL**, and **SQLite**. **Pre-release:** DB flow targets **fresh installs**; schema is applied at startup via Alembic.
+The app supports **MySQL** (default), **PostgreSQL**, and **SQLite**. Schema changes are applied at startup via Alembic (`alembic upgrade head`).
 
 - **AWS:** Choose engine in the deploy script or pass `DatabaseEngine=mysql` / `postgresql` to `sam deploy`.
 - **Contract:** [INFRA_CONTRACT.md](INFRA_CONTRACT.md) — `DATABASE_BACKEND`, `DATABASE_URL` or host/user/password/schema.
@@ -268,7 +270,7 @@ See also [Sharing infrastructure across apps](#sharing-infrastructure-across-app
 
 ## Database schema (Alembic)
 
-Schema lives under `syncbot/db/alembic/`. On startup the app runs **`alembic upgrade head`** (pre-release: fresh installs).
+Schema lives under `syncbot/db/alembic/`. On startup the app runs **`alembic upgrade head`**.
 
 ---
 
