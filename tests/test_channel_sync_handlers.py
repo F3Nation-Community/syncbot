@@ -12,8 +12,29 @@ os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-0-0")
 
 from handlers.channel_sync import (  # noqa: E402
     handle_publish_channel_submit,
+    handle_publish_mode_submit,
     handle_subscribe_channel_submit,
 )
+
+
+class TestPublishModeSubmit:
+    def test_missing_group_id_logs_warning(self):
+        client = MagicMock()
+        logger = MagicMock()
+        context = {"ack": MagicMock()}
+        workspace = SimpleNamespace(id=10)
+        body = {"view": {"team_id": "T1", "private_metadata": "{}"}}
+
+        with (
+            patch("handlers.channel_sync._get_authorized_workspace", return_value=("U1", workspace)),
+            patch("handlers.channel_sync._parse_private_metadata", return_value={}),
+            patch("handlers.channel_sync._logger.warning") as warn_log,
+        ):
+            handle_publish_mode_submit(body, client, logger, context)
+
+        assert warn_log.call_args is not None
+        assert "publish_mode_submit: missing group_id in metadata" in warn_log.call_args.args[0]
+        context["ack"].assert_not_called()
 
 
 class TestPublishChannelSubmit:

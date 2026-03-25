@@ -272,6 +272,17 @@ Schema lives under `syncbot/db/alembic/`. On startup the app runs **`alembic upg
 
 ---
 
+## Post-deploy: Slack deferred modal flows (manual smoke test)
+
+After deploying a build that changes Slack listener wiring, verify **in the deployed workspace** (not only local dev) that modals using custom interaction responses still work. These flows rely on `view_submission` acks (`response_action`: `update`, `errors`, or `push`) being returned in the **first** Lambda response:
+
+1. **Sync Channel (publish)** — Open **Sync Channel**, choose sync mode, press **Next**; confirm step 2 (channel picker) appears. Submit with an invalid state to confirm field errors if applicable.
+2. **Backup / Restore** — Open Backup/Restore; try restore validation (e.g. missing file) and, if possible, the integrity-warning confirmation path (`push`).
+3. **Data migration** (if federation enabled) — Same style of checks for import validation and confirmation.
+4. **Optional** — Trigger a Home tab action that opens a modal via **`views_open`** (uses `trigger_id`) after a cold start to spot-check latency.
+
+---
+
 ## Sharing infrastructure across apps (AWS)
 
 Reuse one RDS with **different `DatabaseSchema`** per app/environment; set **ExistingDatabaseHost** and distinct schemas. API Gateway and Lambda remain per stack.

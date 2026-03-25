@@ -12,6 +12,7 @@ import helpers
 from builders._common import _format_channel_ref, _get_group_members
 from db import DbManager, schemas
 from handlers._common import (
+    _extract_team_id,
     _get_authorized_workspace,
     _get_selected_conversation_or_option,
     _get_selected_option_value,
@@ -196,6 +197,15 @@ def handle_publish_mode_submit(
     metadata = _parse_private_metadata(body)
     group_id = metadata.get("group_id")
     if not group_id:
+        raw_pm = helpers.safe_get(body, "view", "private_metadata") or ""
+        _logger.warning(
+            "publish_mode_submit: missing group_id in metadata",
+            extra={
+                "team_id": _extract_team_id(body),
+                "workspace_id": metadata.get("workspace_id"),
+                "private_metadata_len": len(raw_pm) if isinstance(raw_pm, str) else None,
+            },
+        )
         return
 
     sync_mode = _get_selected_option_value(body, actions.CONFIG_PUBLISH_SYNC_MODE) or "group"
