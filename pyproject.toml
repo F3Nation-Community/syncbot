@@ -5,6 +5,9 @@ description = ""
 authors = ["Klint Van Tassel <developer@sprocktech.com>", "Evan Petzoldt <evan.petzoldt@protonmail.com>"]
 readme = "README.md"
 
+[tool.poetry.requires-plugins]
+poetry-plugin-export = ">=1.8"
+
 [tool.poetry.dependencies]
 python = "^3.12"
 alembic = "^1.13"

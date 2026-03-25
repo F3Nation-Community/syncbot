@@ -1,10 +1,13 @@
 version: 2
 updates:
   - package-ecosystem: "pip"
-    directory: "/"
+    directory: "/syncbot"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "pip"
     directory: "/infra/aws/db_setup"

@@ -11,6 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  requirements-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Poetry and export plugin
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry self add poetry-plugin-export
+      - name: Check requirements.txt is in sync with poetry.lock
+        run: |
+          poetry export -f requirements.txt --without-hashes -o /tmp/expected.txt
+          diff -u syncbot/requirements.txt /tmp/expected.txt || {
+            echo "::error::syncbot/requirements.txt is out of sync with poetry.lock. Run: poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt (Poetry 2.x: poetry self add poetry-plugin-export first)"
+            exit 1
+          }
+
   sam-lint:
     runs-on: ubuntu-latest
     steps:

@@ -69,6 +69,13 @@ App on port **3000**; restart the `app` service after code changes.
 
 **Needs:** Python 3.12+, Poetry. Run MySQL locally (e.g. `docker run ... mysql:8`) or SQLite. See `.env.example` and [INFRA_CONTRACT.md](docs/INFRA_CONTRACT.md).
 
+After `poetry add` / `poetry update`, regenerate the pinned file used by the Docker image and `pip-audit` in CI so it matches `poetry.lock`:
+
+```bash
+poetry self add poetry-plugin-export   # Poetry 2.x; once per Poetry install
+poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt
+```
+
 ---
 
 ## Configuration reference
