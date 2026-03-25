@@ -242,6 +242,18 @@ Resources:
               - events:DescribeRule
               - events:ListTargetsByRule
             Resource: "*"
+          - Sid: SecretsManagerSyncBot
+            Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+              - secretsmanager:CreateSecret
+              - secretsmanager:UpdateSecret
+              - secretsmanager:DeleteSecret
+              - secretsmanager:TagResource
+              - secretsmanager:UntagResource
+              - secretsmanager:ListSecretVersionIds
+            Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:syncbot-*"
 
 Outputs:
   GitHubDeployRoleArn:

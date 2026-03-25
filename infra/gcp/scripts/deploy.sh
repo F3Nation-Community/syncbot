@@ -115,6 +115,22 @@ ensure_gcloud_authenticated() {
   fi
 }
 
+ensure_gcloud_adc_authenticated() {
+  if gcloud auth application-default print-access-token >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "Application Default Credentials (ADC) are not configured."
+  if prompt_yn "Run 'gcloud auth application-default login' now?" "y"; then
+    gcloud auth application-default login || true
+  fi
+
+  if ! gcloud auth application-default print-access-token >/dev/null 2>&1; then
+    echo "Unable to configure ADC. Run 'gcloud auth application-default login' and rerun." >&2
+    exit 1
+  fi
+}
+
 ensure_gh_authenticated() {
   if ! command -v gh >/dev/null 2>&1; then
     prereqs_hint_gh_cli >&2
@@ -179,6 +195,77 @@ cloud_run_image_value() {
     --project "$project_id" \
     --region "$region" \
     --format='value(spec.template.spec.containers[0].image)' 2>/dev/null || true
+}
+
+secret_has_active_version() {
+  local project_id="$1"
+  local secret_name="$2"
+  local latest_state
+  latest_state="$(gcloud secrets versions describe latest \
+    --project "$project_id" \
+    --secret "$secret_name" \
+    --format='value(state)' 2>/dev/null || true)"
+  [[ "$latest_state" == "ENABLED" ]]
+}
+
+secret_latest_value() {
+  local project_id="$1"
+  local secret_name="$2"
+  gcloud secrets versions access latest \
+    --project "$project_id" \
+    --secret "$secret_name" 2>/dev/null || true
+}
+
+cloud_run_secret_name() {
+  local project_id="$1"
+  local region="$2"
+  local service_name="$3"
+  local env_key="$4"
+  gcloud run services describe "$service_name" \
+    --project "$project_id" \
+    --region "$region" \
+    --format=json 2>/dev/null | python3 - "$env_key" <<'PY'
+import json
+import sys
+
+env_key = sys.argv[1]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+containers = (data.get("spec", {}) or {}).get("template", {}).get("spec", {}).get("containers", [])
+for c in containers:
+    for e in c.get("env", []) or []:
+        if e.get("name") != env_key:
+            continue
+        secret_ref = (((e.get("valueSource") or {}).get("secretKeyRef") or {}).get("secret")) or ""
+        if not secret_ref:
+            print("")
+            raise SystemExit(0)
+        # Accept either full resource names or plain secret IDs.
+        print(secret_ref.split("/secrets/")[-1])
+        raise SystemExit(0)
+print("")
+PY
+}
+
+preflight_existing_db_secret_readiness() {
+  local project_id="$1"
+  local stage="$2"
+  local db_secret_name="syncbot-${stage}-syncbot-db-password"
+
+  echo
+  echo "=== Existing DB Secret Preflight ==="
+  echo "Verifying required Secret Manager value exists for DATABASE_PASSWORD..."
+  if ! secret_has_active_version "$project_id" "$db_secret_name"; then
+    echo "Missing active secret version for '$db_secret_name'." >&2
+    echo "Create one before deploy, for example:" >&2
+    echo "  printf '%s' '<db_password>' | gcloud secrets versions add '$db_secret_name' --project '$project_id' --data-file=-" >&2
+    exit 1
+  fi
+  echo "Secret preflight passed for: $db_secret_name"
 }
 
 slack_manifest_json_compact() {
@@ -445,6 +532,7 @@ fi
 
 REGION="$(prompt_line "GCP region" "${GCP_REGION:-us-central1}")"
 ensure_gcloud_authenticated
+ensure_gcloud_adc_authenticated
 gcloud config set project "$PROJECT_ID" >/dev/null 2>&1 || true
 STAGE="$(prompt_line "Stage (test/prod)" "${STAGE:-test}")"
 if [[ "$STAGE" != "test" && "$STAGE" != "prod" ]]; then
@@ -513,7 +601,11 @@ DETECTED_CLOUD_IMAGE=""
 if [[ -n "$EXISTING_SERVICE_URL" ]]; then
   DETECTED_CLOUD_IMAGE="$(cloud_run_image_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME")"
 fi
-CLOUD_IMAGE="$(prompt_line "cloud_run_image (blank = placeholder until first build)" "$DETECTED_CLOUD_IMAGE")"
+CLOUD_IMAGE="$(prompt_line "cloud_run_image (required)" "$DETECTED_CLOUD_IMAGE")"
+if [[ -z "$CLOUD_IMAGE" ]]; then
+  echo "Error: cloud_run_image is required. Build and push the SyncBot image first, then rerun." >&2
+  exit 1
+fi
 
 DETECTED_LOG_LEVEL=""
 if [[ -n "$EXISTING_SERVICE_URL" ]]; then
@@ -545,6 +637,7 @@ VARS=(
 )
 
 if [[ "$USE_EXISTING" == "true" ]]; then
+  preflight_existing_db_secret_readiness "$PROJECT_ID" "$STAGE"
   VARS+=("-var=use_existing_database=true")
   VARS+=("-var=existing_db_host=$EXISTING_HOST")
   VARS+=("-var=existing_db_schema=$EXISTING_SCHEMA")
@@ -553,9 +646,7 @@ else
   VARS+=("-var=use_existing_database=false")
 fi
 
-if [[ -n "$CLOUD_IMAGE" ]]; then
-  VARS+=("-var=cloud_run_image=$CLOUD_IMAGE")
-fi
+VARS+=("-var=cloud_run_image=$CLOUD_IMAGE")
 
 echo
 echo "Log level: $LOG_LEVEL"
@@ -605,10 +696,48 @@ write_deploy_receipt \
 
 echo "Next:"
 echo "  1) Set Secret Manager values for Slack (see infra/gcp/README.md)."
-echo "  2) Build and push container image; update cloud_run_image and re-apply if needed."
+echo "  2) Build and push container image; update cloud_run_image and re-apply when image changes."
 echo "  3) Run: ./infra/gcp/scripts/print-bootstrap-outputs.sh"
 bash "$SCRIPT_DIR/print-bootstrap-outputs.sh" || true
 
 if prompt_yn "Set up GitHub Actions configuration now?" "n"; then
   configure_github_actions_gcp "$PROJECT_ID" "$REGION" "$GCP_DIR" "$STAGE"
+fi
+
+TOKEN_SECRET_NAME="$(terraform output -raw token_encryption_secret_name 2>/dev/null || true)"
+TOKEN_SECRET_NAME="${TOKEN_SECRET_NAME##*/secrets/}"
+DB_SECRET_NAME="$(cloud_run_secret_name "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_PASSWORD")"
+TOKEN_SECRET_VALUE=""
+DB_SECRET_VALUE=""
+if [[ -n "$TOKEN_SECRET_NAME" ]]; then
+  TOKEN_SECRET_VALUE="$(secret_latest_value "$PROJECT_ID" "$TOKEN_SECRET_NAME")"
+fi
+if [[ -n "$DB_SECRET_NAME" ]]; then
+  DB_SECRET_VALUE="$(secret_latest_value "$PROJECT_ID" "$DB_SECRET_NAME")"
+fi
+
+echo
+echo "=== Backup Secrets (Disaster Recovery) ==="
+# IMPORTANT: This deploy script must always print plaintext backup secrets at the end.
+# Do not remove/redact this section; operators rely on it for DR copy-out immediately after deploy.
+echo "Copy these values now and store them in your secure disaster-recovery vault."
+if [[ -n "$TOKEN_SECRET_NAME" ]]; then
+  echo "- TOKEN_ENCRYPTION_KEY source: $TOKEN_SECRET_NAME"
+else
+  echo "- TOKEN_ENCRYPTION_KEY source: <UNAVAILABLE>"
+fi
+if [[ -n "$TOKEN_SECRET_VALUE" ]]; then
+  echo "  TOKEN_ENCRYPTION_KEY: $TOKEN_SECRET_VALUE"
+else
+  echo "  TOKEN_ENCRYPTION_KEY: <UNAVAILABLE - check Secret Manager access and retrieve manually>"
+fi
+if [[ -n "$DB_SECRET_NAME" ]]; then
+  echo "- DATABASE_PASSWORD source: $DB_SECRET_NAME"
+else
+  echo "- DATABASE_PASSWORD source: <UNAVAILABLE>"
+fi
+if [[ -n "$DB_SECRET_VALUE" ]]; then
+  echo "  DATABASE_PASSWORD: $DB_SECRET_VALUE"
+else
+  echo "  DATABASE_PASSWORD: <UNAVAILABLE - check Secret Manager access and retrieve manually>"
 fi

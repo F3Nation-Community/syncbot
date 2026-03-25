@@ -56,6 +56,11 @@ variable "cloud_run_image" {
   type        = string
   default     = ""
   description = "Container image URL for Cloud Run (e.g. gcr.io/PROJECT/syncbot:latest). Set after first build or by CI."
+
+  validation {
+    condition     = trimspace(var.cloud_run_image) != ""
+    error_message = "cloud_run_image is required. Build/push the SyncBot image and pass -var=cloud_run_image=<image>."
+  }
 }
 
 variable "cloud_run_cpu" {

@@ -57,8 +57,8 @@ You can **skip infra** on an existing stack and jump to GitHub-only setup when p
 Runs from repo root (or `./deploy.sh` → **gcp**). It:
 
 1. Verifies **Terraform**, **gcloud**, **python3**, **curl**; optional **gh** handling (same as AWS).
-2. Guides **auth** (`gcloud auth application-default login` / quota project as needed).
-3. **Terraform** — `init` / `plan` / `apply` in `infra/gcp` with prompts for project, stage, image, DB mode, Slack secrets, etc.; can detect existing Cloud Run / Cloud SQL for defaults.
+2. Guides **auth** (`gcloud auth login` plus `gcloud auth application-default login`; quota project as needed).
+3. **Terraform** — `init` / `plan` / `apply` in `infra/gcp` with prompts for project, stage, image, DB mode, Slack secrets, etc.; can detect existing Cloud Run / Cloud SQL for defaults. `cloud_run_image` is required (no placeholder image fallback).
 4. **Post-deploy** — Manifest generation, optional Slack API, deploy receipt, optional **`gh`** for GitHub.
 
 See [infra/gcp/README.md](../infra/gcp/README.md) for Terraform variables and outputs.
@@ -219,7 +219,7 @@ Set Secret Manager values for Slack/DB as in [infra/gcp/README.md](../infra/gcp/
 
    The interactive `infra/gcp/scripts/deploy.sh` uses the same GitHub `owner/repo` selection as the AWS script (based on git remotes when fork and upstream differ).
 
-**Note:** `.github/workflows/deploy-gcp.yml` may still contain **placeholder** steps in upstream; replace with real **build + push + Cloud Run deploy** (or `terraform apply` with a new image tag) in your fork. The guided `infra/gcp/scripts/deploy.sh` is the source of truth for an interactive path.
+**Note:** `.github/workflows/deploy-gcp.yml` is intentionally configured to fail until real CI steps are implemented (WIF auth, image build/push, deploy). Keep using `infra/gcp/scripts/deploy.sh` for interactive deploys until CI is fully wired.
 
 ### 3. Ongoing deploys
 

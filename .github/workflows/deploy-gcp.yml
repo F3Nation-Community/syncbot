@@ -5,7 +5,7 @@
 # 1. Run infra/gcp Terraform and configure Workload Identity Federation for GitHub.
 # 2. Set GitHub vars: GCP_PROJECT_ID, GCP_REGION, GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT.
 # 3. Set GitHub secrets for Slack/DB/encryption as needed for your CI (or use Secret Manager only).
-# 4. Replace placeholder steps with real build/deploy; disable deploy-aws.yml if using GCP only.
+# 4. This workflow intentionally fails until real build/deploy steps are configured.
 
 name: Deploy (GCP)
 
@@ -39,8 +39,11 @@ jobs:
       # - run: |
       #     gcloud builds submit --tag "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/syncbot-TEST-images/syncbot:${{ github.sha }}" .
 
-      - name: Placeholder (GCP deploy not yet configured)
-        run: echo "Configure Workload Identity Federation and uncomment build/deploy steps in deploy-gcp.yml"
+      - name: Fail until GCP CI is configured
+        run: |
+          echo "GCP CI deploy is not configured in this repository."
+          echo "Implement WIF auth, image build/push, and deploy steps in deploy-gcp.yml before enabling DEPLOY_TARGET=gcp."
+          exit 1
 
   deploy-test:
     if: github.ref == 'refs/heads/test'
@@ -53,7 +56,9 @@ jobs:
       #     workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       #     service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
       # - run: gcloud run deploy syncbot-test --image=... --region=...
-      - run: echo "GCP deploy placeholder"
+      - run: |
+          echo "deploy-test is blocked because GCP CI deploy is not configured."
+          exit 1
 
   deploy-prod:
     if: github.ref == 'refs/heads/prod'
@@ -66,4 +71,6 @@ jobs:
       #     workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       #     service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
       # - run: gcloud run deploy syncbot-prod --image=... --region=...
-      - run: echo "GCP deploy placeholder"
+      - run: |
+          echo "deploy-prod is blocked because GCP CI deploy is not configured."
+          exit 1

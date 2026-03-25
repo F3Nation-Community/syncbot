@@ -29,9 +29,7 @@ SLACK_CLIENT_SECRET_SOURCE=""
 EXISTING_DB_ADMIN_PASSWORD_SOURCE=""
 # Populated before write_deploy_receipt: backup summary + markdown receipt (deploy-receipts/*.md).
 RECEIPT_TOKEN_SECRET_ID=""
-RECEIPT_TOKEN_SECRET_VALUE=""
 RECEIPT_APP_DB_SECRET_NAME=""
-RECEIPT_APP_DB_SECRET_VALUE=""
 
 # shellcheck source=/dev/null
 source "$REPO_ROOT/deploy.sh"
@@ -655,13 +653,67 @@ write_deploy_receipt() {
 - Token secret id: ${RECEIPT_TOKEN_SECRET_ID:-n/a}
 - App DB secret name: ${RECEIPT_APP_DB_SECRET_NAME:-n/a}
 - Reused app DB password from existing secret: ${APP_DB_PASSWORD_REUSED_FROM_SECRET:-no}
-
-## Secret Values (backup with care)
-- TOKEN_ENCRYPTION_KEY: ${RECEIPT_TOKEN_SECRET_VALUE:-n/a}
-- APP_DB_PASSWORD: ${RECEIPT_APP_DB_SECRET_VALUE:-n/a}
 EOF
 
   echo "Deploy receipt written: $receipt_path"
+}
+
+preflight_secrets_manager_access() {
+  local region="$1"
+  local token_secret_id="$2"
+  local app_db_secret_name="$3"
+  local existing_token_secret_arn="${4:-}"
+  local current_secret_id describe_out get_out
+
+  echo
+  echo "=== Secrets Manager Access Preflight ==="
+  echo "Verifying deploy principal can read required SyncBot secrets before SAM deploy..."
+
+  # Validate current principal can read both known secret IDs that this deploy path may use.
+  for current_secret_id in "$token_secret_id" "$app_db_secret_name"; do
+    if [[ -z "$current_secret_id" ]]; then
+      continue
+    fi
+
+    describe_out="$(aws secretsmanager describe-secret \
+      --secret-id "$current_secret_id" \
+      --region "$region" \
+      --query 'ARN' \
+      --output text 2>&1 || true)"
+    if [[ "$describe_out" == *"AccessDenied"* || "$describe_out" == *"not authorized"* ]]; then
+      echo "Secrets Manager preflight failed: missing DescribeSecret on '$current_secret_id'." >&2
+      echo "Fix: re-deploy bootstrap stack to update syncbot deploy policy, then retry." >&2
+      exit 1
+    fi
+
+    get_out="$(aws secretsmanager get-secret-value \
+      --secret-id "$current_secret_id" \
+      --region "$region" \
+      --query 'ARN' \
+      --output text 2>&1 || true)"
+    if [[ "$get_out" == *"AccessDenied"* || "$get_out" == *"not authorized"* ]]; then
+      echo "Secrets Manager preflight failed: missing GetSecretValue on '$current_secret_id'." >&2
+      echo "This commonly breaks CloudFormation when Lambda environment uses dynamic secret references." >&2
+      echo "Fix: re-deploy bootstrap stack to update syncbot deploy policy, then retry." >&2
+      exit 1
+    fi
+  done
+
+  # If explicitly reusing an ARN, validate direct access too.
+  if [[ -n "$existing_token_secret_arn" ]]; then
+    get_out="$(aws secretsmanager get-secret-value \
+      --secret-id "$existing_token_secret_arn" \
+      --region "$region" \
+      --query 'ARN' \
+      --output text 2>&1 || true)"
+    if [[ "$get_out" == *"AccessDenied"* || "$get_out" == *"not authorized"* ]]; then
+      echo "Secrets Manager preflight failed: missing GetSecretValue on '$existing_token_secret_arn'." >&2
+      echo "Fix: re-deploy bootstrap stack to update syncbot deploy policy, then retry." >&2
+      exit 1
+    fi
+  fi
+
+  echo "Secrets Manager preflight passed."
 }
 
 rds_lookup_network_defaults() {
@@ -1534,6 +1586,8 @@ if ! prompt_yes_no "Proceed with build + deploy?" "y"; then
   exit 0
 fi
 
+preflight_secrets_manager_access "$REGION" "$TOKEN_SECRET_NAME" "$APP_DB_SECRET_NAME" "$EXISTING_TOKEN_SECRET_ARN"
+
 handle_orphan_app_db_secret_on_create "$EXISTING_STACK_STATUS" "$APP_DB_SECRET_NAME" "$REGION"
 
 handle_unhealthy_stack_state "$STACK_NAME" "$REGION"
@@ -1614,46 +1668,24 @@ if [[ -n "$SLACK_MANIFEST_GENERATED_PATH" ]]; then
     slack_api_configure_from_manifest "$SLACK_MANIFEST_GENERATED_PATH" "$SYNCBOT_INSTALL_URL"
   fi
 fi
-echo
-echo "=== Backup Secrets Summary ==="
+
+# Prepare secret metadata/value so receipt and final backup output stay in sync.
 if [[ -n "$TOKEN_OVERRIDE" ]]; then
   RECEIPT_TOKEN_SECRET_ID="TokenEncryptionKeyOverride"
-  RECEIPT_TOKEN_SECRET_VALUE="$TOKEN_OVERRIDE"
-  echo "- TOKEN_ENCRYPTION_KEY: supplied via TokenEncryptionKeyOverride during deploy."
-  echo "  Ensure this key is backed up where you store DR secrets."
+  TOKEN_SECRET_ID="TokenEncryptionKeyOverride"
+  TOKEN_SECRET_VALUE="$TOKEN_OVERRIDE"
 else
-  # Display path: name or ARN for console; RECEIPT_* copies the same id/value into write_deploy_receipt.
   TOKEN_SECRET_ID="$TOKEN_SECRET_NAME"
   if [[ -n "$EXISTING_TOKEN_SECRET_ARN" ]]; then
     TOKEN_SECRET_ID="$EXISTING_TOKEN_SECRET_ARN"
   fi
   TOKEN_SECRET_VALUE="$(secret_value_by_id "$TOKEN_SECRET_ID" "$REGION")"
   RECEIPT_TOKEN_SECRET_ID="$TOKEN_SECRET_ID"
-  if [[ -n "$TOKEN_SECRET_VALUE" && "$TOKEN_SECRET_VALUE" != "None" ]]; then
-    RECEIPT_TOKEN_SECRET_VALUE="$TOKEN_SECRET_VALUE"
-  fi
-  echo "- TOKEN_ENCRYPTION_KEY secret: $TOKEN_SECRET_ID"
-  if [[ -n "$TOKEN_SECRET_VALUE" && "$TOKEN_SECRET_VALUE" != "None" ]]; then
-    echo "  TOKEN_ENCRYPTION_KEY value:"
-    echo "  $TOKEN_SECRET_VALUE"
-  else
-    echo "  (Could not read secret value automatically. Check IAM permissions.)"
-  fi
 fi
 
 APP_DB_SECRET_VALUE="$(secret_value_by_id "$APP_DB_SECRET_NAME" "$REGION")"
-# RECEIPT_APP_DB_* mirror console output for the markdown receipt from write_deploy_receipt.
+# RECEIPT_APP_DB_* mirror the deploy artifacts.
 RECEIPT_APP_DB_SECRET_NAME="$APP_DB_SECRET_NAME"
-if [[ -n "$APP_DB_SECRET_VALUE" && "$APP_DB_SECRET_VALUE" != "None" ]]; then
-  RECEIPT_APP_DB_SECRET_VALUE="$APP_DB_SECRET_VALUE"
-fi
-echo "- App DB password secret: $APP_DB_SECRET_NAME"
-if [[ -n "$APP_DB_SECRET_VALUE" && "$APP_DB_SECRET_VALUE" != "None" ]]; then
-  echo "  App DB password value:"
-  echo "  $APP_DB_SECRET_VALUE"
-else
-  echo "  (Could not read secret value automatically. Check IAM permissions.)"
-fi
 
 if prompt_yes_no "Set up GitHub Actions configuration now?" "n"; then
   configure_github_actions_aws \
@@ -1681,3 +1713,23 @@ write_deploy_receipt \
   "$SYNCBOT_API_URL" \
   "$SYNCBOT_INSTALL_URL" \
   "$SLACK_MANIFEST_GENERATED_PATH"
+
+echo
+echo "=== Backup Secrets (Disaster Recovery) ==="
+# IMPORTANT: This deploy script must always print plaintext backup secrets at the end.
+# Do not remove/redact this section; operators rely on it for DR copy-out immediately after deploy.
+echo "Copy these values now and store them in your secure disaster-recovery vault."
+
+echo "- TOKEN_ENCRYPTION_KEY source: $TOKEN_SECRET_ID"
+if [[ -n "$TOKEN_SECRET_VALUE" && "$TOKEN_SECRET_VALUE" != "None" ]]; then
+  echo "  TOKEN_ENCRYPTION_KEY: $TOKEN_SECRET_VALUE"
+else
+  echo "  TOKEN_ENCRYPTION_KEY: <UNAVAILABLE - check Secrets Manager access and retrieve manually>"
+fi
+
+echo "- DATABASE_PASSWORD source: $APP_DB_SECRET_NAME"
+if [[ -n "$APP_DB_SECRET_VALUE" && "$APP_DB_SECRET_VALUE" != "None" ]]; then
+  echo "  DATABASE_PASSWORD: $APP_DB_SECRET_VALUE"
+else
+  echo "  DATABASE_PASSWORD: <UNAVAILABLE - check Secrets Manager access and retrieve manually>"
+fi

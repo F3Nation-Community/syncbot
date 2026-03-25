@@ -45,8 +45,6 @@ locals {
   )
   db_schema = var.use_existing_database ? var.existing_db_schema : "syncbot"
   db_user   = var.use_existing_database ? var.existing_db_user : "syncbot_app"
-  # Image: variable or placeholder until first image push
-  cloud_run_image_effective = var.cloud_run_image != "" ? var.cloud_run_image : "us-docker.pkg.dev/cloudrun/container/hello"
 }
 
 # ---------------------------------------------------------------------------
@@ -250,7 +248,7 @@ resource "google_cloud_run_v2_service" "syncbot" {
     }
 
     containers {
-      image = local.cloud_run_image_effective
+      image = var.cloud_run_image
 
       resources {
         limits = {
