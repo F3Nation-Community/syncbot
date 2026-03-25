@@ -45,6 +45,29 @@ locals {
   )
   db_schema = var.use_existing_database ? var.existing_db_schema : "syncbot"
   db_user   = var.use_existing_database ? var.existing_db_user : "syncbot_app"
+
+  # Non-secret Cloud Run env (see docs/INFRA_CONTRACT.md)
+  syncbot_public_url_effective = trimspace(var.syncbot_public_url_override) != "" ? trimspace(var.syncbot_public_url_override) : ""
+  runtime_plain_env = merge(
+    {
+      DATABASE_HOST                = local.db_host
+      DATABASE_USER                = local.db_user
+      DATABASE_SCHEMA              = local.db_schema
+      DATABASE_BACKEND             = var.database_backend
+      DATABASE_PORT                = var.database_port
+      SLACK_USER_SCOPES            = var.slack_user_scopes
+      LOG_LEVEL                    = var.log_level
+      REQUIRE_ADMIN                = var.require_admin
+      SLACK_BOT_TOKEN              = "123"
+      SOFT_DELETE_RETENTION_DAYS   = tostring(var.soft_delete_retention_days)
+      SYNCBOT_FEDERATION_ENABLED   = var.syncbot_federation_enabled ? "true" : "false"
+    },
+    var.syncbot_instance_id != "" ? { SYNCBOT_INSTANCE_ID = var.syncbot_instance_id } : {},
+    local.syncbot_public_url_effective != "" ? { SYNCBOT_PUBLIC_URL = trimsuffix(local.syncbot_public_url_effective, "/") } : {},
+    trimspace(var.enable_db_reset) != "" ? { ENABLE_DB_RESET = var.enable_db_reset } : {},
+    var.database_tls_enabled != "" ? { DATABASE_TLS_ENABLED = var.database_tls_enabled } : {},
+    trimspace(var.database_ssl_ca_path) != "" ? { DATABASE_SSL_CA_PATH = var.database_ssl_ca_path } : {},
+  )
 }
 
 # ---------------------------------------------------------------------------
@@ -257,26 +280,12 @@ resource "google_cloud_run_v2_service" "syncbot" {
         }
       }
 
-      env {
-        name  = "DATABASE_HOST"
-        value = local.db_host
-      }
-      env {
-        name  = "DATABASE_USER"
-        value = local.db_user
-      }
-      env {
-        name  = "DATABASE_SCHEMA"
-        value = local.db_schema
-      }
-      # Runtime user OAuth scopes — must match slack-manifest.json and USER_SCOPES in slack_manifest_scopes.py
-      env {
-        name  = "SLACK_USER_SCOPES"
-        value = var.slack_user_scopes
-      }
-      env {
-        name  = "LOG_LEVEL"
-        value = var.log_level
+      dynamic "env" {
+        for_each = local.runtime_plain_env
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
 
       dynamic "env" {

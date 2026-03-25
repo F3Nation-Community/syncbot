@@ -9,6 +9,7 @@
 #
 # Prerequisite helpers below are also sourced by infra/*/scripts/deploy.sh:
 #   source "$REPO_ROOT/deploy.sh"
+# Also includes prompt_deploy_tasks_aws / prompt_deploy_tasks_gcp for multi-select deploy steps.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -234,6 +235,101 @@ prompt_log_level() {
   done
 }
 
+# App settings (used by infra/aws and infra/gcp deploy scripts). Hints on stderr; value on stdout.
+
+prompt_require_admin() {
+  local default="$1"
+  echo "Restrict sync configuration to workspace admins and owners only." >&2
+  local hint="Y/n"
+  [[ "$default" == "false" ]] && hint="y/N"
+  while true; do
+    local answer
+    read -r -p "REQUIRE_ADMIN [$hint]: " answer
+    if [[ -z "$answer" ]]; then
+      echo "$default"
+      return 0
+    fi
+    case "$answer" in
+      [Yy] | yes | YES | true | TRUE) echo "true"; return 0 ;;
+      [Nn] | no | NO | false | FALSE) echo "false"; return 0 ;;
+    esac
+    echo "Enter y or n (current: $default)." >&2
+  done
+}
+
+prompt_soft_delete_retention_days() {
+  local default="$1"
+  echo "Days to keep soft-deleted workspace data before permanent purge." >&2
+  while true; do
+    local v
+    read -r -p "SOFT_DELETE_RETENTION_DAYS [$default]: " v
+    v="${v:-$default}"
+    if [[ "$v" =~ ^[0-9]+$ ]] && [[ "$v" -gt 0 ]]; then
+      echo "$v"
+      return 0
+    fi
+    echo "Enter a positive integer." >&2
+  done
+}
+
+prompt_enable_db_reset() {
+  local default="$1"
+  echo "WARNING: When set to a Slack Team ID, a \"Reset Database\" button appears on the Home tab." >&2
+  echo "Clicking it DROPS and reinitializes the entire database -- all data is permanently destroyed." >&2
+  echo "Leave empty (or enter none/disabled) to turn this off." >&2
+  local disp
+  if [[ -z "$default" ]]; then
+    disp="(disabled)"
+  else
+    disp="$default"
+  fi
+  local v
+  read -r -p "ENABLE_DB_RESET (Slack Team ID) [$disp]: " v
+  v="${v:-$default}"
+  case "$(echo "$v" | tr "[:upper:]" "[:lower:]")" in
+    "" | none | disabled) echo "" ;;
+    *) echo "$v" ;;
+  esac
+}
+
+prompt_federation_enabled() {
+  local default="$1"
+  echo "Allow external connections between SyncBot instances (federation)." >&2
+  local hint="y/N"
+  [[ "$default" == "true" ]] && hint="Y/n"
+  while true; do
+    local answer
+    read -r -p "SYNCBOT_FEDERATION_ENABLED [$hint]: " answer
+    if [[ -z "$answer" ]]; then
+      echo "$default"
+      return 0
+    fi
+    case "$answer" in
+      [Yy] | yes | YES | true | TRUE) echo "true"; return 0 ;;
+      [Nn] | no | NO | false | FALSE) echo "false"; return 0 ;;
+    esac
+    echo "Enter y or n (current: $default)." >&2
+  done
+}
+
+prompt_instance_id() {
+  local default="$1"
+  echo "Unique UUID for this SyncBot instance (leave empty to auto-generate at runtime)." >&2
+  local disp="${default:-(empty)}"
+  local v
+  read -r -p "SYNCBOT_INSTANCE_ID [$disp]: " v
+  echo "${v:-$default}"
+}
+
+prompt_public_url() {
+  local default="$1"
+  echo "Public HTTPS base URL for this instance (required for federation)." >&2
+  local disp="${default:-(empty)}"
+  local v
+  read -r -p "SYNCBOT_PUBLIC_URL [$disp]: " v
+  echo "${v:-$default}"
+}
+
 # Parse owner/repo from a github.com git remote URL (ssh, https, ssh://). Empty if not GitHub.
 github_owner_repo_from_url() {
   local url="$1"
@@ -382,6 +478,72 @@ prompt_github_repo_for_actions() {
     fi
     echo "Invalid choice. Enter 1-$nlines or owner/repo." >&2
   done
+}
+
+# ---------------------------------------------------------------------------
+# Deploy task selection (used by infra/aws and infra/gcp deploy scripts).
+# Sets global variables named in flag_names to "true" or "false".
+# ---------------------------------------------------------------------------
+
+_prompt_deploy_tasks_parsechoices() {
+  local choices_raw="${1:-}"
+  shift
+  local -a flag_names=("$@")
+  local n="${#flag_names[@]}"
+  local i name def="" part idx
+  for name in "${flag_names[@]}"; do
+    eval "${name}=false"
+  done
+  for ((i = 1; i <= n; i++)); do
+    [[ -n "$def" ]] && def+=","
+    def+="$i"
+  done
+  local choices="${choices_raw// /}"
+  [[ -z "$choices" ]] && choices="$def"
+  IFS=',' read -r -a parts <<<"$choices"
+  for part in "${parts[@]}"; do
+    part="${part// /}"
+    [[ -z "$part" ]] && continue
+    if [[ "$part" =~ ^[0-9]+$ ]]; then
+      idx="$part"
+      if [[ "$idx" -ge 1 && "$idx" -le "$n" ]]; then
+        eval "${flag_names[$((idx - 1))]}=true"
+      else
+        echo "Invalid task number: $part (must be 1-$n)" >&2
+        exit 1
+      fi
+    else
+      echo "Invalid task selection: $part (use comma-separated numbers)" >&2
+      exit 1
+    fi
+  done
+}
+
+prompt_deploy_tasks_aws() {
+  echo "=== Deploy Tasks ==="
+  printf '  1) %s\n' "Bootstrap - Create/sync bootstrap stack"
+  printf '  2) %s\n' "Build/Deploy - SAM build + deploy"
+  printf '  3) %s\n' "CI/CD - GitHub Actions configuration"
+  printf '  4) %s\n' "Slack API - Configure Slack app via API"
+  printf '  5) %s\n' "Backup Secrets - Print DR backup secrets"
+  local default_all="1,2,3,4,5"
+  local choices=""
+  read -r -e -p "Select tasks (comma-separated) [$default_all]: " choices
+  choices="${choices:-$default_all}"
+  _prompt_deploy_tasks_parsechoices "$choices" TASK_BOOTSTRAP TASK_BUILD_DEPLOY TASK_CICD TASK_SLACK_API TASK_BACKUP_SECRETS
+}
+
+prompt_deploy_tasks_gcp() {
+  echo "=== Deploy Tasks ==="
+  printf '  1) %s\n' "Build/Deploy - Terraform plan + apply"
+  printf '  2) %s\n' "CI/CD - GitHub Actions configuration"
+  printf '  3) %s\n' "Slack API - Configure Slack app via API"
+  printf '  4) %s\n' "Backup Secrets - Print DR backup secrets"
+  local default_all="1,2,3,4"
+  local choices=""
+  read -r -e -p "Select tasks (comma-separated) [$default_all]: " choices
+  choices="${choices:-$default_all}"
+  _prompt_deploy_tasks_parsechoices "$choices" TASK_BUILD_DEPLOY TASK_CICD TASK_SLACK_API TASK_BACKUP_SECRETS
 }
 
 # When sourced by infra/*/scripts/deploy.sh, only load helpers above.

@@ -105,6 +105,12 @@ jobs:
                ExistingDatabaseLambdaSecurityGroupId=${{ vars.EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID }} \
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
+               RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \
+               SoftDeleteRetentionDays=${{ vars.SOFT_DELETE_RETENTION_DAYS || '30' }} \
+               SyncbotFederationEnabled=${{ vars.SYNCBOT_FEDERATION_ENABLED || 'false' }} \
+               SyncbotInstanceId=${{ vars.SYNCBOT_INSTANCE_ID }} \
+               SyncbotPublicUrl=${{ vars.SYNCBOT_PUBLIC_URL }} \
+               EnableDbReset=${{ vars.ENABLE_DB_RESET }} \
                SlackClientID=${{ vars.SLACK_CLIENT_ID }} \
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
@@ -160,6 +166,12 @@ jobs:
                ExistingDatabaseLambdaSecurityGroupId=${{ vars.EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID }} \
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
+               RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \
+               SoftDeleteRetentionDays=${{ vars.SOFT_DELETE_RETENTION_DAYS || '30' }} \
+               SyncbotFederationEnabled=${{ vars.SYNCBOT_FEDERATION_ENABLED || 'false' }} \
+               SyncbotInstanceId=${{ vars.SYNCBOT_INSTANCE_ID }} \
+               SyncbotPublicUrl=${{ vars.SYNCBOT_PUBLIC_URL }} \
+               EnableDbReset=${{ vars.ENABLE_DB_RESET }} \
                SlackClientID=${{ vars.SLACK_CLIENT_ID }} \
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \

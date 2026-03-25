@@ -6,11 +6,9 @@
 # Phases (main path):
 #   1) Prerequisites (terraform, gcloud, python3, curl)
 #   2) Project, region, stage; detect existing Cloud Run service
-#   3) Database source: USE_EXISTING true = external DB only (skip Cloud SQL); false = Terraform-managed DB path
-#   4) Container image var for Cloud Run
-#   5) terraform init / plan / apply
-#   6) Stage Slack manifest, optional Slack API configure
-#   7) Deploy receipt, print-bootstrap-outputs, optional GitHub Actions vars
+#   3) Deploy Tasks: multi-select menu (build/deploy, CI/CD, Slack API, backup secrets)
+#   4) Configuration (if build/deploy): database, image, log level, terraform init/plan/apply
+#   5) Post-tasks: Slack manifest/API, deploy receipt, print-bootstrap-outputs, GitHub Actions, DR secrets
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +19,7 @@ SLACK_MANIFEST_GENERATED_PATH=""
 # shellcheck source=/dev/null
 source "$REPO_ROOT/deploy.sh"
 
+echo "=== Prerequisites ==="
 prereqs_require_cmd terraform prereqs_hint_terraform
 prereqs_require_cmd gcloud prereqs_hint_gcloud
 prereqs_require_cmd python3 prereqs_hint_python3
@@ -531,6 +530,8 @@ if [[ -z "$PROJECT_ID" ]]; then
 fi
 
 REGION="$(prompt_line "GCP region" "${GCP_REGION:-us-central1}")"
+echo
+echo "=== Authentication ==="
 ensure_gcloud_authenticated
 ensure_gcloud_adc_authenticated
 gcloud config set project "$PROJECT_ID" >/dev/null 2>&1 || true
@@ -553,6 +554,21 @@ if [[ -n "$EXISTING_SERVICE_URL" ]]; then
 fi
 
 echo
+prompt_deploy_tasks_gcp
+
+if [[ "$TASK_BUILD_DEPLOY" != "true" ]]; then
+  if [[ "$TASK_CICD" == "true" || "$TASK_SLACK_API" == "true" || "$TASK_BACKUP_SECRETS" == "true" ]]; then
+    cd "$GCP_DIR"
+    if ! terraform output -raw service_url &>/dev/null; then
+      echo "Error: No Terraform outputs found in $GCP_DIR. Select task 1 (Build/Deploy) first." >&2
+      exit 1
+    fi
+  fi
+fi
+
+if [[ "$TASK_BUILD_DEPLOY" == "true" ]]; then
+echo
+echo "=== Configuration ==="
 echo "=== Database Source ==="
 # USE_EXISTING=true: point Terraform at an external DB only (use_existing_database); skip creating Cloud SQL.
 # USE_EXISTING_DEFAULT: y/n default for the prompt when redeploying without a managed instance for this stage.
@@ -601,6 +617,8 @@ DETECTED_CLOUD_IMAGE=""
 if [[ -n "$EXISTING_SERVICE_URL" ]]; then
   DETECTED_CLOUD_IMAGE="$(cloud_run_image_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME")"
 fi
+echo
+echo "=== Container Image ==="
 CLOUD_IMAGE="$(prompt_line "cloud_run_image (required)" "$DETECTED_CLOUD_IMAGE")"
 if [[ -z "$CLOUD_IMAGE" ]]; then
   echo "Error: cloud_run_image is required. Build and push the SyncBot image first, then rerun." >&2
@@ -623,17 +641,79 @@ echo
 echo "=== Log Level ==="
 LOG_LEVEL="$(prompt_log_level "$LOG_LEVEL_DEFAULT")"
 
+# Preserve optional runtime env on redeploy (Terraform defaults otherwise).
+REQUIRE_ADMIN_DEFAULT="true"
+SOFT_DELETE_DEFAULT="30"
+SYNCBOT_PUBLIC_DEFAULT=""
+SYNCBOT_FEDERATION_DEFAULT="false"
+INSTANCE_ID_VAR=""
+ENABLE_DB_RESET_VAR=""
+DB_TLS_VAR=""
+DB_SSL_CA_VAR=""
+DB_BACKEND="mysql"
+DB_PORT="3306"
+if [[ -n "$EXISTING_SERVICE_URL" ]]; then
+  DETECTED_RA="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "REQUIRE_ADMIN")"
+  [[ -n "$DETECTED_RA" ]] && REQUIRE_ADMIN_DEFAULT="$DETECTED_RA"
+  DETECTED_SD="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "SOFT_DELETE_RETENTION_DAYS")"
+  if [[ "$DETECTED_SD" =~ ^[0-9]+$ ]]; then
+    SOFT_DELETE_DEFAULT="$DETECTED_SD"
+  fi
+  SYNCBOT_PUBLIC_DEFAULT="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "SYNCBOT_PUBLIC_URL")"
+  DETECTED_FED="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "SYNCBOT_FEDERATION_ENABLED")"
+  if [[ "$DETECTED_FED" == "true" ]]; then
+    SYNCBOT_FEDERATION_DEFAULT="true"
+  elif [[ "$DETECTED_FED" == "false" ]]; then
+    SYNCBOT_FEDERATION_DEFAULT="false"
+  fi
+  DETECTED_INSTANCE_ID="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "SYNCBOT_INSTANCE_ID")"
+  INSTANCE_ID_VAR="${DETECTED_INSTANCE_ID:-}"
+  DETECTED_ER="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "ENABLE_DB_RESET")"
+  ENABLE_DB_RESET_VAR="${DETECTED_ER:-}"
+  DETECTED_DB_TLS="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_TLS_ENABLED")"
+  DB_TLS_VAR="${DETECTED_DB_TLS:-}"
+  DETECTED_DB_SSL_CA="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_SSL_CA_PATH")"
+  DB_SSL_CA_VAR="${DETECTED_DB_SSL_CA:-}"
+  DETECTED_DB_BACKEND="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_BACKEND")"
+  [[ -n "$DETECTED_DB_BACKEND" ]] && DB_BACKEND="$DETECTED_DB_BACKEND"
+  DETECTED_DB_PORT="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_PORT")"
+  [[ -n "$DETECTED_DB_PORT" ]] && DB_PORT="$DETECTED_DB_PORT"
+fi
+
+echo
+echo "=== App Settings ==="
+REQUIRE_ADMIN_DEFAULT="$(prompt_require_admin "$REQUIRE_ADMIN_DEFAULT")"
+SOFT_DELETE_DEFAULT="$(prompt_soft_delete_retention_days "$SOFT_DELETE_DEFAULT")"
+ENABLE_DB_RESET_VAR="$(prompt_enable_db_reset "$ENABLE_DB_RESET_VAR")"
+SYNCBOT_FEDERATION_DEFAULT="$(prompt_federation_enabled "$SYNCBOT_FEDERATION_DEFAULT")"
+if [[ "$SYNCBOT_FEDERATION_DEFAULT" == "true" ]]; then
+  INSTANCE_ID_VAR="$(prompt_instance_id "$INSTANCE_ID_VAR")"
+  SYNCBOT_PUBLIC_DEFAULT="$(prompt_public_url "$SYNCBOT_PUBLIC_DEFAULT")"
+fi
+
 echo
 echo "=== Terraform Init ==="
 echo "Running: terraform init"
 cd "$GCP_DIR"
 terraform init
 
+# TF_VAR_* avoids shell parsing issues when the URL contains & or other metacharacters.
+export TF_VAR_syncbot_public_url_override="$SYNCBOT_PUBLIC_DEFAULT"
+
 VARS=(
   "-var=project_id=$PROJECT_ID"
   "-var=region=$REGION"
   "-var=stage=$STAGE"
   "-var=log_level=$LOG_LEVEL"
+  "-var=require_admin=$REQUIRE_ADMIN_DEFAULT"
+  "-var=soft_delete_retention_days=$SOFT_DELETE_DEFAULT"
+  "-var=syncbot_federation_enabled=$SYNCBOT_FEDERATION_DEFAULT"
+  "-var=syncbot_instance_id=${INSTANCE_ID_VAR:-}"
+  "-var=enable_db_reset=${ENABLE_DB_RESET_VAR:-}"
+  "-var=database_tls_enabled=${DB_TLS_VAR:-}"
+  "-var=database_ssl_ca_path=${DB_SSL_CA_VAR:-}"
+  "-var=database_backend=${DB_BACKEND:-mysql}"
+  "-var=database_port=${DB_PORT:-3306}"
 )
 
 if [[ "$USE_EXISTING" == "true" ]]; then
@@ -649,95 +729,123 @@ fi
 VARS+=("-var=cloud_run_image=$CLOUD_IMAGE")
 
 echo
-echo "Log level: $LOG_LEVEL"
+echo "Require admin:    $REQUIRE_ADMIN_DEFAULT"
+echo "Soft-delete days: $SOFT_DELETE_DEFAULT"
+echo "Log level:        $LOG_LEVEL"
+if [[ -n "$ENABLE_DB_RESET_VAR" ]]; then
+  echo "DB reset (team):  $ENABLE_DB_RESET_VAR"
+else
+  echo "DB reset (team):  (disabled)"
+fi
+if [[ "$SYNCBOT_FEDERATION_DEFAULT" == "true" ]]; then
+  echo "Federation:       enabled"
+  [[ -n "$INSTANCE_ID_VAR" ]] && echo "Instance ID:      $INSTANCE_ID_VAR"
+  [[ -n "$SYNCBOT_PUBLIC_DEFAULT" ]] && echo "Public URL:       $SYNCBOT_PUBLIC_DEFAULT"
+fi
 echo
 echo "=== Terraform Plan ==="
-if ! prompt_yn "Run terraform plan?" "y"; then
-  echo "Skipped. Run manually from infra/gcp:"
-  echo "  terraform plan ${VARS[*]}"
-  exit 0
-fi
-
 terraform plan "${VARS[@]}"
 
 echo
 echo "=== Terraform Apply ==="
-if ! prompt_yn "Apply changes (terraform apply)?" "y"; then
-  echo "Aborted."
-  exit 0
-fi
-
 terraform apply -auto-approve "${VARS[@]}"
 
 echo
 echo "=== Apply Complete ==="
 SERVICE_URL="$(terraform output -raw service_url 2>/dev/null || true)"
+
+else
+  echo
+  echo "Skipping Build/Deploy (task 1 not selected)."
+  cd "$GCP_DIR"
+  SERVICE_URL="$(terraform output -raw service_url 2>/dev/null || true)"
+fi
+
 SYNCBOT_API_URL=""
 SYNCBOT_INSTALL_URL=""
 if [[ -n "$SERVICE_URL" ]]; then
   SYNCBOT_API_URL="${SERVICE_URL%/}/slack/events"
   SYNCBOT_INSTALL_URL="${SERVICE_URL%/}/slack/install"
 fi
-generate_stage_slack_manifest "$STAGE" "$SYNCBOT_API_URL" "$SYNCBOT_INSTALL_URL"
-if [[ -n "$SLACK_MANIFEST_GENERATED_PATH" ]]; then
-  if prompt_yn "Configure Slack app via Slack API now (create or update from generated manifest)?" "n"; then
-    slack_api_configure_from_manifest "$SLACK_MANIFEST_GENERATED_PATH" "$SYNCBOT_INSTALL_URL"
-  fi
+
+echo
+echo "=== Post-Deploy ==="
+if [[ "$TASK_BUILD_DEPLOY" == "true" ]]; then
+  echo "Deploy complete."
 fi
 
-write_deploy_receipt \
-  "gcp" \
-  "$STAGE" \
-  "$PROJECT_ID" \
-  "$REGION" \
-  "$SERVICE_URL" \
-  "$SYNCBOT_INSTALL_URL" \
-  "$SLACK_MANIFEST_GENERATED_PATH"
+if [[ "$TASK_SLACK_API" == "true" || "$TASK_BUILD_DEPLOY" == "true" ]]; then
+  generate_stage_slack_manifest "$STAGE" "$SYNCBOT_API_URL" "$SYNCBOT_INSTALL_URL"
+fi
 
-echo "Next:"
-echo "  1) Set Secret Manager values for Slack (see infra/gcp/README.md)."
-echo "  2) Build and push container image; update cloud_run_image and re-apply when image changes."
-echo "  3) Run: ./infra/gcp/scripts/print-bootstrap-outputs.sh"
-bash "$SCRIPT_DIR/print-bootstrap-outputs.sh" || true
+if [[ "$TASK_SLACK_API" == "true" ]] && [[ -n "${SLACK_MANIFEST_GENERATED_PATH:-}" ]]; then
+  slack_api_configure_from_manifest "$SLACK_MANIFEST_GENERATED_PATH" "$SYNCBOT_INSTALL_URL"
+fi
 
-if prompt_yn "Set up GitHub Actions configuration now?" "n"; then
+if [[ "$TASK_BUILD_DEPLOY" == "true" ]]; then
+  echo
+  echo "=== Deploy Receipt ==="
+  write_deploy_receipt \
+    "gcp" \
+    "$STAGE" \
+    "$PROJECT_ID" \
+    "$REGION" \
+    "$SERVICE_URL" \
+    "$SYNCBOT_INSTALL_URL" \
+    "$SLACK_MANIFEST_GENERATED_PATH"
+
+  echo "Next:"
+  echo "  1) Set Secret Manager values for Slack (see infra/gcp/README.md)."
+  echo "  2) Build and push container image; update cloud_run_image and re-apply when image changes."
+  echo "  3) Run: ./infra/gcp/scripts/print-bootstrap-outputs.sh"
+  bash "$SCRIPT_DIR/print-bootstrap-outputs.sh" || true
+fi
+
+if [[ "$TASK_CICD" == "true" ]]; then
   configure_github_actions_gcp "$PROJECT_ID" "$REGION" "$GCP_DIR" "$STAGE"
 fi
 
-TOKEN_SECRET_NAME="$(terraform output -raw token_encryption_secret_name 2>/dev/null || true)"
-TOKEN_SECRET_NAME="${TOKEN_SECRET_NAME##*/secrets/}"
-DB_SECRET_NAME="$(cloud_run_secret_name "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_PASSWORD")"
+TOKEN_SECRET_NAME=""
+DB_SECRET_NAME=""
 TOKEN_SECRET_VALUE=""
 DB_SECRET_VALUE=""
-if [[ -n "$TOKEN_SECRET_NAME" ]]; then
-  TOKEN_SECRET_VALUE="$(secret_latest_value "$PROJECT_ID" "$TOKEN_SECRET_NAME")"
-fi
-if [[ -n "$DB_SECRET_NAME" ]]; then
-  DB_SECRET_VALUE="$(secret_latest_value "$PROJECT_ID" "$DB_SECRET_NAME")"
+if [[ "$TASK_BUILD_DEPLOY" == "true" || "$TASK_BACKUP_SECRETS" == "true" ]]; then
+  cd "$GCP_DIR"
+  TOKEN_SECRET_NAME="$(terraform output -raw token_encryption_secret_name 2>/dev/null || true)"
+  TOKEN_SECRET_NAME="${TOKEN_SECRET_NAME##*/secrets/}"
+  DB_SECRET_NAME="$(cloud_run_secret_name "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_PASSWORD")"
+  if [[ -n "$TOKEN_SECRET_NAME" ]]; then
+    TOKEN_SECRET_VALUE="$(secret_latest_value "$PROJECT_ID" "$TOKEN_SECRET_NAME")"
+  fi
+  if [[ -n "$DB_SECRET_NAME" ]]; then
+    DB_SECRET_VALUE="$(secret_latest_value "$PROJECT_ID" "$DB_SECRET_NAME")"
+  fi
 fi
 
-echo
-echo "=== Backup Secrets (Disaster Recovery) ==="
-# IMPORTANT: This deploy script must always print plaintext backup secrets at the end.
-# Do not remove/redact this section; operators rely on it for DR copy-out immediately after deploy.
-echo "Copy these values now and store them in your secure disaster-recovery vault."
-if [[ -n "$TOKEN_SECRET_NAME" ]]; then
-  echo "- TOKEN_ENCRYPTION_KEY source: $TOKEN_SECRET_NAME"
-else
-  echo "- TOKEN_ENCRYPTION_KEY source: <UNAVAILABLE>"
-fi
-if [[ -n "$TOKEN_SECRET_VALUE" ]]; then
-  echo "  TOKEN_ENCRYPTION_KEY: $TOKEN_SECRET_VALUE"
-else
-  echo "  TOKEN_ENCRYPTION_KEY: <UNAVAILABLE - check Secret Manager access and retrieve manually>"
-fi
-if [[ -n "$DB_SECRET_NAME" ]]; then
-  echo "- DATABASE_PASSWORD source: $DB_SECRET_NAME"
-else
-  echo "- DATABASE_PASSWORD source: <UNAVAILABLE>"
-fi
-if [[ -n "$DB_SECRET_VALUE" ]]; then
-  echo "  DATABASE_PASSWORD: $DB_SECRET_VALUE"
-else
-  echo "  DATABASE_PASSWORD: <UNAVAILABLE - check Secret Manager access and retrieve manually>"
+if [[ "$TASK_BACKUP_SECRETS" == "true" ]]; then
+  echo
+  echo "=== Backup Secrets (Disaster Recovery) ==="
+  # IMPORTANT: When Backup Secrets is selected, print plaintext backup secrets here.
+  # Do not remove/redact this section; operators rely on it for DR copy-out.
+  echo "Copy these values now and store them in your secure disaster-recovery vault."
+  if [[ -n "$TOKEN_SECRET_NAME" ]]; then
+    echo "- TOKEN_ENCRYPTION_KEY source: $TOKEN_SECRET_NAME"
+  else
+    echo "- TOKEN_ENCRYPTION_KEY source: <UNAVAILABLE>"
+  fi
+  if [[ -n "$TOKEN_SECRET_VALUE" ]]; then
+    echo "  TOKEN_ENCRYPTION_KEY: $TOKEN_SECRET_VALUE"
+  else
+    echo "  TOKEN_ENCRYPTION_KEY: <UNAVAILABLE - check Secret Manager access and retrieve manually>"
+  fi
+  if [[ -n "$DB_SECRET_NAME" ]]; then
+    echo "- DATABASE_PASSWORD source: $DB_SECRET_NAME"
+  else
+    echo "- DATABASE_PASSWORD source: <UNAVAILABLE>"
+  fi
+  if [[ -n "$DB_SECRET_VALUE" ]]; then
+    echo "  DATABASE_PASSWORD: $DB_SECRET_VALUE"
+  else
+    echo "  DATABASE_PASSWORD: <UNAVAILABLE - check Secret Manager access and retrieve manually>"
+  fi
 fi

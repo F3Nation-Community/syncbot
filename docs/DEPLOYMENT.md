@@ -45,12 +45,11 @@ Runs from repo root (or via `./deploy.sh` → **aws**). It:
 
 1. **Prerequisites** — Verifies `aws`, `sam`, `docker`, `python3`, `curl` are on `PATH` (with install hints). Prints a status matrix; if optional `gh` is missing, shows install hints and asks whether to continue. Prints Slack app / API token / manifest API links.
 2. **AWS auth** — Checks credentials; suggests `aws login`, SSO, or `aws configure` as appropriate.
-3. **Bootstrap** — Reads or deploys the CloudFormation bootstrap stack (`infra/aws/template.bootstrap.yaml`): OIDC deploy role, S3 artifact bucket, etc. When bootstrap already exists, the script also syncs it from the checked-in template (with `--no-fail-on-empty-changeset`) so IAM policy updates are applied automatically; set `SYNCBOT_SKIP_BOOTSTRAP_SYNC=1` to skip.
-4. **App stack** — Prompts for stage (`test`/`prod`) and stack name; **database source** (stack-managed RDS vs existing RDS host) and **engine** (MySQL vs PostgreSQL). Then **Slack app credentials** (signing secret, client secret, client ID). **Existing database host** mode: RDS endpoint, admin user/password, **public vs private** network mode, and for **private** mode: subnet IDs and Lambda security group (with optional auto-detect and **connectivity preflight**). **New RDS in stack** mode: summarizes auto-generated DB users and prompts for **DatabaseSchema**. After that: optional **token encryption** recovery override, **log level** (numbered list `1`–`5` with `Choose level [N]:`, default from prior stack or **INFO**), and a **deploy summary** before you proceed to the build.
-5. **Deploy artifacts** — `sam build -t infra/aws/template.yaml --use-container` then `sam deploy` with assembled parameters (including optional token/app-secret overrides for recovery).
-6. **Post-deploy** — Prints stack outputs, can generate `slack-manifest_<stage>.json`, optional Slack API configure, **backup summary** of secrets, optional **`gh`** setup for GitHub environments/variables/secrets, and a local **deploy receipt** under `deploy-receipts/` (gitignored).
-
-You can **skip infra** on an existing stack and jump to GitHub-only setup when prompted.
+3. **Bootstrap probe** — Reads bootstrap stack outputs if the stack exists (for suggested stack names and later CI/CD). Full **bootstrap** create/sync runs only if you select it in **Deploy Tasks** (see below).
+4. **App stack identity** — Prompts for stage (`test`/`prod`) and stack name; detects an existing CloudFormation stack for update.
+5. **Deploy Tasks** — Multi-select menu (comma-separated, default all): **Bootstrap** (create/sync bootstrap stack; respects `SYNCBOT_SKIP_BOOTSTRAP_SYNC=1` for sync), **Build/Deploy** (full config + SAM), **CI/CD** (`gh` / GitHub Actions), **Slack API**, **Backup Secrets** (DR plaintext echo). Omitting **Build/Deploy** requires an existing stack for tasks that need live outputs.
+6. **Configuration** (if Build/Deploy selected) — **Database source** (stack-managed RDS vs existing RDS host) and **engine** (MySQL vs PostgreSQL). **Slack app credentials** (signing secret, client secret, client ID). **Existing database host** mode: RDS endpoint, admin user/password, **public vs private** network mode, and for **private** mode: subnet IDs and Lambda security group (with optional auto-detect and **connectivity preflight**). **New RDS in stack** mode: summarizes auto-generated DB users and prompts for **DatabaseSchema**. Optional **token encryption** recovery override, **log level** (numbered list `1`–`5` with `Choose level [N]:`, default from prior stack or **INFO**), **deploy summary**, then **SAM build** (`--use-container`) and **sam deploy**.
+7. **Post-deploy** — According to selected tasks: stack outputs, `slack-manifest_<stage>.json`, Slack API, **`gh`** setup, deploy receipt under `deploy-receipts/` (gitignored), and DR backup lines.
 
 ### GCP: `infra/gcp/scripts/deploy.sh`
 
@@ -58,8 +57,10 @@ Runs from repo root (or `./deploy.sh` → **gcp**). It:
 
 1. Verifies **Terraform**, **gcloud**, **python3**, **curl**; optional **gh** handling (same as AWS).
 2. Guides **auth** (`gcloud auth login` plus `gcloud auth application-default login`; quota project as needed).
-3. **Terraform** — `init` / `plan` / `apply` in `infra/gcp` with prompts for project, stage, image, DB mode, Slack secrets, etc.; can detect existing Cloud Run / Cloud SQL for defaults. `cloud_run_image` is required (no placeholder image fallback).
-4. **Post-deploy** — Manifest generation, optional Slack API, deploy receipt, optional **`gh`** for GitHub.
+3. **Project / stage / existing service** — Prompts for project, region, stage; can detect existing Cloud Run for defaults.
+4. **Deploy Tasks** — Multi-select menu (comma-separated, default all): **Build/Deploy** (full Terraform flow), **CI/CD**, **Slack API**, **Backup Secrets**. Skipping **Build/Deploy** requires existing Terraform state/outputs for tasks that need them.
+5. **Terraform** (if Build/Deploy selected) — Prompts for DB mode, `cloud_run_image` (required), log level, etc.; `terraform init` / `plan` / `apply` in `infra/gcp` (no separate y/n gates on plan/apply).
+6. **Post-deploy** — According to selected tasks: manifest, Slack API, deploy receipt, **`gh`**, `print-bootstrap-outputs.sh`, DR backup lines.
 
 See [infra/gcp/README.md](../infra/gcp/README.md) for Terraform variables and outputs.
 

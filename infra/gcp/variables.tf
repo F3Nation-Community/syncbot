@@ -166,3 +166,87 @@ variable "secret_db_password" {
   default     = "syncbot-db-password"
   description = "Secret Manager secret ID for DATABASE_PASSWORD (used when use_existing_database = true or with Cloud SQL)"
 }
+
+# ---------------------------------------------------------------------------
+# Runtime plain env (Cloud Run) — parity with infra/aws/template.yaml
+# ---------------------------------------------------------------------------
+
+variable "database_backend" {
+  type        = string
+  default     = "mysql"
+  description = "DATABASE_BACKEND; Cloud SQL in this stack is MySQL 8."
+
+  validation {
+    condition     = contains(["mysql", "postgresql"], var.database_backend)
+    error_message = "database_backend must be mysql or postgresql."
+  }
+}
+
+variable "database_port" {
+  type        = string
+  default     = "3306"
+  description = "DATABASE_PORT for MySQL (default 3306)."
+}
+
+variable "require_admin" {
+  type        = string
+  default     = "true"
+  description = "REQUIRE_ADMIN: true or false."
+
+  validation {
+    condition     = contains(["true", "false"], var.require_admin)
+    error_message = "require_admin must be true or false."
+  }
+}
+
+variable "soft_delete_retention_days" {
+  type        = number
+  default     = 30
+  description = "SOFT_DELETE_RETENTION_DAYS (minimum 1)."
+
+  validation {
+    condition     = var.soft_delete_retention_days >= 1
+    error_message = "soft_delete_retention_days must be at least 1."
+  }
+}
+
+variable "syncbot_federation_enabled" {
+  type        = bool
+  default     = false
+  description = "SYNCBOT_FEDERATION_ENABLED (maps to string true/false in env)."
+}
+
+variable "syncbot_instance_id" {
+  type        = string
+  default     = ""
+  description = "SYNCBOT_INSTANCE_ID; leave empty for app auto-generation."
+}
+
+variable "syncbot_public_url_override" {
+  type        = string
+  default     = ""
+  description = "SYNCBOT_PUBLIC_URL (HTTPS base, no path). Set after first deploy if using federation; empty omits the env var."
+}
+
+variable "enable_db_reset" {
+  type        = string
+  default     = ""
+  description = "ENABLE_DB_RESET: Slack Team ID to scope Reset Database; empty omits the env var."
+}
+
+variable "database_tls_enabled" {
+  type        = string
+  default     = ""
+  description = "DATABASE_TLS_ENABLED; empty = app default (TLS on outside local dev)."
+
+  validation {
+    condition     = contains(["", "true", "false"], var.database_tls_enabled)
+    error_message = "database_tls_enabled must be empty, true, or false."
+  }
+}
+
+variable "database_ssl_ca_path" {
+  type        = string
+  default     = ""
+  description = "DATABASE_SSL_CA_PATH when TLS is on; empty omits (app default CA path)."
+}

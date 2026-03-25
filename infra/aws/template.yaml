@@ -213,6 +213,57 @@ Parameters:
       - ERROR
       - CRITICAL
 
+  SoftDeleteRetentionDays:
+    Description: Days to retain soft-deleted workspace data (SOFT_DELETE_RETENTION_DAYS).
+    Type: Number
+    Default: 30
+    MinValue: 1
+
+  SyncbotFederationEnabled:
+    Description: Set to "true" to enable external connections / federation (SYNCBOT_FEDERATION_ENABLED).
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  SyncbotInstanceId:
+    Description: >
+      Optional stable UUID for this instance (SYNCBOT_INSTANCE_ID). Leave empty to auto-generate at runtime.
+    Type: String
+    Default: ""
+
+  SyncbotPublicUrl:
+    Description: >
+      Public HTTPS base URL without path (SYNCBOT_PUBLIC_URL). Required when
+      federation is enabled (SyncbotFederationEnabled=true); use the API Gateway
+      stage URL from stack outputs or a custom domain. Leave empty otherwise.
+    Type: String
+    Default: ""
+
+  EnableDbReset:
+    Description: >
+      Slack Team ID to scope the Reset Database button (ENABLE_DB_RESET). Leave empty to disable.
+    Type: String
+    Default: ""
+
+  DatabaseTlsEnabled:
+    Description: >
+      Optional DATABASE_TLS_ENABLED. Empty = use app default (TLS on outside local dev).
+      Set "true" or "false" to override.
+    Type: String
+    Default: ""
+    AllowedValues:
+      - ""
+      - "true"
+      - "false"
+
+  DatabaseSslCaPath:
+    Description: >
+      Optional CA bundle path when DB TLS is on (DATABASE_SSL_CA_PATH). Empty = app default.
+    Type: String
+    Default: ""
+
 # ================================================================
 # Conditions
 # ================================================================
@@ -232,6 +283,10 @@ Conditions:
   HasExistingTokenEncryptionKeySecretArn: !Not [!Equals [!Ref ExistingTokenEncryptionKeySecretArn, ""]]
   HasAppDbPasswordOverride: !Not [!Equals [!Ref AppDbPasswordOverride, ""]]
   HasNoAppDbPasswordOverride: !Not [!Condition HasAppDbPasswordOverride]
+  HasSyncbotPublicUrlOverride: !Not [!Equals [!Ref SyncbotPublicUrl, ""]]
+  HasEnableDbReset: !Not [!Equals [!Ref EnableDbReset, ""]]
+  HasDatabaseTlsExplicit: !Not [!Equals [!Ref DatabaseTlsEnabled, ""]]
+  HasDatabaseSslCaPath: !Not [!Equals [!Ref DatabaseSslCaPath, ""]]
   CreateTokenEncryptionKeySecret: !And
     - !Not [!Condition HasTokenEncryptionKeyOverride]
     - !Not [!Condition HasExistingTokenEncryptionKeySecretArn]
@@ -654,6 +709,22 @@ Resources:
               - !Sub "{{resolve:secretsmanager:${TokenEncryptionKeySecret}:SecretString}}"
           REQUIRE_ADMIN: !Ref RequireAdmin
           LOG_LEVEL: !Ref LogLevel
+          SOFT_DELETE_RETENTION_DAYS: !Sub "${SoftDeleteRetentionDays}"
+          SYNCBOT_FEDERATION_ENABLED: !Ref SyncbotFederationEnabled
+          SYNCBOT_INSTANCE_ID: !Ref SyncbotInstanceId
+          SYNCBOT_PUBLIC_URL: !Ref SyncbotPublicUrl
+          ENABLE_DB_RESET: !If
+            - HasEnableDbReset
+            - !Ref EnableDbReset
+            - ""
+          DATABASE_TLS_ENABLED: !If
+            - HasDatabaseTlsExplicit
+            - !Ref DatabaseTlsEnabled
+            - !Ref AWS::NoValue
+          DATABASE_SSL_CA_PATH: !If
+            - HasDatabaseSslCaPath
+            - !Ref DatabaseSslCaPath
+            - !Ref AWS::NoValue
 
   # Slack Bolt (aws_lambda adapter) runs lazy listeners by invoking this function again
   # via lambda:InvokeFunction. The execution role must allow self-invoke.
@@ -755,6 +826,13 @@ Resources:
 # ================================================================
 
 Outputs:
+  SyncBotPublicBaseUrl:
+    Description: Public HTTPS base URL (SYNCBOT_PUBLIC_URL) for Slack and federation
+    Value: !If
+      - HasSyncbotPublicUrlOverride
+      - !Ref SyncbotPublicUrl
+      - !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+
   SyncBotApiUrl:
     Description: API Gateway endpoint URL
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/slack/events/"

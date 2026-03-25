@@ -7,12 +7,12 @@
 #
 # Phases (main path, after functions are defined below):
 #   1) Prerequisites: CLI checks, template paths
-#   2) Bootstrap: CloudFormation bootstrap stack and S3 artifact bucket (if missing)
-#   3) App stack: region, stage, target stack name; detect existing stack for update
-#   4) Database: source mode (stack RDS vs external host), engine, schema, existing-DB networking
-#   5) Slack: signing secret, client secret, client ID
-#   6) Confirm deploy summary, SAM build + deploy
-#   7) After deploy: stage manifest, optional Slack API update, optional GitHub vars, deploy receipt
+#   2) Authentication: AWS region and credentials
+#   3) Bootstrap probe: read bootstrap stack outputs (create/sync runs only if task 1 selected)
+#   4) Stack identity: stage, app stack name; detect existing stack for update
+#   5) Deploy Tasks: multi-select menu (bootstrap, build/deploy, CI/CD, Slack API, backup secrets)
+#   6) Configuration (if build/deploy): database, Slack creds, SAM build + deploy
+#   7) Post-tasks: Slack manifest/API, GitHub Actions, deploy receipt, DR secret backup
 
 set -euo pipefail
 
@@ -1132,6 +1132,7 @@ handle_unhealthy_stack_state() {
   esac
 }
 
+echo "=== Prerequisites ==="
 prereqs_require_cmd aws prereqs_hint_aws_cli
 prereqs_require_cmd sam prereqs_hint_sam_cli
 prereqs_require_cmd docker prereqs_hint_docker
@@ -1154,46 +1155,13 @@ echo
 
 DEFAULT_REGION="${AWS_REGION:-us-east-2}"
 REGION="$(prompt_default "AWS region" "$DEFAULT_REGION")"
+echo
+echo "=== Authentication ==="
 ensure_aws_authenticated
 BOOTSTRAP_STACK="$(prompt_default "Bootstrap stack name" "syncbot-bootstrap")"
 
+# Probe bootstrap outputs only; create/sync runs later if task 1 (Bootstrap) is selected.
 BOOTSTRAP_OUTPUTS="$(bootstrap_describe_outputs "$BOOTSTRAP_STACK" "$REGION")"
-if [[ -z "$BOOTSTRAP_OUTPUTS" ]]; then
-  echo
-  echo "Bootstrap stack not found (or has no outputs): $BOOTSTRAP_STACK in $REGION"
-  if prompt_yes_no "Deploy bootstrap stack now?" "y"; then
-    GITHUB_REPO="$(prompt_default "GitHub repository (owner/repo)" "REPLACE_ME_OWNER/REPLACE_ME_REPO")"
-    CREATE_OIDC="$(prompt_default "Create OIDC provider (true/false)" "true")"
-    BUCKET_PREFIX="$(prompt_default "Deployment bucket prefix" "syncbot-deploy")"
-    echo
-    echo "=== Bootstrap Stack ==="
-    echo "Deploying bootstrap stack..."
-    aws cloudformation deploy \
-      --template-file "$BOOTSTRAP_TEMPLATE" \
-      --stack-name "$BOOTSTRAP_STACK" \
-      --parameter-overrides \
-        "GitHubRepository=$GITHUB_REPO" \
-        "CreateOIDCProvider=$CREATE_OIDC" \
-        "DeploymentBucketPrefix=$BUCKET_PREFIX" \
-      --capabilities CAPABILITY_NAMED_IAM \
-      --region "$REGION"
-    BOOTSTRAP_OUTPUTS="$(bootstrap_describe_outputs "$BOOTSTRAP_STACK" "$REGION")"
-  else
-    echo "Skipping bootstrap. You must provide deploy bucket manually."
-  fi
-fi
-
-if [[ -n "$BOOTSTRAP_OUTPUTS" ]]; then
-  sync_bootstrap_stack_from_repo "$BOOTSTRAP_STACK" "$REGION"
-  BOOTSTRAP_OUTPUTS="$(bootstrap_describe_outputs "$BOOTSTRAP_STACK" "$REGION")"
-fi
-
-S3_BUCKET="$(output_value "$BOOTSTRAP_OUTPUTS" "DeploymentBucketName")"
-if [[ -n "$S3_BUCKET" ]]; then
-  echo "Detected deploy bucket from bootstrap: $S3_BUCKET"
-else
-  S3_BUCKET="$(prompt_default "Deployment S3 bucket name" "REPLACE_ME_DEPLOY_BUCKET")"
-fi
 
 SUGGESTED_TEST_STACK="$(output_value "$BOOTSTRAP_OUTPUTS" "SuggestedTestStackName")"
 SUGGESTED_PROD_STACK="$(output_value "$BOOTSTRAP_OUTPUTS" "SuggestedProdStackName")"
@@ -1201,6 +1169,7 @@ SUGGESTED_PROD_STACK="$(output_value "$BOOTSTRAP_OUTPUTS" "SuggestedProdStackNam
 [[ -z "$SUGGESTED_PROD_STACK" ]] && SUGGESTED_PROD_STACK="syncbot-prod"
 
 echo
+echo "=== Stack Identity ==="
 STAGE="$(prompt_default "Deploy stage (test/prod)" "test")"
 if [[ "$STAGE" != "test" && "$STAGE" != "prod" ]]; then
   echo "Error: stage must be 'test' or 'prod'." >&2
@@ -1221,8 +1190,17 @@ PREV_EXISTING_DATABASE_LAMBDA_SG_ID=""
 PREV_DATABASE_ENGINE=""
 PREV_DATABASE_SCHEMA=""
 PREV_LOG_LEVEL=""
+PREV_REQUIRE_ADMIN=""
+PREV_SOFT_DELETE=""
+PREV_FEDERATION=""
+PREV_INSTANCE_ID=""
+PREV_PUBLIC_URL=""
+PREV_ENABLE_DB_RESET=""
+PREV_DB_TLS=""
+PREV_DB_SSL_CA=""
 PREV_DATABASE_HOST_IN_USE=""
 PREV_STACK_USES_EXISTING_DB="false"
+EXISTING_STACK_OUTPUTS=""
 if [[ -n "$EXISTING_STACK_STATUS" && "$EXISTING_STACK_STATUS" != "None" ]]; then
   echo "Detected existing CloudFormation stack: $STACK_NAME ($EXISTING_STACK_STATUS)"
   if ! prompt_yes_no "Continue and update this existing stack?" "y"; then
@@ -1239,6 +1217,14 @@ if [[ -n "$EXISTING_STACK_STATUS" && "$EXISTING_STACK_STATUS" != "None" ]]; then
   PREV_DATABASE_ENGINE="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseEngine")"
   PREV_DATABASE_SCHEMA="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseSchema")"
   PREV_LOG_LEVEL="$(stack_param_value "$EXISTING_STACK_PARAMS" "LogLevel")"
+  PREV_REQUIRE_ADMIN="$(stack_param_value "$EXISTING_STACK_PARAMS" "RequireAdmin")"
+  PREV_SOFT_DELETE="$(stack_param_value "$EXISTING_STACK_PARAMS" "SoftDeleteRetentionDays")"
+  PREV_FEDERATION="$(stack_param_value "$EXISTING_STACK_PARAMS" "SyncbotFederationEnabled")"
+  PREV_INSTANCE_ID="$(stack_param_value "$EXISTING_STACK_PARAMS" "SyncbotInstanceId")"
+  PREV_PUBLIC_URL="$(stack_param_value "$EXISTING_STACK_PARAMS" "SyncbotPublicUrl")"
+  PREV_ENABLE_DB_RESET="$(stack_param_value "$EXISTING_STACK_PARAMS" "EnableDbReset")"
+  PREV_DB_TLS="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseTlsEnabled")"
+  PREV_DB_SSL_CA="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseSslCaPath")"
   EXISTING_STACK_OUTPUTS="$(app_describe_outputs "$STACK_NAME" "$REGION")"
   PREV_DATABASE_HOST_IN_USE="$(output_value "$EXISTING_STACK_OUTPUTS" "DatabaseHostInUse")"
   if [[ -n "$PREV_EXISTING_DATABASE_HOST" ]]; then
@@ -1247,44 +1233,63 @@ if [[ -n "$EXISTING_STACK_STATUS" && "$EXISTING_STACK_STATUS" != "None" ]]; then
   if [[ -z "$PREV_EXISTING_DATABASE_HOST" && -n "$PREV_DATABASE_HOST_IN_USE" ]]; then
     PREV_EXISTING_DATABASE_HOST="$PREV_DATABASE_HOST_IN_USE"
   fi
-
-  if prompt_yes_no "Skip infrastructure re-deploy and go directly to GitHub Actions setup?" "n"; then
-    # Same semantics as DB_MODE (1 = stack RDS, 2 = existing host) for GitHub env vars only.
-    GH_DB_MODE="1"
-    if [[ "$PREV_STACK_USES_EXISTING_DB" == "true" ]]; then
-      GH_DB_MODE="2"
-    fi
-    GH_DATABASE_SCHEMA="$PREV_DATABASE_SCHEMA"
-    [[ -z "$GH_DATABASE_SCHEMA" ]] && GH_DATABASE_SCHEMA="syncbot_${STAGE}"
-
-    # Initialize optional globals used only when user opts into setting secrets in GitHub setup.
-    SLACK_SIGNING_SECRET="${SLACK_SIGNING_SECRET:-}"
-    SLACK_CLIENT_SECRET="${SLACK_CLIENT_SECRET:-}"
-
-    echo
-    echo "Skipping deploy. Opening GitHub Actions setup for existing stack..."
-    [[ -z "$PREV_DATABASE_ENGINE" ]] && PREV_DATABASE_ENGINE="mysql"
-    configure_github_actions_aws \
-      "$BOOTSTRAP_OUTPUTS" \
-      "$BOOTSTRAP_STACK" \
-      "$REGION" \
-      "$STACK_NAME" \
-      "$STAGE" \
-      "$GH_DATABASE_SCHEMA" \
-      "$GH_DB_MODE" \
-      "$PREV_EXISTING_DATABASE_HOST" \
-      "$PREV_EXISTING_DATABASE_ADMIN_USER" \
-      "${EXISTING_DATABASE_ADMIN_PASSWORD:-}" \
-      "$PREV_EXISTING_DATABASE_NETWORK_MODE" \
-      "$PREV_EXISTING_DATABASE_SUBNET_IDS_CSV" \
-      "$PREV_EXISTING_DATABASE_LAMBDA_SG_ID" \
-      "$PREV_DATABASE_ENGINE"
-    echo "Done. No infrastructure changes were deployed."
-    exit 0
-  fi
 fi
 
 echo
+prompt_deploy_tasks_aws
+
+if [[ "$TASK_BOOTSTRAP" == "true" ]]; then
+  echo
+  echo "=== Bootstrap Stack ==="
+  if [[ -z "$BOOTSTRAP_OUTPUTS" ]]; then
+    echo "Bootstrap stack not found (or has no outputs): $BOOTSTRAP_STACK in $REGION"
+    if prompt_yes_no "Deploy bootstrap stack now?" "y"; then
+      GITHUB_REPO="$(prompt_default "GitHub repository (owner/repo)" "REPLACE_ME_OWNER/REPLACE_ME_REPO")"
+      CREATE_OIDC="$(prompt_default "Create OIDC provider (true/false)" "true")"
+      BUCKET_PREFIX="$(prompt_default "Deployment bucket prefix" "syncbot-deploy")"
+      echo "Deploying bootstrap stack..."
+      aws cloudformation deploy \
+        --template-file "$BOOTSTRAP_TEMPLATE" \
+        --stack-name "$BOOTSTRAP_STACK" \
+        --parameter-overrides \
+          "GitHubRepository=$GITHUB_REPO" \
+          "CreateOIDCProvider=$CREATE_OIDC" \
+          "DeploymentBucketPrefix=$BUCKET_PREFIX" \
+        --capabilities CAPABILITY_NAMED_IAM \
+        --region "$REGION"
+      BOOTSTRAP_OUTPUTS="$(bootstrap_describe_outputs "$BOOTSTRAP_STACK" "$REGION")"
+    else
+      echo "Skipping bootstrap. You must provide deploy bucket manually when deploying."
+    fi
+  fi
+  if [[ -n "$BOOTSTRAP_OUTPUTS" ]]; then
+    sync_bootstrap_stack_from_repo "$BOOTSTRAP_STACK" "$REGION"
+    BOOTSTRAP_OUTPUTS="$(bootstrap_describe_outputs "$BOOTSTRAP_STACK" "$REGION")"
+  fi
+fi
+
+BOOTSTRAP_OUTPUTS="$(bootstrap_describe_outputs "$BOOTSTRAP_STACK" "$REGION")"
+S3_BUCKET="$(output_value "$BOOTSTRAP_OUTPUTS" "DeploymentBucketName")"
+if [[ -n "$S3_BUCKET" ]]; then
+  echo "Detected deploy bucket from bootstrap: $S3_BUCKET"
+elif [[ "$TASK_BUILD_DEPLOY" == "true" ]]; then
+  S3_BUCKET="$(prompt_default "Deployment S3 bucket name" "REPLACE_ME_DEPLOY_BUCKET")"
+else
+  S3_BUCKET=""
+fi
+
+if [[ "$TASK_BUILD_DEPLOY" != "true" ]]; then
+  if [[ "$TASK_CICD" == "true" || "$TASK_SLACK_API" == "true" || "$TASK_BACKUP_SECRETS" == "true" ]]; then
+    if [[ -z "${EXISTING_STACK_STATUS:-}" || "$EXISTING_STACK_STATUS" == "None" ]]; then
+      echo "Error: CloudFormation stack '$STACK_NAME' does not exist in $REGION. Select task 2 (Build/Deploy) first or create the stack." >&2
+      exit 1
+    fi
+  fi
+fi
+
+if [[ "$TASK_BUILD_DEPLOY" == "true" ]]; then
+echo
+echo "=== Configuration ==="
 echo "=== Database Source ==="
 # DB_MODE / GH_DB_MODE: 1 = stack-managed RDS in this template; 2 = external or existing RDS host.
 DB_MODE_DEFAULT="1"
@@ -1294,10 +1299,10 @@ if [[ "$IS_STACK_UPDATE" == "true" ]]; then
     [[ -z "$EXISTING_DB_LABEL" ]] && EXISTING_DB_LABEL="not set"
     DB_MODE_DEFAULT="2"
     echo "  1) Use stack-managed RDS"
-    echo "  2) Use external or existing RDS host: $EXISTING_DB_LABEL (default)"
+    echo "  2) Use external or existing RDS host: $EXISTING_DB_LABEL (default/current)"
   else
     DB_MODE_DEFAULT="1"
-    echo "  1) Use stack-managed RDS (default)"
+    echo "  1) Use stack-managed RDS (default/current)"
     echo "  2) Use external or existing RDS host"
   fi
 else
@@ -1328,9 +1333,9 @@ echo
 echo "=== Database Engine ==="
 if [[ "$DB_ENGINE_DEFAULT" == "2" ]]; then
   echo "  1) MySQL"
-  echo "  2) PostgreSQL (default; detected from current stack)"
+  echo "  2) PostgreSQL (default/current)"
 else
-  echo "  1) MySQL (default)"
+  echo "  1) MySQL (default/current)"
   echo "  2) PostgreSQL"
 fi
 DB_ENGINE_MODE="$(prompt_default "Choose 1 or 2" "$DB_ENGINE_DEFAULT")"
@@ -1540,9 +1545,29 @@ if [[ "$IS_STACK_UPDATE" == "true" && -n "$PREV_LOG_LEVEL" ]]; then
   LOG_LEVEL_DEFAULT="$PREV_LOG_LEVEL"
 fi
 
+REQUIRE_ADMIN="${PREV_REQUIRE_ADMIN:-true}"
+SOFT_DELETE_RETENTION_DAYS="${PREV_SOFT_DELETE:-30}"
+SYNCBOT_FEDERATION_ENABLED="${PREV_FEDERATION:-false}"
+SYNCBOT_INSTANCE_ID="${PREV_INSTANCE_ID:-}"
+SYNCBOT_PUBLIC_URL="${PREV_PUBLIC_URL:-}"
+ENABLE_DB_RESET="${PREV_ENABLE_DB_RESET:-}"
+DATABASE_TLS_ENABLED="${PREV_DB_TLS:-}"
+DATABASE_SSL_CA_PATH="${PREV_DB_SSL_CA:-}"
+
 echo
 echo "=== Log Level ==="
 LOG_LEVEL="$(prompt_log_level "$LOG_LEVEL_DEFAULT")"
+
+echo
+echo "=== App Settings ==="
+REQUIRE_ADMIN="$(prompt_require_admin "$REQUIRE_ADMIN")"
+SOFT_DELETE_RETENTION_DAYS="$(prompt_soft_delete_retention_days "$SOFT_DELETE_RETENTION_DAYS")"
+ENABLE_DB_RESET="$(prompt_enable_db_reset "$ENABLE_DB_RESET")"
+SYNCBOT_FEDERATION_ENABLED="$(prompt_federation_enabled "$SYNCBOT_FEDERATION_ENABLED")"
+if [[ "$SYNCBOT_FEDERATION_ENABLED" == "true" ]]; then
+  SYNCBOT_INSTANCE_ID="$(prompt_instance_id "$SYNCBOT_INSTANCE_ID")"
+  SYNCBOT_PUBLIC_URL="$(prompt_public_url "$SYNCBOT_PUBLIC_URL")"
+fi
 
 echo
 echo "=== Deploy Summary ==="
@@ -1550,6 +1575,18 @@ echo "Region:           $REGION"
 echo "Stack:            $STACK_NAME"
 echo "Stage:            $STAGE"
 echo "Log level:        $LOG_LEVEL"
+echo "Require admin:    $REQUIRE_ADMIN"
+echo "Soft-delete days: $SOFT_DELETE_RETENTION_DAYS"
+if [[ -n "$ENABLE_DB_RESET" ]]; then
+  echo "DB reset (team):  $ENABLE_DB_RESET"
+else
+  echo "DB reset (team):  (disabled)"
+fi
+if [[ "$SYNCBOT_FEDERATION_ENABLED" == "true" ]]; then
+  echo "Federation:       enabled"
+  [[ -n "$SYNCBOT_INSTANCE_ID" ]] && echo "Instance ID:      $SYNCBOT_INSTANCE_ID"
+  [[ -n "$SYNCBOT_PUBLIC_URL" ]] && echo "Public URL:       $SYNCBOT_PUBLIC_URL"
+fi
 echo "Deploy bucket:    $S3_BUCKET"
 if [[ "$DB_MODE" == "2" ]]; then
   echo "DB mode:          existing host"
@@ -1586,6 +1623,8 @@ if ! prompt_yes_no "Proceed with build + deploy?" "y"; then
   exit 0
 fi
 
+echo
+echo "=== Preflight ==="
 preflight_secrets_manager_access "$REGION" "$TOKEN_SECRET_NAME" "$APP_DB_SECRET_NAME" "$EXISTING_TOKEN_SECRET_ARN"
 
 handle_orphan_app_db_secret_on_create "$EXISTING_STACK_STATUS" "$APP_DB_SECRET_NAME" "$REGION"
@@ -1604,7 +1643,16 @@ PARAMS=(
   "SlackClientSecret=$SLACK_CLIENT_SECRET"
   "DatabaseSchema=$DATABASE_SCHEMA"
   "LogLevel=$LOG_LEVEL"
+  "RequireAdmin=$REQUIRE_ADMIN"
+  "SoftDeleteRetentionDays=$SOFT_DELETE_RETENTION_DAYS"
+  "SyncbotFederationEnabled=$SYNCBOT_FEDERATION_ENABLED"
 )
+# SAM rejects Key= (empty value) in shorthand format; only include when non-empty.
+[[ -n "$SYNCBOT_INSTANCE_ID" ]] && PARAMS+=("SyncbotInstanceId=$SYNCBOT_INSTANCE_ID")
+[[ -n "$SYNCBOT_PUBLIC_URL" ]] && PARAMS+=("SyncbotPublicUrl=$SYNCBOT_PUBLIC_URL")
+[[ -n "$ENABLE_DB_RESET" ]] && PARAMS+=("EnableDbReset=$ENABLE_DB_RESET")
+[[ -n "$DATABASE_TLS_ENABLED" ]] && PARAMS+=("DatabaseTlsEnabled=$DATABASE_TLS_ENABLED")
+[[ -n "$DATABASE_SSL_CA_PATH" ]] && PARAMS+=("DatabaseSslCaPath=$DATABASE_SSL_CA_PATH")
 
 if [[ -n "$SLACK_CLIENT_ID" ]]; then
   PARAMS+=("SlackClientID=$SLACK_CLIENT_ID")
@@ -1624,14 +1672,15 @@ if [[ "$DB_MODE" == "2" ]]; then
     )
   fi
 else
-  # Explicitly clear existing-host parameters on updates to avoid stale previous values.
+  # Clear existing-host parameters on updates to avoid stale previous values.
+  # SAM rejects Key= (empty value) in shorthand; use ParameterKey=K,ParameterValue= instead.
   PARAMS+=(
-    "ExistingDatabaseHost="
-    "ExistingDatabaseAdminUser="
-    "ExistingDatabaseAdminPassword="
+    "ParameterKey=ExistingDatabaseHost,ParameterValue="
+    "ParameterKey=ExistingDatabaseAdminUser,ParameterValue="
+    "ParameterKey=ExistingDatabaseAdminPassword,ParameterValue="
     "ExistingDatabaseNetworkMode=public"
-    "ExistingDatabaseSubnetIdsCsv="
-    "ExistingDatabaseLambdaSecurityGroupId="
+    "ParameterKey=ExistingDatabaseSubnetIdsCsv,ParameterValue="
+    "ParameterKey=ExistingDatabaseLambdaSecurityGroupId,ParameterValue="
   )
 fi
 
@@ -1657,37 +1706,57 @@ sam deploy \
   --parameter-overrides "${PARAMS[@]}"
 
 APP_OUTPUTS="$(app_describe_outputs "$STACK_NAME" "$REGION")"
+
+else
+  echo
+  echo "Skipping Build/Deploy (task 2 not selected)."
+  APP_OUTPUTS="${EXISTING_STACK_OUTPUTS:-}"
+  DB_MODE="1"
+  if [[ "$PREV_STACK_USES_EXISTING_DB" == "true" ]]; then
+    DB_MODE="2"
+  fi
+  DATABASE_SCHEMA="${PREV_DATABASE_SCHEMA:-}"
+  [[ -z "$DATABASE_SCHEMA" ]] && DATABASE_SCHEMA="syncbot_${STAGE}"
+  DATABASE_ENGINE="${PREV_DATABASE_ENGINE:-mysql}"
+  [[ -z "$DATABASE_ENGINE" ]] && DATABASE_ENGINE="mysql"
+  EXISTING_DATABASE_HOST="${PREV_EXISTING_DATABASE_HOST:-}"
+  EXISTING_DATABASE_ADMIN_USER="${PREV_EXISTING_DATABASE_ADMIN_USER:-}"
+  EXISTING_DATABASE_ADMIN_PASSWORD="${EXISTING_DATABASE_ADMIN_PASSWORD:-}"
+  EXISTING_DATABASE_NETWORK_MODE="${PREV_EXISTING_DATABASE_NETWORK_MODE:-public}"
+  EXISTING_DATABASE_SUBNET_IDS_CSV="${PREV_EXISTING_DATABASE_SUBNET_IDS_CSV:-}"
+  EXISTING_DATABASE_LAMBDA_SG_ID="${PREV_EXISTING_DATABASE_LAMBDA_SG_ID:-}"
+  SLACK_SIGNING_SECRET="${SLACK_SIGNING_SECRET:-}"
+  SLACK_CLIENT_SECRET="${SLACK_CLIENT_SECRET:-}"
+  SLACK_CLIENT_ID="${SLACK_CLIENT_ID:-}"
+  TOKEN_SECRET_NAME="syncbot-${STAGE}-token-encryption-key"
+  APP_DB_SECRET_NAME="syncbot-${STAGE}-app-db-password"
+  TOKEN_OVERRIDE=""
+  EXISTING_TOKEN_SECRET_ARN=""
+  RECEIPT_TOKEN_SECRET_ID=""
+  RECEIPT_APP_DB_SECRET_NAME=""
+  TOKEN_SECRET_ID=""
+  TOKEN_SECRET_VALUE=""
+  APP_DB_SECRET_VALUE=""
+fi
+
 SYNCBOT_API_URL="$(output_value "$APP_OUTPUTS" "SyncBotApiUrl")"
 SYNCBOT_INSTALL_URL="$(output_value "$APP_OUTPUTS" "SyncBotInstallUrl")"
 
 echo
-echo "Deploy complete."
-generate_stage_slack_manifest "$STAGE" "$SYNCBOT_API_URL" "$SYNCBOT_INSTALL_URL"
-if [[ -n "$SLACK_MANIFEST_GENERATED_PATH" ]]; then
-  if prompt_yes_no "Configure Slack app via Slack API now (create or update from generated manifest)?" "n"; then
-    slack_api_configure_from_manifest "$SLACK_MANIFEST_GENERATED_PATH" "$SYNCBOT_INSTALL_URL"
-  fi
+echo "=== Post-Deploy ==="
+if [[ "$TASK_BUILD_DEPLOY" == "true" ]]; then
+  echo "Deploy complete."
 fi
 
-# Prepare secret metadata/value so receipt and final backup output stay in sync.
-if [[ -n "$TOKEN_OVERRIDE" ]]; then
-  RECEIPT_TOKEN_SECRET_ID="TokenEncryptionKeyOverride"
-  TOKEN_SECRET_ID="TokenEncryptionKeyOverride"
-  TOKEN_SECRET_VALUE="$TOKEN_OVERRIDE"
-else
-  TOKEN_SECRET_ID="$TOKEN_SECRET_NAME"
-  if [[ -n "$EXISTING_TOKEN_SECRET_ARN" ]]; then
-    TOKEN_SECRET_ID="$EXISTING_TOKEN_SECRET_ARN"
-  fi
-  TOKEN_SECRET_VALUE="$(secret_value_by_id "$TOKEN_SECRET_ID" "$REGION")"
-  RECEIPT_TOKEN_SECRET_ID="$TOKEN_SECRET_ID"
+if [[ "$TASK_SLACK_API" == "true" || "$TASK_BUILD_DEPLOY" == "true" ]]; then
+  generate_stage_slack_manifest "$STAGE" "$SYNCBOT_API_URL" "$SYNCBOT_INSTALL_URL"
 fi
 
-APP_DB_SECRET_VALUE="$(secret_value_by_id "$APP_DB_SECRET_NAME" "$REGION")"
-# RECEIPT_APP_DB_* mirror the deploy artifacts.
-RECEIPT_APP_DB_SECRET_NAME="$APP_DB_SECRET_NAME"
+if [[ "$TASK_SLACK_API" == "true" ]] && [[ -n "${SLACK_MANIFEST_GENERATED_PATH:-}" ]]; then
+  slack_api_configure_from_manifest "$SLACK_MANIFEST_GENERATED_PATH" "$SYNCBOT_INSTALL_URL"
+fi
 
-if prompt_yes_no "Set up GitHub Actions configuration now?" "n"; then
+if [[ "$TASK_CICD" == "true" ]]; then
   configure_github_actions_aws \
     "$BOOTSTRAP_OUTPUTS" \
     "$BOOTSTRAP_STACK" \
@@ -1705,31 +1774,55 @@ if prompt_yes_no "Set up GitHub Actions configuration now?" "n"; then
     "$DATABASE_ENGINE"
 fi
 
-write_deploy_receipt \
-  "aws" \
-  "$STAGE" \
-  "$STACK_NAME" \
-  "$REGION" \
-  "$SYNCBOT_API_URL" \
-  "$SYNCBOT_INSTALL_URL" \
-  "$SLACK_MANIFEST_GENERATED_PATH"
-
-echo
-echo "=== Backup Secrets (Disaster Recovery) ==="
-# IMPORTANT: This deploy script must always print plaintext backup secrets at the end.
-# Do not remove/redact this section; operators rely on it for DR copy-out immediately after deploy.
-echo "Copy these values now and store them in your secure disaster-recovery vault."
-
-echo "- TOKEN_ENCRYPTION_KEY source: $TOKEN_SECRET_ID"
-if [[ -n "$TOKEN_SECRET_VALUE" && "$TOKEN_SECRET_VALUE" != "None" ]]; then
-  echo "  TOKEN_ENCRYPTION_KEY: $TOKEN_SECRET_VALUE"
-else
-  echo "  TOKEN_ENCRYPTION_KEY: <UNAVAILABLE - check Secrets Manager access and retrieve manually>"
+if [[ "$TASK_BUILD_DEPLOY" == "true" || "$TASK_BACKUP_SECRETS" == "true" ]]; then
+  # Prepare secret metadata/value so receipt and final backup output stay in sync.
+  if [[ -n "${TOKEN_OVERRIDE:-}" ]]; then
+    RECEIPT_TOKEN_SECRET_ID="TokenEncryptionKeyOverride"
+    TOKEN_SECRET_ID="TokenEncryptionKeyOverride"
+    TOKEN_SECRET_VALUE="$TOKEN_OVERRIDE"
+  else
+    TOKEN_SECRET_ID="${TOKEN_SECRET_NAME:-}"
+    if [[ -n "${EXISTING_TOKEN_SECRET_ARN:-}" ]]; then
+      TOKEN_SECRET_ID="$EXISTING_TOKEN_SECRET_ARN"
+    fi
+    TOKEN_SECRET_VALUE="$(secret_value_by_id "$TOKEN_SECRET_ID" "$REGION" 2>/dev/null || true)"
+    RECEIPT_TOKEN_SECRET_ID="$TOKEN_SECRET_ID"
+  fi
+  APP_DB_SECRET_VALUE="$(secret_value_by_id "$APP_DB_SECRET_NAME" "$REGION" 2>/dev/null || true)"
+  RECEIPT_APP_DB_SECRET_NAME="$APP_DB_SECRET_NAME"
 fi
 
-echo "- DATABASE_PASSWORD source: $APP_DB_SECRET_NAME"
-if [[ -n "$APP_DB_SECRET_VALUE" && "$APP_DB_SECRET_VALUE" != "None" ]]; then
-  echo "  DATABASE_PASSWORD: $APP_DB_SECRET_VALUE"
-else
-  echo "  DATABASE_PASSWORD: <UNAVAILABLE - check Secrets Manager access and retrieve manually>"
+if [[ "$TASK_BUILD_DEPLOY" == "true" ]]; then
+  echo
+  echo "=== Deploy Receipt ==="
+  write_deploy_receipt \
+    "aws" \
+    "$STAGE" \
+    "$STACK_NAME" \
+    "$REGION" \
+    "$SYNCBOT_API_URL" \
+    "$SYNCBOT_INSTALL_URL" \
+    "$SLACK_MANIFEST_GENERATED_PATH"
+fi
+
+if [[ "$TASK_BACKUP_SECRETS" == "true" ]]; then
+  echo
+  echo "=== Backup Secrets (Disaster Recovery) ==="
+  # IMPORTANT: When Backup Secrets is selected, print plaintext backup secrets here.
+  # Do not remove/redact this section; operators rely on it for DR copy-out.
+  echo "Copy these values now and store them in your secure disaster-recovery vault."
+
+  echo "- TOKEN_ENCRYPTION_KEY source: ${TOKEN_SECRET_ID:-<unknown>}"
+  if [[ -n "${TOKEN_SECRET_VALUE:-}" && "$TOKEN_SECRET_VALUE" != "None" ]]; then
+    echo "  TOKEN_ENCRYPTION_KEY: $TOKEN_SECRET_VALUE"
+  else
+    echo "  TOKEN_ENCRYPTION_KEY: <UNAVAILABLE - check Secrets Manager access and retrieve manually>"
+  fi
+
+  echo "- DATABASE_PASSWORD source: ${APP_DB_SECRET_NAME:-<unknown>}"
+  if [[ -n "${APP_DB_SECRET_VALUE:-}" && "$APP_DB_SECRET_VALUE" != "None" ]]; then
+    echo "  DATABASE_PASSWORD: $APP_DB_SECRET_VALUE"
+  else
+    echo "  DATABASE_PASSWORD: <UNAVAILABLE - check Secrets Manager access and retrieve manually>"
+  fi
 fi
