@@ -180,6 +180,8 @@ def get_post_records(thread_ts: str) -> list[tuple[schemas.PostMeta, schemas.Syn
     else:
         post_records = []
 
+    post_records.sort(key=lambda row: row[0].id)
+
     seen: set[tuple[int, str]] = set()
     deduped: list[tuple[schemas.PostMeta, schemas.SyncChannel, schemas.Workspace]] = []
     for pm, sc, ws in post_records:

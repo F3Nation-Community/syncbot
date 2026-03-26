@@ -35,7 +35,7 @@ class TestGetSyncListDeduplication:
 
 class TestGetPostRecordsDeduplication:
     def test_deduplicates_same_workspace_and_channel(self):
-        pm = SimpleNamespace(post_id="p1", ts=123.456789)
+        pm = SimpleNamespace(id=1, post_id="p1", ts=123.456789)
         ws = SimpleNamespace(id=42)
         sc_a = SimpleNamespace(id=10, channel_id="C777")
         sc_b = SimpleNamespace(id=11, channel_id="C777")
@@ -51,6 +51,26 @@ class TestGetPostRecordsDeduplication:
 
         assert len(result) == 1
         assert result[0][1] is sc_a
+
+    def test_dedup_prefers_lower_post_meta_id_for_split_file_alias(self):
+        """Reactions on file thread replies share post_id; primary text row must win."""
+        pm_file = SimpleNamespace(id=99, post_id="p1", ts=888.888)
+        pm_text = SimpleNamespace(id=10, post_id="p1", ts=111.111)
+        ws = SimpleNamespace(id=42)
+        sc = SimpleNamespace(id=10, channel_id="C777")
+
+        with (
+            patch("helpers.slack_api.DbManager.find_records", return_value=[pm_file]),
+            patch(
+                "helpers.slack_api.DbManager.find_join_records3",
+                return_value=[(pm_file, sc, ws), (pm_text, sc, ws)],
+            ),
+        ):
+            result = get_post_records("888.888")
+
+        assert len(result) == 1
+        assert result[0][0].id == 10
+        assert result[0][0].ts == 111.111
 
 
 class TestJoinSyncDuplicateSkip:

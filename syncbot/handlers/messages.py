@@ -193,6 +193,7 @@ def _handle_new_post(
 
     post_uuid = uuid.uuid4().hex
     post_list: list[schemas.PostMeta] = []
+    channels_synced = 0
 
     source_workspace_id = _find_source_workspace_id(sync_records, channel_id)
 
@@ -202,6 +203,7 @@ def _handle_new_post(
 
     for sync_channel, workspace in sync_records:
         try:
+            split_file_ts: str | None = None
             if sync_channel.channel_id == channel_id:
                 ts = helpers.safe_get(body, "event", "ts")
             elif fed_ws and workspace.id != source_workspace_id:
@@ -293,7 +295,7 @@ def _handle_new_post(
                             channel_id=sync_channel.channel_id,
                             text_message_ts=text_ts,
                         )
-                        helpers.upload_files_to_slack(
+                        _, split_file_ts = helpers.upload_files_to_slack(
                             bot_token=bot_token,
                             channel_id=sync_channel.channel_id,
                             files=direct_files,
@@ -303,10 +305,16 @@ def _handle_new_post(
 
             if ts:
                 post_list.append(schemas.PostMeta(post_id=post_uuid, sync_channel_id=sync_channel.id, ts=float(ts)))
+            if split_file_ts:
+                post_list.append(
+                    schemas.PostMeta(post_id=post_uuid, sync_channel_id=sync_channel.id, ts=float(split_file_ts))
+                )
+            if ts or split_file_ts:
+                channels_synced += 1
         except Exception as exc:
             _logger.error(f"Failed to sync new post to channel {sync_channel.channel_id}: {exc}")
 
-    synced = len(post_list)
+    synced = channels_synced
     failed = len(sync_records) - synced
     emit_metric("messages_synced", value=synced, sync_type="new_post")
     if failed:
@@ -346,6 +354,7 @@ def _handle_thread_reply(
 
     post_uuid = uuid.uuid4().hex
     post_list: list[schemas.PostMeta] = []
+    channels_synced = 0
 
     source_workspace_id = _find_source_workspace_id(post_records, channel_id, ws_index=2)
 
@@ -357,6 +366,7 @@ def _handle_thread_reply(
 
     for post_meta, sync_channel, workspace in post_records:
         try:
+            split_file_ts: str | None = None
             if sync_channel.channel_id == channel_id:
                 ts = helpers.safe_get(body, "event", "ts")
             elif fed_ws and workspace.id != source_workspace_id:
@@ -442,7 +452,7 @@ def _handle_thread_reply(
                             channel_id=sync_channel.channel_id,
                             text_message_ts=text_ts,
                         )
-                        helpers.upload_files_to_slack(
+                        _, split_file_ts = helpers.upload_files_to_slack(
                             bot_token=bot_token,
                             channel_id=sync_channel.channel_id,
                             files=direct_files,
@@ -452,10 +462,16 @@ def _handle_thread_reply(
 
             if ts:
                 post_list.append(schemas.PostMeta(post_id=post_uuid, sync_channel_id=sync_channel.id, ts=float(ts)))
+            if split_file_ts:
+                post_list.append(
+                    schemas.PostMeta(post_id=post_uuid, sync_channel_id=sync_channel.id, ts=float(split_file_ts))
+                )
+            if ts or split_file_ts:
+                channels_synced += 1
         except Exception as exc:
             _logger.error(f"Failed to sync thread reply to channel {sync_channel.channel_id}: {exc}")
 
-    synced = len(post_list)
+    synced = channels_synced
     failed = len(post_records) - synced
     emit_metric("messages_synced", value=synced, sync_type="thread_reply")
     if failed:
