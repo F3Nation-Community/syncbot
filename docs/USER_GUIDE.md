@@ -7,7 +7,7 @@ This guide is for **workspace admins and end users** configuring SyncBot in Slac
 1. Click the install link from a desktop browser (make sure you've selected the correct workspace in the upper right)
 2. Open the **SyncBot** app from the sidebar and click the **Home** tab (requires workspace admin or owner)
 3. The Home tab shows everything in one view:
-   - **SyncBot Configuration (top row)** — **Refresh** and **Backup/Restore** (full-instance backup download and restore from JSON)
+   - **SyncBot Configuration (bottom row)** — **Refresh** and **Backup/Restore** (full-instance backup download and restore from JSON)
    - **Workspace Groups** — create or join groups of workspaces that can sync channels together
    - **Per-group sections** — for each group you can publish channels, manage user mapping (dedicated Home tab screen), and see/manage channel syncs inline
    - **Synced Channels** — each row shows the local channel and workspace list in brackets (e.g. _[Any: Your Workspace, Other Workspace]_), with pause/resume and stop controls, synced-since date, and tracked message count

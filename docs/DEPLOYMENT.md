@@ -21,7 +21,7 @@ The launcher discovers `infra/<provider>/scripts/deploy.sh`, shows a numbered me
 
 **Windows:** `deploy.ps1` requires **Git Bash** or **WSL** with bash, then runs the same `infra/.../deploy.sh` as macOS/Linux. Alternatively install [Git for Windows](https://git-scm.com/download/win) or [WSL](https://learn.microsoft.com/windows/wsl/install) and run `./deploy.sh` from Git Bash or a WSL shell.
 
-**Prerequisites** (also summarized in the root [README](../README.md)):
+**Prerequisites** (short list in the root [README](../README.md); full detail below):
 
 - **AWS path:** AWS CLI v2, SAM CLI, Docker (`sam build --use-container`), Python 3 (`python3`), **`curl`** (Slack manifest API). **Optional:** `gh` (GitHub Actions setup). The script prints a CLI status line per tool (✓ / !) and Slack doc links; if `gh` is missing, it asks whether to continue.
 - **GCP path:** Terraform, `gcloud`, Python 3, **`curl`**. **Optional:** `gh` — same behavior as AWS.
@@ -68,7 +68,7 @@ See [infra/gcp/README.md](../infra/gcp/README.md) for Terraform variables and ou
 
 ## Fork-First model (recommended for forks)
 
-**Branch roles** (see also the root [README](../README.md) **Branching** section): use **`main`** to track upstream and merge contributions; on your fork, use **`test`** and **`prod`** for automated deploys (CI runs on push to those branches).
+**Branch roles** (see [CONTRIBUTING.md](../CONTRIBUTING.md)): use **`main`** to track upstream and merge contributions; on your fork, use **`test`** and **`prod`** for automated deploys (CI runs on push to those branches).
 
 1. Keep `syncbot/` provider-neutral; use only env vars from [INFRA_CONTRACT.md](INFRA_CONTRACT.md).
 2. Put provider code in `infra/<provider>/` and `.github/workflows/deploy-<provider>.yml`.

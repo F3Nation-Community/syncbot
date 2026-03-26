@@ -24,6 +24,7 @@ import logging
 import re
 from datetime import UTC, datetime
 
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web import WebClient
 
 import constants
@@ -490,6 +491,9 @@ def handle_message_react(body: dict, fed_ws: schemas.FederatedWorkspace) -> tupl
     channel_id = body["channel_id"]
     reaction = body["reaction"]
     action = body.get("action", "add")
+    user_name = body.get("user_name") or "Remote User"
+    user_avatar_url = body.get("user_avatar_url")
+    workspace_name = body.get("workspace_name") or "Remote"
 
     resolved = _resolve_channel_for_federated(channel_id, fed_ws)
     if not resolved:
@@ -499,7 +503,8 @@ def handle_message_react(body: dict, fed_ws: schemas.FederatedWorkspace) -> tupl
     post_records = _find_post_records(post_id, sync_channel.id)
 
     applied = 0
-    ws_client = WebClient(token=helpers.decrypt_bot_token(workspace.bot_token))
+    bot_token = helpers.decrypt_bot_token(workspace.bot_token)
+    ws_client = WebClient(token=bot_token)
     for post_meta in post_records:
         try:
             if action == "add":
@@ -507,6 +512,34 @@ def handle_message_react(body: dict, fed_ws: schemas.FederatedWorkspace) -> tupl
             else:
                 ws_client.reactions_remove(channel=channel_id, timestamp=str(post_meta.ts), name=reaction)
             applied += 1
+        except SlackApiError as exc:
+            error_code = ""
+            if exc.response:
+                if isinstance(exc.response, dict):
+                    error_code = str(exc.response.get("error") or "")
+                else:
+                    error_code = str(getattr(exc.response, "get", lambda _k, _d=None: "")("error", ""))
+
+            if action == "add" and error_code == "invalid_name":
+                try:
+                    helpers.post_message(
+                        bot_token=bot_token,
+                        channel_id=channel_id,
+                        msg_text=f"reacted with :{reaction}:",
+                        user_name=user_name,
+                        user_profile_url=user_avatar_url,
+                        workspace_name=workspace_name,
+                        thread_ts=str(post_meta.ts),
+                    )
+                    applied += 1
+                    continue
+                except Exception:
+                    _logger.warning(
+                        "federation_react_fallback_failed",
+                        extra={"channel_id": channel_id, "ts": str(post_meta.ts)},
+                    )
+
+            _logger.warning("federation_react_failed", extra={"channel_id": channel_id, "ts": str(post_meta.ts)})
         except Exception:
             _logger.warning("federation_react_failed", extra={"channel_id": channel_id, "ts": str(post_meta.ts)})
 

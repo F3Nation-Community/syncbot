@@ -662,6 +662,8 @@ def build_reaction_payload(
     reaction: str,
     action: str,
     user_name: str,
+    user_avatar_url: str | None = None,
+    workspace_name: str | None = None,
     timestamp: str,
 ) -> dict:
     """Build a federation reaction payload."""
@@ -672,5 +674,7 @@ def build_reaction_payload(
         "reaction": reaction,
         "action": action,
         "user_name": user_name,
+        "user_avatar_url": user_avatar_url,
+        "workspace_name": workspace_name,
         "timestamp": timestamp,
     }

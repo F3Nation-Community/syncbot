@@ -2,6 +2,17 @@
 
 Thanks for helping improve SyncBot.
 
+## Branching (upstream vs downstream)
+
+The **upstream** repository ([F3Nation-Community/syncbot](https://github.com/F3Nation-Community/syncbot)) is the shared codebase. Each deployment maintains its own **fork**:
+
+| Branch | Role |
+|--------|------|
+| **`main`** | Tracks upstream. Use it to merge PRs and to **sync with the upstream repository** (`git pull upstream main`, etc.). |
+| **`test`** / **`prod`** | On your fork, use these for **deployments**: GitHub Actions deploy workflows run on **push** to `test` and `prod` (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). |
+
+Typical flow: develop on a feature branch → open a PR to **`main`** → merge → when ready to deploy, merge **`main`** into **`test`** or **`prod`** on your fork.
+
 ## Workflow
 
 1. **Fork** the repository and create a branch from **`main`**.
@@ -12,7 +23,7 @@ Thanks for helping improve SyncBot.
 
 - Run **`pre-commit run --all-files`** (install with `pip install pre-commit && pre-commit install` if needed).
 - Ensure **CI passes**: requirements export check, SAM template lint, and tests (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
-- If you change dependencies in `pyproject.toml`, refresh the lockfile and `syncbot/requirements.txt` as described in the README.
+- If you change dependencies in `pyproject.toml`, refresh the lockfile and `syncbot/requirements.txt` as described in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Questions
 

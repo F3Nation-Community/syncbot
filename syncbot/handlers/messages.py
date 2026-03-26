@@ -662,6 +662,9 @@ def _handle_reaction(
                     channel_id=sync_channel.channel_id,
                     reaction=reaction,
                     action="add",
+                    user_name=user_name or user_id or "Someone",
+                    user_avatar_url=user_profile_url,
+                    workspace_name=ws_name,
                     timestamp=f"{post_meta.ts:.6f}",
                 )
                 federation.push_reaction(fed_ws, payload)
