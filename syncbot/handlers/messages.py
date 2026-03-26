@@ -26,6 +26,32 @@ def _find_source_workspace_id(records: list[tuple], channel_id: str, ws_index: i
 _logger = logging.getLogger(__name__)
 
 
+def _shared_by_file_initial_comment(
+    *,
+    user_id: str,
+    source_workspace_id: int,
+    target_workspace_id: int,
+    name_for_target: str,
+    target_client: WebClient,
+    channel_id: str,
+    text_message_ts: str | None,
+) -> str:
+    """Build ``initial_comment`` for ``files_upload_v2`` (mention + optional permalink to text)."""
+    mapped_id = helpers.get_mapped_target_user_id(user_id or "", source_workspace_id or 0, target_workspace_id)
+    user_ref = f"<@{mapped_id}>" if mapped_id else name_for_target
+    if not text_message_ts:
+        return f"Shared by {user_ref}"
+    permalink = None
+    try:
+        plink_resp = target_client.chat_getPermalink(channel=channel_id, message_ts=text_message_ts)
+        permalink = helpers.safe_get(plink_resp, "permalink")
+    except Exception:
+        pass
+    if permalink:
+        return f"Shared by {user_ref} in <{permalink}|this message>"
+    return f"Shared by {user_ref}"
+
+
 def _parse_event_fields(body: dict, client: WebClient) -> EventContext:
     """Extract the common fields every message handler needs."""
     event: dict = body.get("event", {})
@@ -164,7 +190,6 @@ def _handle_new_post(
         user_name, user_profile_url = helpers.get_bot_info_from_event(body)
 
     workspace_name = _get_workspace_name(sync_records, channel_id, workspace_index=1)
-    posted_from = f"({workspace_name})" if workspace_name else "(via SyncBot)"
 
     post_uuid = uuid.uuid4().hex
     post_list: list[schemas.PostMeta] = []
@@ -229,11 +254,20 @@ def _handle_new_post(
                 name_for_target = target_display_name or user_name or "Someone"
 
                 if direct_files and not msg_text.strip():
+                    file_comment = _shared_by_file_initial_comment(
+                        user_id=user_id or "",
+                        source_workspace_id=source_workspace_id or 0,
+                        target_workspace_id=workspace.id,
+                        name_for_target=name_for_target,
+                        target_client=target_client,
+                        channel_id=sync_channel.channel_id,
+                        text_message_ts=None,
+                    )
                     _, file_ts = helpers.upload_files_to_slack(
                         bot_token=bot_token,
                         channel_id=sync_channel.channel_id,
                         files=direct_files,
-                        initial_comment=f"Shared by {name_for_target} {posted_from}",
+                        initial_comment=file_comment,
                     )
                     ts = file_ts or helpers.safe_get(body, "event", "ts")
                 else:
@@ -249,11 +283,22 @@ def _handle_new_post(
                     ts = helpers.safe_get(res, "ts") or helpers.safe_get(body, "event", "ts")
 
                     if direct_files:
+                        text_ts = str(ts) if ts else None
+                        file_comment = _shared_by_file_initial_comment(
+                            user_id=user_id or "",
+                            source_workspace_id=source_workspace_id or 0,
+                            target_workspace_id=workspace.id,
+                            name_for_target=name_for_target,
+                            target_client=target_client,
+                            channel_id=sync_channel.channel_id,
+                            text_message_ts=text_ts,
+                        )
                         helpers.upload_files_to_slack(
                             bot_token=bot_token,
                             channel_id=sync_channel.channel_id,
                             files=direct_files,
                             thread_ts=ts,
+                            initial_comment=file_comment,
                         )
 
             if ts:
@@ -293,7 +338,6 @@ def _handle_thread_reply(
         return
 
     workspace_name = _get_workspace_name(post_records, channel_id, workspace_index=2)
-    posted_from = f"({workspace_name})" if workspace_name else "(via SyncBot)"
 
     if user_id:
         user_name, user_profile_url = helpers.get_user_info(client, user_id)
@@ -357,11 +401,20 @@ def _handle_thread_reply(
                 name_for_target = target_display_name or user_name or "Someone"
 
                 if direct_files and not msg_text.strip():
+                    file_comment = _shared_by_file_initial_comment(
+                        user_id=user_id or "",
+                        source_workspace_id=source_workspace_id or 0,
+                        target_workspace_id=workspace.id,
+                        name_for_target=name_for_target,
+                        target_client=target_client,
+                        channel_id=sync_channel.channel_id,
+                        text_message_ts=None,
+                    )
                     _, file_ts = helpers.upload_files_to_slack(
                         bot_token=bot_token,
                         channel_id=sync_channel.channel_id,
                         files=direct_files,
-                        initial_comment=f"Shared by {name_for_target} {posted_from}",
+                        initial_comment=file_comment,
                         thread_ts=parent_ts,
                     )
                     ts = file_ts or helpers.safe_get(body, "event", "ts")
@@ -379,11 +432,22 @@ def _handle_thread_reply(
                     ts = helpers.safe_get(res, "ts")
 
                     if direct_files:
+                        text_ts = str(ts) if ts else None
+                        file_comment = _shared_by_file_initial_comment(
+                            user_id=user_id or "",
+                            source_workspace_id=source_workspace_id or 0,
+                            target_workspace_id=workspace.id,
+                            name_for_target=name_for_target,
+                            target_client=target_client,
+                            channel_id=sync_channel.channel_id,
+                            text_message_ts=text_ts,
+                        )
                         helpers.upload_files_to_slack(
                             bot_token=bot_token,
                             channel_id=sync_channel.channel_id,
                             files=direct_files,
                             thread_ts=parent_ts,
+                            initial_comment=file_comment,
                         )
 
             if ts:

@@ -121,3 +121,25 @@ class TestSubscribeChannelSubmit:
             handle_subscribe_channel_submit({}, client, logger, context)
 
         create_record.assert_not_called()
+
+    def test_duplicate_channel_skips_join_and_create(self):
+        client = MagicMock()
+        logger = MagicMock()
+        context = {}
+        workspace = SimpleNamespace(id=10)
+        sync_record = SimpleNamespace(group_id=None)
+
+        with (
+            patch("handlers.channel_sync._get_authorized_workspace", return_value=("U1", workspace)),
+            patch("handlers.channel_sync._parse_private_metadata", return_value={"sync_id": 55}),
+            patch("handlers.channel_sync._get_selected_conversation_or_option", return_value="Cdup"),
+            patch("handlers.channel_sync.DbManager.get_record", return_value=sync_record),
+            patch("handlers.channel_sync.DbManager.find_records", return_value=[object()]),
+            patch("handlers.channel_sync.DbManager.create_record") as create_record,
+            patch("handlers.channel_sync.builders.refresh_home_tab_for_workspace") as refresh_home,
+        ):
+            handle_subscribe_channel_submit({"user": {"id": "U1"}}, client, logger, context)
+
+        create_record.assert_not_called()
+        client.conversations_join.assert_not_called()
+        refresh_home.assert_called_once()

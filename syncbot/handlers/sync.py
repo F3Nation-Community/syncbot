@@ -206,6 +206,28 @@ def handle_join_sync_submission(
         logger.warning("Rejected join-sync: workspace or sync record not found")
         return
 
+    existing_join = DbManager.find_records(
+        schemas.SyncChannel,
+        [
+            schemas.SyncChannel.sync_id == sync_id,
+            schemas.SyncChannel.workspace_id == workspace_record.id,
+            schemas.SyncChannel.channel_id == channel_id,
+            schemas.SyncChannel.deleted_at.is_(None),
+            schemas.SyncChannel.status == "active",
+        ],
+    )
+    if existing_join:
+        _logger.info(
+            "join_sync_duplicate_skip",
+            extra={
+                "sync_id": sync_id,
+                "channel_id": channel_id,
+                "workspace_id": workspace_record.id,
+            },
+        )
+        builders.refresh_home_tab_for_workspace(workspace_record, logger, context=context)
+        return
+
     acting_user_id = helpers.safe_get(body, "user", "id") or user_id
     admin_name, admin_label = helpers.format_admin_label(client, acting_user_id, workspace_record)
 

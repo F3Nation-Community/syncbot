@@ -40,6 +40,17 @@ def get_sync_list(team_id: str, channel_id: str) -> list[tuple[schemas.SyncChann
     else:
         sync_channels = []
 
+    # One logical target per (workspace, Slack channel): duplicate SyncChannel rows
+    # (e.g. double-submit on join/subscribe) would otherwise post the same message N times.
+    seen: set[tuple[int, str]] = set()
+    deduped: list[tuple[schemas.SyncChannel, schemas.Workspace]] = []
+    for sc, ws in sync_channels:
+        key = (ws.id, sc.channel_id)
+        if key not in seen:
+            seen.add(key)
+            deduped.append((sc, ws))
+    sync_channels = deduped
+
     _cache_set(cache_key, sync_channels)
     return sync_channels
 

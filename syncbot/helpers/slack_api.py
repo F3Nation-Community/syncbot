@@ -179,7 +179,15 @@ def get_post_records(thread_ts: str) -> list[tuple[schemas.PostMeta, schemas.Syn
         )
     else:
         post_records = []
-    return post_records
+
+    seen: set[tuple[int, str]] = set()
+    deduped: list[tuple[schemas.PostMeta, schemas.SyncChannel, schemas.Workspace]] = []
+    for pm, sc, ws in post_records:
+        key = (ws.id, sc.channel_id)
+        if key not in seen:
+            seen.add(key)
+            deduped.append((pm, sc, ws))
+    return deduped
 
 
 @slack_retry
