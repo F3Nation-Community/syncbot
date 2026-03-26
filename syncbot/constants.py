@@ -127,8 +127,23 @@ def database_tls_enabled() -> bool:
 
 
 def database_ssl_ca_path() -> str:
-    """Return optional CA bundle path for DB TLS verification."""
-    return os.environ.get(DATABASE_SSL_CA_PATH, "/etc/pki/tls/certs/ca-bundle.crt")
+    """Return CA bundle path for DB TLS verification, or empty string for system defaults.
+
+    If :envvar:`DATABASE_SSL_CA_PATH` is set, that path is returned as-is (caller may
+    verify it exists). Otherwise the first existing file among common OS locations
+    is used (Amazon Linux, Debian, Alpine).
+    """
+    explicit = os.environ.get(DATABASE_SSL_CA_PATH, "").strip()
+    if explicit:
+        return explicit
+    for candidate in (
+        "/etc/pki/tls/certs/ca-bundle.crt",  # RHEL / Amazon Linux / Lambda
+        "/etc/ssl/certs/ca-certificates.crt",  # Debian / Ubuntu / Cloud Run image
+        "/etc/ssl/cert.pem",  # Alpine / macOS
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return ""
 
 
 def get_required_db_vars() -> list:

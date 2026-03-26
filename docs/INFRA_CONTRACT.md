@@ -37,7 +37,7 @@ poetry export --only main --format requirements.txt --without-hashes --output sy
 | `DATABASE_PASSWORD` | Password. Required when backend is `mysql` or `postgresql` and `DATABASE_URL` is unset. |
 | `DATABASE_SCHEMA` | Database name (MySQL) or PostgreSQL database name (same convention as MySQL). Use alphanumeric and underscore only for PostgreSQL when the app must `CREATE DATABASE` at bootstrap. |
 | `DATABASE_TLS_ENABLED` | Optional TLS toggle (`true`/`false`). Defaults to enabled outside local dev. |
-| `DATABASE_SSL_CA_PATH` | Optional CA bundle path when TLS is enabled (default `/etc/pki/tls/certs/ca-bundle.crt`). |
+| `DATABASE_SSL_CA_PATH` | Optional CA bundle path when TLS is enabled. If unset, the app uses the first existing file among common OS locations (Amazon Linux, Debian, Alpine); PostgreSQL omits `sslrootcert` when none exist so libpq uses the system trust store. |
 
 **SQLite (forks / local):** Set `DATABASE_BACKEND=sqlite` and `DATABASE_URL=sqlite:///path/to/file.db`. Single-writer; suitable for small teams and dev.
 
@@ -67,6 +67,7 @@ poetry export --only main --format requirements.txt --without-hashes --output sy
 | `ENABLE_DB_RESET` | When set to a Slack Team ID, enables the Reset Database button for that workspace. |
 | `LOCAL_DEVELOPMENT` | `true` only for local dev; disables token verification and enables dev shortcuts. |
 | `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` (default `INFO`). |
+| `PORT` | HTTP listen port for container entrypoint (`python app.py` / Cloud Run). Cloud Run injects this (typically `8080`); default `3000` when unset. |
 | `SOFT_DELETE_RETENTION_DAYS` | Days to retain soft-deleted workspace data (default `30`). |
 | `SYNCBOT_FEDERATION_ENABLED` | `true` to enable external connections (federation). |
 | `SYNCBOT_INSTANCE_ID` | UUID for this instance (optional; can be auto-generated). |
@@ -80,7 +81,8 @@ The provider must deliver:
    Slack sends events and interactivity to a single base URL. The app expects:
    - `POST /slack/events` — events and actions
    - `GET /slack/install` — OAuth start
-   - `GET /slack/oauth_redirect` — OAuth callback  
+   - `GET /slack/oauth_redirect` — OAuth callback
+   - `GET /health` — liveness (JSON `{"status":"ok"}`) for keep-warm probes  
    Any path under `/api/federation` is used for federation when enabled.
 
 2. **Secret injection**  

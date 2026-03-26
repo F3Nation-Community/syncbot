@@ -73,9 +73,12 @@ def _build_mysql_url(include_schema: bool = False) -> tuple[str, dict]:
     connect_args: dict = {}
     if constants.database_tls_enabled():
         ca_path = constants.database_ssl_ca_path()
-        try:
-            ssl_ctx = ssl.create_default_context(cafile=ca_path)
-        except (OSError, ssl.SSLError):
+        if ca_path:
+            try:
+                ssl_ctx = ssl.create_default_context(cafile=ca_path)
+            except (OSError, ssl.SSLError):
+                ssl_ctx = ssl.create_default_context()
+        else:
             ssl_ctx = ssl.create_default_context()
         connect_args["ssl"] = ssl_ctx
     return db_url, connect_args
@@ -95,7 +98,8 @@ def _build_postgresql_url(include_schema: bool = False) -> tuple[str, dict]:
     if constants.database_tls_enabled():
         ca_path = constants.database_ssl_ca_path()
         connect_args["sslmode"] = "verify-full"
-        connect_args["sslrootcert"] = ca_path
+        if ca_path and os.path.isfile(ca_path):
+            connect_args["sslrootcert"] = ca_path
     return db_url, connect_args
 
 
@@ -107,14 +111,18 @@ def _network_sql_connect_args_from_url() -> dict:
     backend = constants.get_database_backend()
     ca_path = constants.database_ssl_ca_path()
     if backend == "mysql":
-        try:
-            ssl_ctx = ssl.create_default_context(cafile=ca_path)
-        except (OSError, ssl.SSLError):
+        if ca_path:
+            try:
+                ssl_ctx = ssl.create_default_context(cafile=ca_path)
+            except (OSError, ssl.SSLError):
+                ssl_ctx = ssl.create_default_context()
+        else:
             ssl_ctx = ssl.create_default_context()
         connect_args["ssl"] = ssl_ctx
     elif backend == "postgresql":
         connect_args["sslmode"] = "verify-full"
-        connect_args["sslrootcert"] = ca_path
+        if ca_path and os.path.isfile(ca_path):
+            connect_args["sslrootcert"] = ca_path
     return connect_args
 
 

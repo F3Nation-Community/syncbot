@@ -70,7 +70,11 @@ Use the [GCP bootstrap output script](scripts/print-bootstrap-outputs.sh) to pri
 
 ## Keep-warm
 
-If `enable_keep_warm` is `true`, a Cloud Scheduler job pings the service at `/health` on the configured interval. Ensure your app exposes a `/health` endpoint or change the job target in [main.tf](main.tf) to another path (e.g. `/`).
+If `enable_keep_warm` is `true`, a Cloud Scheduler job pings the service at `/health` on the configured interval. The app implements `GET /health` (JSON `{"status":"ok"}`).
+
+## HTTP port
+
+Cloud Run sets the `PORT` environment variable (default `8080`). The container entrypoint (`python app.py`) listens on `PORT`, falling back to `3000` when unset (local Docker).
 
 ## Security
 

@@ -1,7 +1,8 @@
 """SyncBot — Slack app that syncs messages across workspaces.
 
 This module is the entry point for both AWS Lambda (via :func:`handler`) and
-local development (``python app.py`` starts a Bolt dev server on port 3000).
+container/local HTTP mode (``python app.py`` / Cloud Run: listens on :envvar:`PORT`
+or port 3000 by default).
 
 All incoming Slack events, actions, view submissions, and slash commands are
 dispatched through :func:`main_response`.  In production (non-local), view
@@ -30,8 +31,13 @@ except PackageNotFoundError:
 # In production (Lambda) there is no .env file and this is a harmless no-op.
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 from slack_bolt import App
 from slack_bolt.adapter.aws_lambda import SlackRequestHandler
+from slack_bolt.request import BoltRequest
+from slack_bolt.response import BoltResponse
+from slack_bolt.util.utils import get_boot_message
 
 from constants import (
     FEDERATION_ENABLED,
@@ -237,50 +243,157 @@ else:
     app.view(MATCH_ALL_PATTERN)(ack=view_ack, lazy=[main_response])
 
 
+def _http_listen_port() -> int:
+    """Port for Bolt container mode (Cloud Run sets ``PORT``; local default 3000)."""
+    raw = os.environ.get("PORT", "3000").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return 3000
+
+
+def run_syncbot_http_server(
+    *,
+    port: int | None = None,
+    bolt_path: str = "/slack/events",
+    http_server_logger_enabled: bool = True,
+) -> None:
+    """Start the HTTP server used by Cloud Run and ``python app.py``.
+
+    Serves Slack (``bolt_path``), OAuth install/callback, ``/health``, and
+    ``/api/federation/*`` when :data:`~constants.FEDERATION_ENABLED` is true.
+    Mirrors :class:`slack_bolt.app.app.SlackAppDevelopmentServer` routing with
+    extra paths for production parity with API Gateway + Lambda.
+    """
+    listen_port = port if port is not None else _http_listen_port()
+    _bolt_app = app
+    _bolt_oauth_flow = app.oauth_flow
+    _bolt_endpoint_path = bolt_path
+    _fed_enabled = FEDERATION_ENABLED
+    _http_log = http_server_logger_enabled
+    _fed_max_body = 1_048_576  # 1 MB
+
+    class SyncBotHTTPHandler(BaseHTTPRequestHandler):
+        def log_message(self, fmt: str, *args) -> None:
+            if _http_log:
+                super().log_message(fmt, *args)
+
+        def _path_no_query(self) -> str:
+            return self.path.partition("?")[0]
+
+        def _send_raw(
+            self,
+            status: int,
+            headers: dict[str, list[str]],
+            body: str | bytes = "",
+        ) -> None:
+            if isinstance(body, str):
+                body_bytes = body.encode("utf-8")
+            else:
+                body_bytes = body
+            self.send_response(status)
+            for k, vs in headers.items():
+                for v in vs:
+                    self.send_header(k, v)
+            self.send_header("Content-Length", str(len(body_bytes)))
+            self.end_headers()
+            self.wfile.write(body_bytes)
+
+        def _send_bolt_response(self, bolt_resp: BoltResponse) -> None:
+            self._send_raw(
+                status=bolt_resp.status,
+                headers={k: list(vs) for k, vs in bolt_resp.headers.items()},
+                body=bolt_resp.body,
+            )
+
+        def do_GET(self) -> None:
+            path = self._path_no_query()
+            if path == "/health":
+                self._send_raw(
+                    200,
+                    {"Content-Type": ["application/json"]},
+                    json.dumps({"status": "ok"}),
+                )
+                return
+            if _fed_enabled and path.startswith("/api/federation"):
+                self._handle_federation("GET")
+                return
+            if _bolt_oauth_flow:
+                query = self.path.partition("?")[2]
+                if path == _bolt_oauth_flow.install_path:
+                    bolt_req = BoltRequest(
+                        body="",
+                        query=query,
+                        headers=self.headers,
+                    )
+                    bolt_resp = _bolt_oauth_flow.handle_installation(bolt_req)
+                    self._send_bolt_response(bolt_resp)
+                    return
+                if path == _bolt_oauth_flow.redirect_uri_path:
+                    bolt_req = BoltRequest(
+                        body="",
+                        query=query,
+                        headers=self.headers,
+                    )
+                    bolt_resp = _bolt_oauth_flow.handle_callback(bolt_req)
+                    self._send_bolt_response(bolt_resp)
+                    return
+            self._send_raw(404, {})
+
+        def do_POST(self) -> None:
+            path = self._path_no_query()
+            if _fed_enabled and path.startswith("/api/federation"):
+                self._handle_federation("POST")
+                return
+            if path != _bolt_endpoint_path:
+                self._send_raw(404, {})
+                return
+            try:
+                content_len = int(self.headers.get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                content_len = 0
+            query = self.path.partition("?")[2]
+            request_body = self.rfile.read(content_len).decode("utf-8")
+            bolt_req = BoltRequest(
+                body=request_body,
+                query=query,
+                headers=self.headers,
+            )
+            bolt_resp = _bolt_app.dispatch(bolt_req)
+            self._send_bolt_response(bolt_resp)
+
+        def _handle_federation(self, method: str) -> None:
+            try:
+                content_len = min(
+                    int(self.headers.get("Content-Length", 0)),
+                    _fed_max_body,
+                )
+            except (TypeError, ValueError):
+                content_len = 0
+            body_str = self.rfile.read(content_len).decode() if content_len else ""
+            headers = {k: v for k, v in self.headers.items()}
+            status, resp = dispatch_federation_request(
+                method, self._path_no_query(), body_str, headers
+            )
+            self._send_raw(
+                status,
+                {"Content-Type": ["application/json"]},
+                json.dumps(resp),
+            )
+
+    server = HTTPServer(("0.0.0.0", listen_port), SyncBotHTTPHandler)
+    if _bolt_app.logger.level > logging.INFO:
+        print(get_boot_message(development_server=True))
+    else:
+        _bolt_app.logger.info(
+            "http_server_started",
+            extra={"port": listen_port, "bolt_path": bolt_path},
+        )
+    try:
+        server.serve_forever(0.05)
+    finally:
+        server.server_close()
+
+
 if __name__ == "__main__":
-    if LOCAL_DEVELOPMENT:
-        import threading
-        from http.server import BaseHTTPRequestHandler, HTTPServer
-
-        class FederationHTTPHandler(BaseHTTPRequestHandler):
-            """Lightweight HTTP handler for federation API endpoints."""
-
-            def do_GET(self):
-                if self.path.startswith("/api/federation"):
-                    self._handle_federation("GET")
-                else:
-                    self.send_error(404)
-
-            def do_POST(self):
-                if self.path.startswith("/api/federation"):
-                    self._handle_federation("POST")
-                else:
-                    self.send_error(404)
-
-            _MAX_BODY = 1_048_576  # 1 MB
-
-            def _handle_federation(self, method: str):
-                try:
-                    content_len = min(int(self.headers.get("Content-Length", 0)), self._MAX_BODY)
-                except (TypeError, ValueError):
-                    content_len = 0
-                body_str = self.rfile.read(content_len).decode() if content_len else ""
-                headers = {k: v for k, v in self.headers.items()}
-
-                status, resp = dispatch_federation_request(method, self.path, body_str, headers)
-
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps(resp).encode())
-
-            def log_message(self, format, *args):
-                pass
-
-        if FEDERATION_ENABLED:
-            fed_server = HTTPServer(("0.0.0.0", 3001), FederationHTTPHandler)
-            fed_thread = threading.Thread(target=fed_server.serve_forever, daemon=True)
-            fed_thread.start()
-            _logger.info("Federation API server started on port 3001")
-
-    app.start(3000)
+    run_syncbot_http_server(http_server_logger_enabled=LOCAL_DEVELOPMENT)

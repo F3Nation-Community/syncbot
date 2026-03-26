@@ -265,6 +265,9 @@ resource "google_cloud_run_v2_service" "syncbot" {
   template {
     service_account = google_service_account.cloud_run.email
 
+    # Lambda-like single request per container (free-tier friendly; matches app pool sizing).
+    max_instance_request_concurrency = 1
+
     scaling {
       min_instance_count = var.cloud_run_min_instances
       max_instance_count = var.cloud_run_max_instances
