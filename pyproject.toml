@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "syncbot"
 version = "1.0.0"
-description = "Slack app for syncing messages and threads across workspaces."
+description = "Sync chat threads between Slack Workspaces."
 authors = ["Evan Petzoldt <evan.petzoldt@protonmail.com>", "Klint Van Tassel <developer@sprocktech.com>"]
 readme = "README.md"
 
