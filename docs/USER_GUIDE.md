@@ -51,6 +51,15 @@ The Home tab and User Mapping screens have Refresh buttons. To keep API usage lo
 
 Images and videos are downloaded from the source and uploaded directly to each target channel. GIFs from the Slack GIF picker or GIPHY are synced as image blocks.
 
+| Source message | What appears in target workspace |
+|---|---|
+| Text only | Single message with text, shown under the original poster's name and avatar |
+| GIF (Slack picker / GIPHY) | Single message with the GIF embedded inline via image block, under the poster's name |
+| GIF + text | Single message with text and GIF together, under the poster's name |
+| Photo or video only (no text) | Single file upload with `Shared by @User` (tagged if mapped, plain name otherwise) |
+| Text + photo or video | Text message under the poster's name, then the file in a thread reply with `Shared by @User in this message` linking back to the text |
+| Multiple files | Same as above; all files are uploaded together in a single thread reply |
+
 ## External Connections
 
 *(Opt-in — set `SYNCBOT_FEDERATION_ENABLED=true` and `SYNCBOT_PUBLIC_URL` to enable)*
