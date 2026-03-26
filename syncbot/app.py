@@ -89,6 +89,20 @@ app = App(
 )
 
 
+@app.middleware
+def _capture_slack_retry_num(req, resp, next):
+    """Expose ``X-Slack-Retry-Num`` on context so message handlers can drop retries."""
+    headers = getattr(req, "headers", None) or {}
+    vals = headers.get("x-slack-retry-num")
+    if vals:
+        try:
+            v = vals[0] if isinstance(vals, (list, tuple)) else vals
+            req.context["slack_retry_num"] = int(v)
+        except (ValueError, TypeError, IndexError):
+            pass
+    return next()
+
+
 def handler(event: dict, context: dict) -> dict:
     """AWS Lambda entry point.
 

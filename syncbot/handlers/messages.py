@@ -729,6 +729,25 @@ def _is_own_bot_message(body: dict, client: WebClient, context: dict) -> bool:
     return event_bot_id == own_bot_id
 
 
+def _should_skip_slack_event_retry(body: dict, context: dict) -> bool:
+    """Return True if Slack delivered this event as a retry (duplicate work)."""
+    rn = context.get("slack_retry_num")
+    if rn is not None:
+        try:
+            if int(rn) >= 1:
+                return True
+        except (TypeError, ValueError):
+            pass
+    ra = helpers.safe_get(body, "retry_attempt")
+    if ra is not None:
+        try:
+            if int(ra) >= 1:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
+
+
 def respond_to_message_event(
     body: dict,
     client: WebClient,
@@ -748,11 +767,33 @@ def respond_to_message_event(
     if _is_own_bot_message(body, client, context):
         return
 
+    if _should_skip_slack_event_retry(body, context):
+        _logger.info(
+            "skipping_slack_event_retry",
+            extra={
+                "slack_retry_num": context.get("slack_retry_num"),
+                "retry_attempt": helpers.safe_get(body, "retry_attempt"),
+            },
+        )
+        return
+
+    # Slack sends a plain message event and then a file_share for the same post; process only file_share
+    # so we do not sync twice (and avoid downloading files twice).
+    event_has_files = bool(
+        helpers.safe_get(body, "event", "files") or helpers.safe_get(body, "event", "message", "files")
+    )
+    if not event_subtype and event_has_files:
+        _logger.debug(
+            "skip_message_pending_file_share",
+            extra={"channel": helpers.safe_get(body, "event", "channel")},
+        )
+        return
+
     photo_list, photo_blocks, direct_files = _build_file_context(body, client, logger)
 
     has_files = bool(photo_blocks or direct_files)
     if (
-        (not event_subtype)
+        (not event_subtype and not event_has_files)
         or event_subtype == "bot_message"
         or (event_subtype == "file_share" and (ctx["msg_text"] != "" or has_files))
     ):
