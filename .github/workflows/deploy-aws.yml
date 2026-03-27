@@ -67,7 +67,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: build-artifact
           path: './.aws-sam/build'
@@ -129,7 +129,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: build-artifact
           path: './.aws-sam/build'
