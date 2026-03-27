@@ -47,6 +47,7 @@ sequenceDiagram
 
     loop For each target channel
         L->>L: Re-map @mentions (cached user matching)
+        L->>L: Resolve #channel references (archive URLs)
         L->>SB: chat.postMessage (as sender)
         SB-->>L: ts (timestamp)
         L->>DB: Save PostMeta record

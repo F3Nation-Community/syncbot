@@ -201,6 +201,9 @@ def _handle_new_post(
     if sync_records:
         fed_ws = helpers.get_federated_workspace_for_sync(sync_records[0][0].sync_id)
 
+    source_ws_fed = helpers.get_workspace_by_id(source_workspace_id) if source_workspace_id else None
+    fed_adapted_text = helpers.resolve_channel_references(msg_text, client, source_ws_fed)
+
     for sync_channel, workspace in sync_records:
         try:
             split_file_ts: str | None = None
@@ -223,7 +226,7 @@ def _handle_new_post(
                     user_name=user_name,
                     user_avatar_url=user_profile_url,
                     workspace_name=workspace_name,
-                    text=msg_text,
+                    text=fed_adapted_text,
                     images=image_payloads,
                     timestamp=helpers.safe_get(body, "event", "ts"),
                 )
@@ -364,6 +367,9 @@ def _handle_thread_reply(
 
     thread_post_id = post_records[0][0].post_id if post_records else None
 
+    source_ws_fed = helpers.get_workspace_by_id(source_workspace_id) if source_workspace_id else None
+    fed_adapted_text = helpers.resolve_channel_references(msg_text, client, source_ws_fed)
+
     for post_meta, sync_channel, workspace in post_records:
         try:
             split_file_ts: str | None = None
@@ -377,7 +383,7 @@ def _handle_thread_reply(
                     user_name=user_name,
                     user_avatar_url=user_profile_url,
                     workspace_name=workspace_name,
-                    text=msg_text,
+                    text=fed_adapted_text,
                     thread_post_id=str(thread_post_id) if thread_post_id else None,
                     timestamp=helpers.safe_get(body, "event", "ts"),
                 )
@@ -507,6 +513,9 @@ def _handle_message_edit(
     if post_records:
         fed_ws = helpers.get_federated_workspace_for_sync(post_records[0][1].sync_id)
 
+    source_ws_fed = helpers.get_workspace_by_id(source_workspace_id) if source_workspace_id else None
+    fed_adapted_text = helpers.resolve_channel_references(msg_text, client, source_ws_fed)
+
     synced = 0
     failed = 0
     for post_meta, sync_channel, workspace in post_records:
@@ -517,7 +526,7 @@ def _handle_message_edit(
                 payload = federation.build_edit_payload(
                     post_id=post_meta.post_id.hex() if isinstance(post_meta.post_id, bytes) else str(post_meta.post_id),
                     channel_id=sync_channel.channel_id,
-                    text=msg_text,
+                    text=fed_adapted_text,
                     timestamp=f"{post_meta.ts:.6f}",
                 )
                 federation.push_edit(fed_ws, payload)

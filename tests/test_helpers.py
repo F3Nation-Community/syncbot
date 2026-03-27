@@ -241,3 +241,100 @@ class TestSlackRetry:
 
         with pytest.raises(SlackApiError):
             fn()
+
+
+# -----------------------------------------------------------------------
+# resolve_channel_references
+# -----------------------------------------------------------------------
+
+
+class TestResolveChannelReferences:
+    """Tests for helpers.resolve_channel_references (archive URL generation)."""
+
+    def setup_method(self):
+        helpers._CACHE.clear()
+
+    def _make_workspace(self, team_id="T123", name="Acme"):
+        ws = MagicMock()
+        ws.team_id = team_id
+        ws.workspace_name = name
+        return ws
+
+    def _make_client(self, channel_name="general", domain="acme"):
+        client = MagicMock()
+        client.conversations_info.return_value = {"channel": {"name": channel_name}}
+        client.team_info.return_value = {"team": {"domain": domain}}
+        return client
+
+    def test_no_channel_refs_unchanged(self):
+        result = helpers.resolve_channel_references("hello world", MagicMock())
+        assert result == "hello world"
+
+    def test_empty_text(self):
+        result = helpers.resolve_channel_references("", MagicMock())
+        assert result == ""
+
+    def test_none_text(self):
+        result = helpers.resolve_channel_references(None, MagicMock())
+        assert result is None
+
+    def test_archive_url_with_workspace(self):
+        client = self._make_client(channel_name="general", domain="acme")
+        ws = self._make_workspace(team_id="T123", name="Acme")
+        result = helpers.resolve_channel_references("see <#CABC123>", client, ws)
+        assert "https://acme.slack.com/archives/CABC123" in result
+        assert "#general (Acme)" in result
+
+    def test_archive_url_without_workspace(self):
+        client = self._make_client(channel_name="general", domain="acme")
+        result = helpers.resolve_channel_references("see <#CABC123>", client, None)
+        assert "#general" in result
+
+    def test_fallback_when_domain_unavailable(self):
+        client = MagicMock()
+        client.conversations_info.return_value = {"channel": {"name": "general"}}
+        client.team_info.side_effect = Exception("api error")
+        ws = self._make_workspace(team_id="T123", name="Acme")
+        result = helpers.resolve_channel_references("see <#CABC123>", client, ws)
+        assert result == "see `[#general (Acme)]`"
+        assert "slack.com" not in result
+
+    def test_fallback_when_channel_unresolvable(self):
+        client = MagicMock()
+        client.conversations_info.side_effect = Exception("channel_not_found")
+        ws = self._make_workspace(team_id="T123", name="Acme")
+        result = helpers.resolve_channel_references("see <#CABC123>", client, ws)
+        assert result == "see #CABC123"
+
+    def test_channel_ref_with_label(self):
+        client = self._make_client(channel_name="general", domain="acme")
+        ws = self._make_workspace(team_id="T123", name="Acme")
+        result = helpers.resolve_channel_references("see <#CABC123|general>", client, ws)
+        assert "https://acme.slack.com/archives/CABC123" in result
+
+    def test_multiple_channel_refs(self):
+        client = MagicMock()
+        call_count = 0
+
+        def conv_info(channel):
+            nonlocal call_count
+            call_count += 1
+            names = {"CABC111": "alpha", "CABC222": "beta"}
+            return {"channel": {"name": names.get(channel, channel)}}
+
+        client.conversations_info.side_effect = conv_info
+        client.team_info.return_value = {"team": {"domain": "acme"}}
+        ws = self._make_workspace(team_id="T123", name="Acme")
+        result = helpers.resolve_channel_references(
+            "see <#CABC111> and <#CABC222>", client, ws
+        )
+        assert "archives/CABC111" in result
+        assert "archives/CABC222" in result
+        assert "#alpha" in result
+        assert "#beta" in result
+
+    def test_no_app_redirect_in_output(self):
+        client = self._make_client(channel_name="general", domain="acme")
+        ws = self._make_workspace(team_id="T123", name="Acme")
+        result = helpers.resolve_channel_references("see <#CABC123>", client, ws)
+        assert "app_redirect" not in result

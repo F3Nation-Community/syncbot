@@ -374,8 +374,8 @@ def resolve_mention_for_workspace(
 
     def _unmapped_label(name: str) -> str:
         if source_ws_name:
-            return f"[{name} ({source_ws_name})]"
-        return f"[{name}]"
+            return f"`[@{name} ({source_ws_name})]`"
+        return f"`[@{name}]`"
 
     mappings = DbManager.find_records(
         schemas.UserMapping,
@@ -481,12 +481,30 @@ def apply_mentioned_users(
             source_ws = get_workspace_by_id(source_workspace_id) if source_workspace_id else None
             ws_label = resolve_workspace_name(source_ws) if source_ws else None
             if ws_label:
-                replace_list.append(f"[{fallback} ({ws_label})]")
+                replace_list.append(f"`[@{fallback} ({ws_label})]`")
             else:
-                replace_list.append(f"[{fallback}]")
+                replace_list.append(f"`[@{fallback}]`")
 
     replace_iter = iter(replace_list)
     return re.sub(r"<@\w+>", lambda _: next(replace_iter), msg_text)
+
+
+def _get_workspace_domain(client: WebClient, team_id: str) -> str | None:
+    """Return the workspace subdomain (e.g. ``acme`` for ``acme.slack.com``) from ``team.info``, cached."""
+    cache_key = f"ws_domain:{team_id}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        info = client.team_info()
+        domain = safe_get(info, "team", "domain")
+        if domain:
+            _cache_set(cache_key, domain, ttl=86400)
+        return domain
+    except Exception as exc:
+        _logger.debug("get_workspace_domain_failed", extra={"team_id": team_id, "error": str(exc)})
+        return None
 
 
 def resolve_channel_references(
@@ -519,13 +537,14 @@ def resolve_channel_references(
                 extra={"channel_id": ch_id, "error": str(exc)},
             )
 
-        if team_id and ch_name != ch_id:
-            deep_link = f"https://slack.com/app_redirect?channel={ch_id}&team={team_id}"
+        if ch_name != ch_id:
             label = f"#{ch_name} ({ws_name})" if ws_name else f"#{ch_name}"
-            replacement = f"<{deep_link}|{label}>"
-        elif ch_name != ch_id:
-            label = f"#{ch_name} ({ws_name})" if ws_name else f"#{ch_name}"
-            replacement = label
+            domain = _get_workspace_domain(source_client, team_id) if team_id else None
+            if domain:
+                deep_link = f"https://{domain}.slack.com/archives/{ch_id}"
+                replacement = f"<{deep_link}|{label}>"
+            else:
+                replacement = f"`[{label}]`"
         else:
             replacement = f"#{ch_id}"
 

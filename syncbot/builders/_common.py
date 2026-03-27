@@ -94,7 +94,7 @@ def _get_group_members(group_id: int) -> list[WorkspaceGroupMember]:
 
 def _get_workspace_info(workspace: Workspace) -> dict:
     """Fetch workspace icon URL and domain from the Slack API (cached 24h)."""
-    result: dict[str, str | None] = {"icon_url": None, "domain": None}
+    result: dict[str, str | None] = {"icon_url": None, "domain": None, "raw_domain": None}
     if not workspace or not workspace.bot_token:
         return result
 
@@ -112,6 +112,7 @@ def _get_workspace_info(workspace: Workspace) -> dict:
         domain = helpers.safe_get(info, "team", "domain")
         if domain:
             result["domain"] = f"<https://{domain}.slack.com|{domain}.slack.com>"
+            result["raw_domain"] = domain
         helpers._cache_set(cache_key, result, ttl=86400)
     except Exception as exc:
         _logger.debug(f"_get_workspace_meta: team_info call failed: {exc}")
@@ -150,9 +151,14 @@ def _format_channel_ref(
             extra={"channel_id": channel_id, "workspace": ws_name, "error": str(e)},
         )
 
-    deep_link = f"https://slack.com/app_redirect?channel={channel_id}&team={workspace.team_id}"
+    ws_info = _get_workspace_info(workspace)
+    domain = ws_info.get("raw_domain")
     link_text = f"#{ch_name} ({ws_name})" if include_workspace_in_link else f"#{ch_name}"
-    result = f"<{deep_link}|{link_text}>"
+    if domain:
+        deep_link = f"https://{domain}.slack.com/archives/{channel_id}"
+        result = f"<{deep_link}|{link_text}>"
+    else:
+        result = f"`[{link_text}]`"
     if ch_name != channel_id:
         helpers._cache_set(cache_key, result, ttl=3600)
     return result
