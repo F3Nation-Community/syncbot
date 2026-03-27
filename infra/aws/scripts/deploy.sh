@@ -331,6 +331,9 @@ configure_github_actions_aws() {
   # $12 Comma-separated subnet IDs for Lambda in private mode
   # $13 Lambda ENI security group id in private mode
   # $14 Database engine: mysql | postgresql
+  # $15 Existing DB port (empty = engine default in SAM)
+  # $16 ExistingDatabaseCreateAppUser: true | false
+  # $17 ExistingDatabaseCreateSchema: true | false
   local bootstrap_outputs="$1"
   local bootstrap_stack_name="$2"
   local aws_region="$3"
@@ -347,6 +350,11 @@ configure_github_actions_aws() {
   local existing_db_lambda_sg_id="${13:-}"
   local database_engine="${14:-}"
   [[ -z "$database_engine" ]] && database_engine="mysql"
+  local existing_db_port="${15:-}"
+  local existing_db_create_app_user="${16:-true}"
+  local existing_db_create_schema="${17:-true}"
+  [[ -z "$existing_db_create_app_user" ]] && existing_db_create_app_user="true"
+  [[ -z "$existing_db_create_schema" ]] && existing_db_create_schema="true"
   local role bucket boot_region
   role="$(output_value "$bootstrap_outputs" "GitHubDeployRoleArn")"
   bucket="$(output_value "$bootstrap_outputs" "DeploymentBucketName")"
@@ -403,6 +411,9 @@ configure_github_actions_aws() {
         gh variable set EXISTING_DATABASE_SUBNET_IDS_CSV --env "$env_name" --body "" -R "$repo"
         gh variable set EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID --env "$env_name" --body "" -R "$repo"
       fi
+      gh variable set EXISTING_DATABASE_PORT --env "$env_name" --body "$existing_db_port" -R "$repo"
+      gh variable set EXISTING_DATABASE_CREATE_APP_USER --env "$env_name" --body "$existing_db_create_app_user" -R "$repo"
+      gh variable set EXISTING_DATABASE_CREATE_SCHEMA --env "$env_name" --body "$existing_db_create_schema" -R "$repo"
     else
       # Clear existing-host vars for new-RDS mode to avoid stale CI config.
       gh variable set EXISTING_DATABASE_HOST --env "$env_name" --body "" -R "$repo"
@@ -410,6 +421,9 @@ configure_github_actions_aws() {
       gh variable set EXISTING_DATABASE_NETWORK_MODE --env "$env_name" --body "public" -R "$repo"
       gh variable set EXISTING_DATABASE_SUBNET_IDS_CSV --env "$env_name" --body "" -R "$repo"
       gh variable set EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID --env "$env_name" --body "" -R "$repo"
+      gh variable set EXISTING_DATABASE_PORT --env "$env_name" --body "" -R "$repo"
+      gh variable set EXISTING_DATABASE_CREATE_APP_USER --env "$env_name" --body "true" -R "$repo"
+      gh variable set EXISTING_DATABASE_CREATE_SCHEMA --env "$env_name" --body "true" -R "$repo"
     fi
     echo "Environment variables updated for '$env_name'."
   fi
@@ -849,11 +863,13 @@ validate_private_existing_db_connectivity() {
   local db_vpc="$5"
   local db_sgs_csv="$6"
   local db_host="$7"
+  local db_port_override="${8:-}"
   local db_port subnet_list subnet_vpcs first_vpc line subnet_id subnet_vpc db_sg_id lambda_sg_vpc db_sg_list route_target rt_id ingress_ok
   local -a no_nat_subnets
 
   db_port="3306"
   [[ "$engine" == "postgresql" ]] && db_port="5432"
+  [[ -n "$db_port_override" ]] && db_port="$db_port_override"
 
   IFS=',' read -r -a subnet_list <<< "$subnet_csv"
   if [[ "${#subnet_list[@]}" -lt 1 ]]; then
@@ -1187,6 +1203,9 @@ PREV_EXISTING_DATABASE_ADMIN_USER=""
 PREV_EXISTING_DATABASE_NETWORK_MODE=""
 PREV_EXISTING_DATABASE_SUBNET_IDS_CSV=""
 PREV_EXISTING_DATABASE_LAMBDA_SG_ID=""
+PREV_EXISTING_DATABASE_PORT=""
+PREV_EXISTING_DATABASE_CREATE_APP_USER=""
+PREV_EXISTING_DATABASE_CREATE_SCHEMA=""
 PREV_DATABASE_ENGINE=""
 PREV_DATABASE_SCHEMA=""
 PREV_LOG_LEVEL=""
@@ -1215,6 +1234,9 @@ if [[ -n "$EXISTING_STACK_STATUS" && "$EXISTING_STACK_STATUS" != "None" ]]; then
   PREV_EXISTING_DATABASE_NETWORK_MODE="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabaseNetworkMode")"
   PREV_EXISTING_DATABASE_SUBNET_IDS_CSV="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabaseSubnetIdsCsv")"
   PREV_EXISTING_DATABASE_LAMBDA_SG_ID="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabaseLambdaSecurityGroupId")"
+  PREV_EXISTING_DATABASE_PORT="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabasePort")"
+  PREV_EXISTING_DATABASE_CREATE_APP_USER="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabaseCreateAppUser")"
+  PREV_EXISTING_DATABASE_CREATE_SCHEMA="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabaseCreateSchema")"
   PREV_DATABASE_ENGINE="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseEngine")"
   PREV_DATABASE_SCHEMA="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseSchema")"
   PREV_LOG_LEVEL="$(stack_param_value "$EXISTING_STACK_PARAMS" "LogLevel")"
@@ -1361,6 +1383,9 @@ SLACK_CLIENT_ID="$(required_from_env_or_prompt "SLACK_CLIENT_ID" "SlackClientID"
 ENV_EXISTING_DATABASE_HOST="${EXISTING_DATABASE_HOST:-}"
 ENV_EXISTING_DATABASE_ADMIN_USER="${EXISTING_DATABASE_ADMIN_USER:-}"
 ENV_EXISTING_DATABASE_ADMIN_PASSWORD="${EXISTING_DATABASE_ADMIN_PASSWORD:-}"
+ENV_EXISTING_DATABASE_PORT="${EXISTING_DATABASE_PORT:-}"
+ENV_EXISTING_DATABASE_CREATE_APP_USER="${EXISTING_DATABASE_CREATE_APP_USER:-}"
+ENV_EXISTING_DATABASE_CREATE_SCHEMA="${EXISTING_DATABASE_CREATE_SCHEMA:-}"
 EXISTING_DB_ADMIN_PASSWORD_SOURCE="prompt"
 EXISTING_DATABASE_HOST=""
 EXISTING_DATABASE_ADMIN_USER=""
@@ -1368,6 +1393,10 @@ EXISTING_DATABASE_ADMIN_PASSWORD=""
 EXISTING_DATABASE_NETWORK_MODE="public"
 EXISTING_DATABASE_SUBNET_IDS_CSV=""
 EXISTING_DATABASE_LAMBDA_SG_ID=""
+EXISTING_DATABASE_PORT=""
+EXISTING_DATABASE_CREATE_APP_USER="true"
+EXISTING_DATABASE_CREATE_SCHEMA="true"
+EXISTING_DB_EFFECTIVE_PORT=""
 DATABASE_SCHEMA=""
 DATABASE_SCHEMA_DEFAULT="syncbot_${STAGE}"
 if [[ "$IS_STACK_UPDATE" == "true" && -n "$PREV_DATABASE_SCHEMA" ]]; then
@@ -1430,6 +1459,57 @@ if [[ "$DB_MODE" == "2" ]]; then
   fi
 
   DATABASE_SCHEMA="$(prompt_default "DatabaseSchema" "$DATABASE_SCHEMA_DEFAULT")"
+
+  echo
+  echo "=== Existing database port and setup ==="
+  echo "Leave port blank to use the engine default (3306 MySQL, 5432 PostgreSQL)."
+  DEFAULT_EXISTING_DB_PORT=""
+  [[ -n "$PREV_EXISTING_DATABASE_PORT" ]] && DEFAULT_EXISTING_DB_PORT="$PREV_EXISTING_DATABASE_PORT"
+  if [[ -n "$ENV_EXISTING_DATABASE_PORT" ]]; then
+    echo "Using ExistingDatabasePort from environment variable EXISTING_DATABASE_PORT."
+    EXISTING_DATABASE_PORT="$ENV_EXISTING_DATABASE_PORT"
+  else
+    EXISTING_DATABASE_PORT="$(prompt_default "ExistingDatabasePort (optional)" "$DEFAULT_EXISTING_DB_PORT")"
+  fi
+  if [[ "$DATABASE_ENGINE" == "mysql" && "$EXISTING_DATABASE_PORT" == "3306" ]]; then
+    EXISTING_DATABASE_PORT=""
+  fi
+  if [[ "$DATABASE_ENGINE" == "postgresql" && "$EXISTING_DATABASE_PORT" == "5432" ]]; then
+    EXISTING_DATABASE_PORT=""
+  fi
+  EXISTING_DB_EFFECTIVE_PORT="3306"
+  [[ "$DATABASE_ENGINE" == "postgresql" ]] && EXISTING_DB_EFFECTIVE_PORT="5432"
+  [[ -n "$EXISTING_DATABASE_PORT" ]] && EXISTING_DB_EFFECTIVE_PORT="$EXISTING_DATABASE_PORT"
+
+  CREATE_APP_DEFAULT="y"
+  [[ "${PREV_EXISTING_DATABASE_CREATE_APP_USER:-}" == "false" ]] && CREATE_APP_DEFAULT="n"
+  if [[ -n "$ENV_EXISTING_DATABASE_CREATE_APP_USER" ]]; then
+    echo "Using ExistingDatabaseCreateAppUser from environment variable EXISTING_DATABASE_CREATE_APP_USER."
+    EXISTING_DATABASE_CREATE_APP_USER="$ENV_EXISTING_DATABASE_CREATE_APP_USER"
+    if [[ "$EXISTING_DATABASE_CREATE_APP_USER" != "true" && "$EXISTING_DATABASE_CREATE_APP_USER" != "false" ]]; then
+      echo "Error: EXISTING_DATABASE_CREATE_APP_USER must be true or false." >&2
+      exit 1
+    fi
+  elif prompt_yes_no "Create dedicated app DB user (CREATE USER / grants)?" "$CREATE_APP_DEFAULT"; then
+    EXISTING_DATABASE_CREATE_APP_USER="true"
+  else
+    EXISTING_DATABASE_CREATE_APP_USER="false"
+  fi
+
+  CREATE_SCHEMA_DEFAULT="y"
+  [[ "${PREV_EXISTING_DATABASE_CREATE_SCHEMA:-}" == "false" ]] && CREATE_SCHEMA_DEFAULT="n"
+  if [[ -n "$ENV_EXISTING_DATABASE_CREATE_SCHEMA" ]]; then
+    echo "Using ExistingDatabaseCreateSchema from environment variable EXISTING_DATABASE_CREATE_SCHEMA."
+    EXISTING_DATABASE_CREATE_SCHEMA="$ENV_EXISTING_DATABASE_CREATE_SCHEMA"
+    if [[ "$EXISTING_DATABASE_CREATE_SCHEMA" != "true" && "$EXISTING_DATABASE_CREATE_SCHEMA" != "false" ]]; then
+      echo "Error: EXISTING_DATABASE_CREATE_SCHEMA must be true or false." >&2
+      exit 1
+    fi
+  elif prompt_yes_no "Run CREATE DATABASE IF NOT EXISTS for DatabaseSchema?" "$CREATE_SCHEMA_DEFAULT"; then
+    EXISTING_DATABASE_CREATE_SCHEMA="true"
+  else
+    EXISTING_DATABASE_CREATE_SCHEMA="false"
+  fi
 
   if [[ -z "$EXISTING_DATABASE_HOST" || "$EXISTING_DATABASE_HOST" == REPLACE_ME* ]]; then
     echo "Error: valid ExistingDatabaseHost is required for existing DB mode." >&2
@@ -1514,7 +1594,8 @@ if [[ "$DB_MODE" == "2" ]]; then
       "$EXISTING_DATABASE_LAMBDA_SG_ID" \
       "$DETECTED_VPC" \
       "$DETECTED_SGS" \
-      "$EXISTING_DATABASE_HOST"; then
+      "$EXISTING_DATABASE_HOST" \
+      "$EXISTING_DB_EFFECTIVE_PORT"; then
       echo "Fix network settings and rerun deploy." >&2
       exit 1
     fi
@@ -1605,6 +1686,9 @@ if [[ "$DB_MODE" == "2" ]]; then
     echo "DB subnets:       $EXISTING_DATABASE_SUBNET_IDS_CSV"
     echo "Lambda SG:        $EXISTING_DATABASE_LAMBDA_SG_ID"
   fi
+  echo "DB port:          ${EXISTING_DB_EFFECTIVE_PORT:-engine default}"
+  echo "DB create user:   $EXISTING_DATABASE_CREATE_APP_USER"
+  echo "DB create schema: $EXISTING_DATABASE_CREATE_SCHEMA"
   echo "DB schema:        $DATABASE_SCHEMA"
 else
   echo "DB mode:          create new RDS"
@@ -1680,6 +1764,11 @@ if [[ "$DB_MODE" == "2" ]]; then
       "ExistingDatabaseLambdaSecurityGroupId=$EXISTING_DATABASE_LAMBDA_SG_ID"
     )
   fi
+  [[ -n "$EXISTING_DATABASE_PORT" ]] && PARAMS+=("ExistingDatabasePort=$EXISTING_DATABASE_PORT")
+  PARAMS+=(
+    "ExistingDatabaseCreateAppUser=$EXISTING_DATABASE_CREATE_APP_USER"
+    "ExistingDatabaseCreateSchema=$EXISTING_DATABASE_CREATE_SCHEMA"
+  )
 else
   # Clear existing-host parameters on updates to avoid stale previous values.
   # SAM rejects Key= (empty value) in shorthand; use ParameterKey=K,ParameterValue= instead.
@@ -1690,6 +1779,9 @@ else
     "ExistingDatabaseNetworkMode=public"
     "ParameterKey=ExistingDatabaseSubnetIdsCsv,ParameterValue="
     "ParameterKey=ExistingDatabaseLambdaSecurityGroupId,ParameterValue="
+    "ParameterKey=ExistingDatabasePort,ParameterValue="
+    "ExistingDatabaseCreateAppUser=true"
+    "ExistingDatabaseCreateSchema=true"
   )
 fi
 
@@ -1734,6 +1826,11 @@ else
   EXISTING_DATABASE_NETWORK_MODE="${PREV_EXISTING_DATABASE_NETWORK_MODE:-public}"
   EXISTING_DATABASE_SUBNET_IDS_CSV="${PREV_EXISTING_DATABASE_SUBNET_IDS_CSV:-}"
   EXISTING_DATABASE_LAMBDA_SG_ID="${PREV_EXISTING_DATABASE_LAMBDA_SG_ID:-}"
+  EXISTING_DATABASE_PORT="${PREV_EXISTING_DATABASE_PORT:-}"
+  EXISTING_DATABASE_CREATE_APP_USER="${PREV_EXISTING_DATABASE_CREATE_APP_USER:-true}"
+  EXISTING_DATABASE_CREATE_SCHEMA="${PREV_EXISTING_DATABASE_CREATE_SCHEMA:-true}"
+  [[ -z "$EXISTING_DATABASE_CREATE_APP_USER" ]] && EXISTING_DATABASE_CREATE_APP_USER="true"
+  [[ -z "$EXISTING_DATABASE_CREATE_SCHEMA" ]] && EXISTING_DATABASE_CREATE_SCHEMA="true"
   SLACK_SIGNING_SECRET="${SLACK_SIGNING_SECRET:-}"
   SLACK_CLIENT_SECRET="${SLACK_CLIENT_SECRET:-}"
   SLACK_CLIENT_ID="${SLACK_CLIENT_ID:-}"
@@ -1780,7 +1877,10 @@ if [[ "$TASK_CICD" == "true" ]]; then
     "$EXISTING_DATABASE_NETWORK_MODE" \
     "$EXISTING_DATABASE_SUBNET_IDS_CSV" \
     "$EXISTING_DATABASE_LAMBDA_SG_ID" \
-    "$DATABASE_ENGINE"
+    "$DATABASE_ENGINE" \
+    "${EXISTING_DATABASE_PORT:-}" \
+    "${EXISTING_DATABASE_CREATE_APP_USER:-true}" \
+    "${EXISTING_DATABASE_CREATE_SCHEMA:-true}"
 fi
 
 if [[ "$TASK_BUILD_DEPLOY" == "true" || "$TASK_BACKUP_SECRETS" == "true" ]]; then

@@ -48,6 +48,18 @@ variable "existing_db_user" {
   description = "Existing MySQL user (when use_existing_database = true)"
 }
 
+variable "existing_db_create_app_user" {
+  type        = bool
+  default     = true
+  description = "When use_existing_database: operator note — whether a dedicated app DB user exists (no Cloud SQL user resource; app uses existing_db_user / secret)."
+}
+
+variable "existing_db_create_schema" {
+  type        = bool
+  default     = true
+  description = "When use_existing_database: operator note — whether DatabaseSchema was created manually (Terraform does not create schema for existing host)."
+}
+
 # ---------------------------------------------------------------------------
 # Cloud Run
 # ---------------------------------------------------------------------------
