@@ -42,7 +42,10 @@ DATABASE_SCHEMA = "DATABASE_SCHEMA"
 DATABASE_SSL_CA_PATH = "DATABASE_SSL_CA_PATH"
 DATABASE_TLS_ENABLED = "DATABASE_TLS_ENABLED"
 
-# Name of env var that scopes the Reset Database button to one workspace.
+# Slack Team ID of the primary workspace (backup/restore and DB reset when enabled).
+PRIMARY_WORKSPACE = "PRIMARY_WORKSPACE"
+
+# When "true"/"1"/"yes" and PRIMARY_WORKSPACE matches, show Reset Database on Home.
 ENABLE_DB_RESET = "ENABLE_DB_RESET"
 
 # ---------------------------------------------------------------------------

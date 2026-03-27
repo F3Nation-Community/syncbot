@@ -38,7 +38,7 @@ def _home_tab_content_hash(workspace_record: Workspace) -> str:
 
     Includes groups, members, syncs, sync channels (id/workspace/status), mapped counts,
     pending invite ids, and reset-button visibility so the hash changes when anything
-    visible on Home changes (including ENABLE_DB_RESET / team_id for the Reset button).
+    visible on Home changes (including PRIMARY_WORKSPACE / ENABLE_DB_RESET for Reset).
     """
     workspace_id = workspace_record.id
     workspace_name = (workspace_record.workspace_name or "") or ""
@@ -233,11 +233,14 @@ def build_home_tab(
             label="Refresh",
             action=actions.CONFIG_REFRESH_HOME,
         ),
-        orm.ButtonElement(
-            label="Backup/Restore",
-            action=actions.CONFIG_BACKUP_RESTORE,
-        ),
     ]
+    if helpers.is_backup_visible_for_workspace(workspace_record.team_id):
+        config_buttons.append(
+            orm.ButtonElement(
+                label="Backup/Restore",
+                action=actions.CONFIG_BACKUP_RESTORE,
+            ),
+        )
     if helpers.is_db_reset_visible_for_workspace(workspace_record.team_id):
         config_buttons.append(
             orm.ButtonElement(

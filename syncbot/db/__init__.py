@@ -278,7 +278,7 @@ def drop_and_init_db() -> None:
     """Empty the current schema and reinitialize via Alembic. All data is lost.
 
     Drops all tables dialect-aware, then runs Alembic upgrade head.
-    Called from the "Reset Database" UI button (gated by ENABLE_DB_RESET).
+    Called from the "Reset Database" UI button (gated by PRIMARY_WORKSPACE + ENABLE_DB_RESET).
     Resets GLOBAL_ENGINE and GLOBAL_SESSION so the next get_engine() uses a fresh DB.
     """
     global GLOBAL_ENGINE, GLOBAL_SESSION, GLOBAL_SCHEMA

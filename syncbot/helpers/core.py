@@ -55,25 +55,39 @@ def is_user_authorized(client, user_id: str) -> bool:
     return bool(user.get("is_admin") or user.get("is_owner"))
 
 
-def is_db_reset_visible_for_workspace(team_id: str | None) -> bool:
-    """Return True if the DB reset button/action is allowed for this workspace.
+def is_backup_visible_for_workspace(team_id: str | None) -> bool:
+    """Return True if full backup/restore UI and handlers are allowed for this workspace.
 
-    When ENABLE_DB_RESET is set to a Slack team ID, only that workspace may see
-    and use the Reset Database button; other workspaces cannot.
-    Reads ENABLE_DB_RESET from os.environ at call time so it is correct even
-    if .env was loaded after constants was first imported.
+    When PRIMARY_WORKSPACE is set, only that Slack team_id may use backup/restore.
+    When unset, backup is available from all workspaces (backward-compatible).
     """
-    enabled = (os.environ.get(constants.ENABLE_DB_RESET) or "").strip()
-    if not enabled:
-        _logger.debug("DB reset button hidden: ENABLE_DB_RESET not set")
-        return False
-    visible = (team_id or "") == enabled
+    primary = (os.environ.get(constants.PRIMARY_WORKSPACE) or "").strip()
+    if not primary:
+        return True
+    visible = (team_id or "") == primary
     if not visible:
         _logger.debug(
-            "DB reset button hidden: team_id %r does not match ENABLE_DB_RESET",
+            "backup/restore hidden: team_id %r does not match PRIMARY_WORKSPACE",
             team_id,
         )
     return visible
+
+
+def is_db_reset_visible_for_workspace(team_id: str | None) -> bool:
+    """Return True if the DB reset button/action is allowed for this workspace.
+
+    Requires PRIMARY_WORKSPACE to match *team_id* and ENABLE_DB_RESET to be a truthy
+    boolean string (``true``, ``1``, ``yes``). Reads env at call time.
+    """
+    primary = (os.environ.get(constants.PRIMARY_WORKSPACE) or "").strip()
+    if not primary or (team_id or "") != primary:
+        _logger.debug("DB reset button hidden: PRIMARY_WORKSPACE unset or team_id mismatch")
+        return False
+    enabled = (os.environ.get(constants.ENABLE_DB_RESET) or "").strip().lower()
+    if enabled not in ("true", "1", "yes"):
+        _logger.debug("DB reset button hidden: ENABLE_DB_RESET not true")
+        return False
+    return True
 
 
 def format_admin_label(client, user_id: str, workspace) -> tuple[str, str]:

@@ -1195,6 +1195,7 @@ PREV_SOFT_DELETE=""
 PREV_FEDERATION=""
 PREV_INSTANCE_ID=""
 PREV_PUBLIC_URL=""
+PREV_PRIMARY_WORKSPACE=""
 PREV_ENABLE_DB_RESET=""
 PREV_DB_TLS=""
 PREV_DB_SSL_CA=""
@@ -1222,6 +1223,7 @@ if [[ -n "$EXISTING_STACK_STATUS" && "$EXISTING_STACK_STATUS" != "None" ]]; then
   PREV_FEDERATION="$(stack_param_value "$EXISTING_STACK_PARAMS" "SyncbotFederationEnabled")"
   PREV_INSTANCE_ID="$(stack_param_value "$EXISTING_STACK_PARAMS" "SyncbotInstanceId")"
   PREV_PUBLIC_URL="$(stack_param_value "$EXISTING_STACK_PARAMS" "SyncbotPublicUrl")"
+  PREV_PRIMARY_WORKSPACE="$(stack_param_value "$EXISTING_STACK_PARAMS" "PrimaryWorkspace")"
   PREV_ENABLE_DB_RESET="$(stack_param_value "$EXISTING_STACK_PARAMS" "EnableDbReset")"
   PREV_DB_TLS="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseTlsEnabled")"
   PREV_DB_SSL_CA="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseSslCaPath")"
@@ -1550,6 +1552,7 @@ SOFT_DELETE_RETENTION_DAYS="${PREV_SOFT_DELETE:-30}"
 SYNCBOT_FEDERATION_ENABLED="${PREV_FEDERATION:-false}"
 SYNCBOT_INSTANCE_ID="${PREV_INSTANCE_ID:-}"
 SYNCBOT_PUBLIC_URL="${PREV_PUBLIC_URL:-}"
+PRIMARY_WORKSPACE="${PREV_PRIMARY_WORKSPACE:-}"
 ENABLE_DB_RESET="${PREV_ENABLE_DB_RESET:-}"
 DATABASE_TLS_ENABLED="${PREV_DB_TLS:-}"
 DATABASE_SSL_CA_PATH="${PREV_DB_SSL_CA:-}"
@@ -1562,7 +1565,7 @@ echo
 echo "=== App Settings ==="
 REQUIRE_ADMIN="$(prompt_require_admin "$REQUIRE_ADMIN")"
 SOFT_DELETE_RETENTION_DAYS="$(prompt_soft_delete_retention_days "$SOFT_DELETE_RETENTION_DAYS")"
-ENABLE_DB_RESET="$(prompt_enable_db_reset "$ENABLE_DB_RESET")"
+PRIMARY_WORKSPACE="$(prompt_primary_workspace "$PRIMARY_WORKSPACE")"
 SYNCBOT_FEDERATION_ENABLED="$(prompt_federation_enabled "$SYNCBOT_FEDERATION_ENABLED")"
 if [[ "$SYNCBOT_FEDERATION_ENABLED" == "true" ]]; then
   SYNCBOT_INSTANCE_ID="$(prompt_instance_id "$SYNCBOT_INSTANCE_ID")"
@@ -1577,10 +1580,15 @@ echo "Stage:            $STAGE"
 echo "Log level:        $LOG_LEVEL"
 echo "Require admin:    $REQUIRE_ADMIN"
 echo "Soft-delete days: $SOFT_DELETE_RETENTION_DAYS"
-if [[ -n "$ENABLE_DB_RESET" ]]; then
-  echo "DB reset (team):  $ENABLE_DB_RESET"
+if [[ -n "$PRIMARY_WORKSPACE" ]]; then
+  echo "Primary workspace: $PRIMARY_WORKSPACE"
 else
-  echo "DB reset (team):  (disabled)"
+  echo "Primary workspace: (any — backup from all workspaces)"
+fi
+if [[ "$ENABLE_DB_RESET" == "true" ]]; then
+  echo "DB reset:          enabled (PRIMARY_WORKSPACE must match)"
+else
+  echo "DB reset:          (disabled)"
 fi
 if [[ "$SYNCBOT_FEDERATION_ENABLED" == "true" ]]; then
   echo "Federation:       enabled"
@@ -1650,6 +1658,7 @@ PARAMS=(
 # SAM rejects Key= (empty value) in shorthand format; only include when non-empty.
 [[ -n "$SYNCBOT_INSTANCE_ID" ]] && PARAMS+=("SyncbotInstanceId=$SYNCBOT_INSTANCE_ID")
 [[ -n "$SYNCBOT_PUBLIC_URL" ]] && PARAMS+=("SyncbotPublicUrl=$SYNCBOT_PUBLIC_URL")
+[[ -n "$PRIMARY_WORKSPACE" ]] && PARAMS+=("PrimaryWorkspace=$PRIMARY_WORKSPACE")
 [[ -n "$ENABLE_DB_RESET" ]] && PARAMS+=("EnableDbReset=$ENABLE_DB_RESET")
 [[ -n "$DATABASE_TLS_ENABLED" ]] && PARAMS+=("DatabaseTlsEnabled=$DATABASE_TLS_ENABLED")
 [[ -n "$DATABASE_SSL_CA_PATH" ]] && PARAMS+=("DatabaseSslCaPath=$DATABASE_SSL_CA_PATH")

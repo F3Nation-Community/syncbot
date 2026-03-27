@@ -272,22 +272,21 @@ prompt_soft_delete_retention_days() {
   done
 }
 
-prompt_enable_db_reset() {
+prompt_primary_workspace() {
   local default="$1"
-  echo "WARNING: When set to a Slack Team ID, a \"Reset Database\" button appears on the Home tab." >&2
-  echo "Clicking it DROPS and reinitializes the entire database -- all data is permanently destroyed." >&2
-  echo "Leave empty (or enter none/disabled) to turn this off." >&2
+  echo "Optional Slack Team ID for PRIMARY_WORKSPACE (scopes backup/restore and DB reset to one workspace)." >&2
+  echo "Leave empty so backup/restore is available from every workspace." >&2
   local disp
   if [[ -z "$default" ]]; then
-    disp="(disabled)"
+    disp="(any workspace)"
   else
     disp="$default"
   fi
   local v
-  read -r -p "ENABLE_DB_RESET (Slack Team ID) [$disp]: " v
+  read -r -p "PRIMARY_WORKSPACE (Slack Team ID) [$disp]: " v
   v="${v:-$default}"
   case "$(echo "$v" | tr "[:upper:]" "[:lower:]")" in
-    "" | none | disabled) echo "" ;;
+    "" | none) echo "" ;;
     *) echo "$v" ;;
   esac
 }

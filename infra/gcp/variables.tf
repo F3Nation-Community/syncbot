@@ -228,10 +228,16 @@ variable "syncbot_public_url_override" {
   description = "SYNCBOT_PUBLIC_URL (HTTPS base, no path). Set after first deploy if using federation; empty omits the env var."
 }
 
+variable "primary_workspace" {
+  type        = string
+  default     = ""
+  description = "PRIMARY_WORKSPACE Slack Team ID; empty omits the env var (backup available from all workspaces)."
+}
+
 variable "enable_db_reset" {
   type        = string
   default     = ""
-  description = "ENABLE_DB_RESET: Slack Team ID to scope Reset Database; empty omits the env var."
+  description = "ENABLE_DB_RESET: set to \"true\" for Reset Database when PRIMARY_WORKSPACE matches; empty omits."
 }
 
 variable "database_tls_enabled" {

@@ -647,6 +647,7 @@ SOFT_DELETE_DEFAULT="30"
 SYNCBOT_PUBLIC_DEFAULT=""
 SYNCBOT_FEDERATION_DEFAULT="false"
 INSTANCE_ID_VAR=""
+PRIMARY_WORKSPACE_VAR=""
 ENABLE_DB_RESET_VAR=""
 DB_TLS_VAR=""
 DB_SSL_CA_VAR=""
@@ -668,6 +669,8 @@ if [[ -n "$EXISTING_SERVICE_URL" ]]; then
   fi
   DETECTED_INSTANCE_ID="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "SYNCBOT_INSTANCE_ID")"
   INSTANCE_ID_VAR="${DETECTED_INSTANCE_ID:-}"
+  DETECTED_PW="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "PRIMARY_WORKSPACE")"
+  PRIMARY_WORKSPACE_VAR="${DETECTED_PW:-}"
   DETECTED_ER="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "ENABLE_DB_RESET")"
   ENABLE_DB_RESET_VAR="${DETECTED_ER:-}"
   DETECTED_DB_TLS="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_TLS_ENABLED")"
@@ -684,7 +687,7 @@ echo
 echo "=== App Settings ==="
 REQUIRE_ADMIN_DEFAULT="$(prompt_require_admin "$REQUIRE_ADMIN_DEFAULT")"
 SOFT_DELETE_DEFAULT="$(prompt_soft_delete_retention_days "$SOFT_DELETE_DEFAULT")"
-ENABLE_DB_RESET_VAR="$(prompt_enable_db_reset "$ENABLE_DB_RESET_VAR")"
+PRIMARY_WORKSPACE_VAR="$(prompt_primary_workspace "$PRIMARY_WORKSPACE_VAR")"
 SYNCBOT_FEDERATION_DEFAULT="$(prompt_federation_enabled "$SYNCBOT_FEDERATION_DEFAULT")"
 if [[ "$SYNCBOT_FEDERATION_DEFAULT" == "true" ]]; then
   INSTANCE_ID_VAR="$(prompt_instance_id "$INSTANCE_ID_VAR")"
@@ -709,6 +712,7 @@ VARS=(
   "-var=soft_delete_retention_days=$SOFT_DELETE_DEFAULT"
   "-var=syncbot_federation_enabled=$SYNCBOT_FEDERATION_DEFAULT"
   "-var=syncbot_instance_id=${INSTANCE_ID_VAR:-}"
+  "-var=primary_workspace=${PRIMARY_WORKSPACE_VAR:-}"
   "-var=enable_db_reset=${ENABLE_DB_RESET_VAR:-}"
   "-var=database_tls_enabled=${DB_TLS_VAR:-}"
   "-var=database_ssl_ca_path=${DB_SSL_CA_VAR:-}"
@@ -732,10 +736,15 @@ echo
 echo "Require admin:    $REQUIRE_ADMIN_DEFAULT"
 echo "Soft-delete days: $SOFT_DELETE_DEFAULT"
 echo "Log level:        $LOG_LEVEL"
-if [[ -n "$ENABLE_DB_RESET_VAR" ]]; then
-  echo "DB reset (team):  $ENABLE_DB_RESET_VAR"
+if [[ -n "$PRIMARY_WORKSPACE_VAR" ]]; then
+  echo "Primary workspace: $PRIMARY_WORKSPACE_VAR"
 else
-  echo "DB reset (team):  (disabled)"
+  echo "Primary workspace: (any)"
+fi
+if [[ "$ENABLE_DB_RESET_VAR" == "true" ]]; then
+  echo "DB reset:          enabled"
+else
+  echo "DB reset:          (disabled)"
 fi
 if [[ "$SYNCBOT_FEDERATION_DEFAULT" == "true" ]]; then
   echo "Federation:       enabled"

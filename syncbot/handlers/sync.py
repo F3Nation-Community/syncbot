@@ -433,7 +433,7 @@ def check_join_sync_channel(
 
 
 # ---------------------------------------------------------------------------
-# Database Reset (gated by ENABLE_DB_RESET)
+# Database Reset (gated by PRIMARY_WORKSPACE + ENABLE_DB_RESET)
 # ---------------------------------------------------------------------------
 
 
@@ -443,7 +443,10 @@ def handle_db_reset(
     logger: Logger,
     context: dict,
 ) -> None:
-    """Open a confirmation modal warning the user before a full DB reset. Only for the workspace whose team_id matches ENABLE_DB_RESET."""
+    """Open a confirmation modal warning the user before a full DB reset.
+
+    Only when PRIMARY_WORKSPACE matches and ENABLE_DB_RESET is truthy (see helpers.core).
+    """
     team_id = helpers.safe_get(body, "team", "id") or helpers.safe_get(body, "view", "team_id")
     if not helpers.is_db_reset_visible_for_workspace(team_id):
         return
@@ -498,7 +501,10 @@ def handle_db_reset_proceed(
     logger: Logger,
     context: dict,
 ) -> None:
-    """Execute the database reset after user confirmed via modal. Only for the workspace whose team_id matches ENABLE_DB_RESET."""
+    """Execute the database reset after user confirmed via modal.
+
+    Same gating as handle_db_reset (PRIMARY_WORKSPACE + ENABLE_DB_RESET).
+    """
     team_id = helpers.safe_get(body, "team", "id") or helpers.safe_get(body, "view", "team_id")
     if not helpers.is_db_reset_visible_for_workspace(team_id):
         return

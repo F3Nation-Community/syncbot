@@ -212,7 +212,7 @@ CONFIG_REMOVE_FEDERATION_CONNECTION = "remove_federation_connection"
 """Action: user clicked "Remove Connection" on an external connection (prefix-matched)."""
 
 # ---------------------------------------------------------------------------
-# Database Reset (dev/admin tool, gated by ENABLE_DB_RESET env var)
+# Database Reset (dev/admin tool, gated by PRIMARY_WORKSPACE + ENABLE_DB_RESET)
 # ---------------------------------------------------------------------------
 
 CONFIG_DB_RESET = "db_reset"

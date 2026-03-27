@@ -241,9 +241,16 @@ Parameters:
     Type: String
     Default: ""
 
+  PrimaryWorkspace:
+    Description: >
+      Slack Team ID for PRIMARY_WORKSPACE (scopes backup/restore and DB reset). Leave empty to allow backup from all workspaces.
+    Type: String
+    Default: ""
+
   EnableDbReset:
     Description: >
-      Slack Team ID to scope the Reset Database button (ENABLE_DB_RESET). Leave empty to disable.
+      Set to "true" to enable Reset Database when PRIMARY_WORKSPACE matches (ENABLE_DB_RESET). Leave empty to disable.
+      Legacy values (e.g. a Slack Team ID) are ignored by the app until updated to "true".
     Type: String
     Default: ""
 
@@ -284,7 +291,8 @@ Conditions:
   HasAppDbPasswordOverride: !Not [!Equals [!Ref AppDbPasswordOverride, ""]]
   HasNoAppDbPasswordOverride: !Not [!Condition HasAppDbPasswordOverride]
   HasSyncbotPublicUrlOverride: !Not [!Equals [!Ref SyncbotPublicUrl, ""]]
-  HasEnableDbReset: !Not [!Equals [!Ref EnableDbReset, ""]]
+  HasPrimaryWorkspace: !Not [!Equals [!Ref PrimaryWorkspace, ""]]
+  HasEnableDbReset: !Equals [!Ref EnableDbReset, "true"]
   HasDatabaseTlsExplicit: !Not [!Equals [!Ref DatabaseTlsEnabled, ""]]
   HasDatabaseSslCaPath: !Not [!Equals [!Ref DatabaseSslCaPath, ""]]
   CreateTokenEncryptionKeySecret: !And
@@ -713,10 +721,14 @@ Resources:
           SYNCBOT_FEDERATION_ENABLED: !Ref SyncbotFederationEnabled
           SYNCBOT_INSTANCE_ID: !Ref SyncbotInstanceId
           SYNCBOT_PUBLIC_URL: !Ref SyncbotPublicUrl
+          PRIMARY_WORKSPACE: !If
+            - HasPrimaryWorkspace
+            - !Ref PrimaryWorkspace
+            - !Ref AWS::NoValue
           ENABLE_DB_RESET: !If
             - HasEnableDbReset
-            - !Ref EnableDbReset
-            - ""
+            - "true"
+            - !Ref AWS::NoValue
           DATABASE_TLS_ENABLED: !If
             - HasDatabaseTlsExplicit
             - !Ref DatabaseTlsEnabled

@@ -110,6 +110,7 @@ jobs:
                SyncbotFederationEnabled=${{ vars.SYNCBOT_FEDERATION_ENABLED || 'false' }} \
                SyncbotInstanceId=${{ vars.SYNCBOT_INSTANCE_ID }} \
                SyncbotPublicUrl=${{ vars.SYNCBOT_PUBLIC_URL }} \
+               PrimaryWorkspace=${{ vars.PRIMARY_WORKSPACE }} \
                EnableDbReset=${{ vars.ENABLE_DB_RESET }} \
                SlackClientID=${{ vars.SLACK_CLIENT_ID }} \
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
@@ -171,6 +172,7 @@ jobs:
                SyncbotFederationEnabled=${{ vars.SYNCBOT_FEDERATION_ENABLED || 'false' }} \
                SyncbotInstanceId=${{ vars.SYNCBOT_INSTANCE_ID }} \
                SyncbotPublicUrl=${{ vars.SYNCBOT_PUBLIC_URL }} \
+               PrimaryWorkspace=${{ vars.PRIMARY_WORKSPACE }} \
                EnableDbReset=${{ vars.ENABLE_DB_RESET }} \
                SlackClientID=${{ vars.SLACK_CLIENT_ID }} \
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \

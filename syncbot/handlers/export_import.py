@@ -60,6 +60,15 @@ def _is_admin(client: WebClient, user_id: str, body: dict) -> bool:
     return helpers.is_user_authorized(client, user_id)
 
 
+def _team_id_for_backup_gate(body: dict) -> str | None:
+    """Slack team_id for primary-workspace backup/restore gating."""
+    return (
+        helpers.safe_get(body, "team", "id")
+        or helpers.safe_get(body, "view", "team_id")
+        or helpers.safe_get(body, "team_id")
+    )
+
+
 def _open_dm_channel(client: WebClient, user_id: str) -> str:
     """Open (or reopen) a DM with *user_id* and return the channel ID."""
     resp = client.conversations_open(users=[user_id])
@@ -80,6 +89,8 @@ def handle_backup_restore(
     """Open Backup/Restore modal (admin only)."""
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
     if not _is_admin(client, user_id, body):
+        return
+    if not helpers.is_backup_visible_for_workspace(_team_id_for_backup_gate(body)):
         return
     trigger_id = helpers.safe_get(body, "trigger_id")
     if not trigger_id:
@@ -142,6 +153,8 @@ def handle_backup_download(
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
     if not _is_admin(client, user_id, body):
         return
+    if not helpers.is_backup_visible_for_workspace(_team_id_for_backup_gate(body)):
+        return
     try:
         payload = ei.build_full_backup()
         json_str = json.dumps(payload, default=ei._json_serializer, indent=2)
@@ -186,6 +199,8 @@ def handle_backup_restore_submit_ack(
     """Ack phase: validate upload; return errors, push confirm modal, or ``None`` to close."""
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
     if not _is_admin(client, user_id, body):
+        return None
+    if not helpers.is_backup_visible_for_workspace(_team_id_for_backup_gate(body)):
         return None
 
     values = helpers.safe_get(body, "view", "state", "values") or {}
@@ -294,6 +309,8 @@ def handle_backup_restore_submit_work(
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
     if not _is_admin(client, user_id, body):
         return
+    if not helpers.is_backup_visible_for_workspace(_team_id_for_backup_gate(body)):
+        return
 
     values = helpers.safe_get(body, "view", "state", "values") or {}
     file_data = helpers.safe_get(
@@ -337,6 +354,8 @@ def handle_backup_restore_proceed(
     """Proceed with restore after user clicked the danger button despite warnings."""
     user_id = helpers.safe_get(body, "user", "id") or helpers.get_user_id_from_body(body)
     if not _is_admin(client, user_id, body):
+        return
+    if not helpers.is_backup_visible_for_workspace(_team_id_for_backup_gate(body)):
         return
     from helpers._cache import _cache_get
 
