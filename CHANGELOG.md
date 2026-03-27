@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Cross-workspace channel links in synced messages use workspace archive URLs (`https://{domain}.slack.com/archives/{id}`) instead of `slack.com/app_redirect`, with a `[#channel (Workspace)]` fallback when the domain cannot be resolved. Federation outbound messages now resolve channel references the same way as same-instance sync.
+- Cross-workspace channel links in synced messages use workspace archive URLs (`https://{domain}.slack.com/archives/{id}`) instead of `slack.com/app_redirect`, with a code-formatted `[#channel (Workspace)]` fallback when the domain cannot be resolved. Federation outbound messages resolve raw `<#C…>` references to archive links on the sender; the receiver rewrites archive links and any remaining channel tokens to **native `<#C>`** when that channel is in the same sync on the local workspace.
+- Same-instance sync resolves channel references **per target workspace**: if the mentioned channel is part of the same sync as the destination channel, the message uses the local channel ID instead of an archive URL.
+- Federation **inbound** `message` and `message/edit` handlers resolve `@` mentions on the receiving instance using `UserMapping` / `UserDirectory` (native `<@U>` when mapped, otherwise a code-formatted `[@Name (Workspace)]` fallback).
 - `ENABLE_DB_RESET` is now a boolean (`true` / `1` / `yes`) instead of a Slack Team ID. Reset Database requires both `PRIMARY_WORKSPACE` to match the current workspace and `ENABLE_DB_RESET` to be truthy.
 
 ### Added

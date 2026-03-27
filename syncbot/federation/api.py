@@ -83,6 +83,55 @@ def _validate_fields(body: dict, required: list[str], extras: list[str] | None =
     return None
 
 
+def _pick_user_mapping_for_federated_target(source_user_id: str, target_workspace_id: int) -> schemas.UserMapping | None:
+    maps = DbManager.find_records(
+        schemas.UserMapping,
+        [
+            schemas.UserMapping.target_workspace_id == target_workspace_id,
+            schemas.UserMapping.source_user_id == source_user_id,
+        ],
+    )
+    if not maps:
+        return None
+    for m in maps:
+        if m.target_user_id:
+            return m
+    return maps[0]
+
+
+def _resolve_mentions_for_federated(msg_text: str, target_workspace_id: int, remote_workspace_label: str) -> str:
+    """Replace ``<@U_REMOTE>`` with native local mentions using *UserMapping* / *UserDirectory* on this instance."""
+    if not msg_text:
+        return msg_text
+
+    user_ids = re.findall(r"<@(\w+)>", msg_text)
+    if not user_ids:
+        return msg_text
+
+    for uid in dict.fromkeys(user_ids):
+        mapping = _pick_user_mapping_for_federated_target(uid, target_workspace_id)
+        if mapping and mapping.target_user_id:
+            rep = f"<@{mapping.target_user_id}>"
+        elif mapping and mapping.source_display_name:
+            rep = f"`[@{mapping.source_display_name} ({remote_workspace_label})]`"
+        else:
+            display: str | None = None
+            for entry in DbManager.find_records(
+                schemas.UserDirectory,
+                [schemas.UserDirectory.slack_user_id == uid, schemas.UserDirectory.deleted_at.is_(None)],
+            ):
+                display = entry.display_name or entry.real_name
+                if display:
+                    break
+            if display:
+                rep = f"`[@{display} ({remote_workspace_label})]`"
+            else:
+                rep = f"`[@{uid} ({remote_workspace_label})]`"
+        msg_text = re.sub(rf"<@{re.escape(uid)}>", rep, msg_text)
+
+    return msg_text
+
+
 # ---------------------------------------------------------------------------
 # Authentication helpers
 # ---------------------------------------------------------------------------
@@ -352,6 +401,10 @@ def handle_message(body: dict, fed_ws: schemas.FederatedWorkspace) -> tuple[int,
     user_avatar = user.get("avatar_url")
     workspace_name = user.get("workspace_name", "Remote")
 
+    text = _resolve_mentions_for_federated(text, workspace.id, workspace_name)
+    ws_client = WebClient(token=helpers.decrypt_bot_token(workspace.bot_token))
+    text = helpers.resolve_channel_references(text, ws_client, None, target_workspace_id=workspace.id)
+
     try:
         thread_ts = None
         if thread_post_id:
@@ -429,10 +482,14 @@ def handle_message_edit(body: dict, fed_ws: schemas.FederatedWorkspace) -> tuple
         return _NOT_FOUND
     sync_channel, workspace = resolved
 
+    remote_label = fed_ws.primary_workspace_name or fed_ws.name or "Remote"
+    text = _resolve_mentions_for_federated(text, workspace.id, remote_label)
+    ws_client = WebClient(token=helpers.decrypt_bot_token(workspace.bot_token))
+    text = helpers.resolve_channel_references(text, ws_client, None, target_workspace_id=workspace.id)
+
     post_records = _find_post_records(post_id, sync_channel.id)
 
     updated = 0
-    ws_client = WebClient(token=helpers.decrypt_bot_token(workspace.bot_token))
     for post_meta in post_records:
         try:
             ws_client.chat_update(channel=channel_id, ts=str(post_meta.ts), text=text)

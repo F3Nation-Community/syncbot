@@ -10,8 +10,8 @@ All endpoints are served by a single Lambda function. Slack sends requests to th
 | `GET` | `/slack/install` | OAuth install page — redirects the user to Slack's authorization screen |
 | `GET` | `/slack/oauth_redirect` | OAuth callback — Slack redirects here after the user approves the app |
 | `POST` | `/api/federation/pair` | Accept an incoming external connection request |
-| `POST` | `/api/federation/message` | Receive a forwarded message from a connected instance |
-| `POST` | `/api/federation/message/edit` | Receive a message edit from a connected instance |
+| `POST` | `/api/federation/message` | Receive a forwarded message from a connected instance; resolves `@` mentions and `#` channel references locally before posting |
+| `POST` | `/api/federation/message/edit` | Receive a message edit from a connected instance; applies the same local mention and channel resolution before updating |
 | `POST` | `/api/federation/message/delete` | Receive a message deletion from a connected instance |
 | `POST` | `/api/federation/message/react` | Receive a reaction from a connected instance |
 | `POST` | `/api/federation/users` | Exchange user directory with a connected instance |

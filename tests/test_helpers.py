@@ -338,3 +338,31 @@ class TestResolveChannelReferences:
         ws = self._make_workspace(team_id="T123", name="Acme")
         result = helpers.resolve_channel_references("see <#CABC123>", client, ws)
         assert "app_redirect" not in result
+
+    @patch("helpers.user_matching.find_synced_channel_in_target")
+    def test_native_channel_when_synced_to_target(self, mock_find):
+        mock_find.return_value = "C_LOCAL_TARGET"
+        client = self._make_client(channel_name="general", domain="acme")
+        ws = self._make_workspace(team_id="T123", name="Acme")
+        result = helpers.resolve_channel_references(
+            "see <#CSOURCE123>", client, ws, target_workspace_id=42
+        )
+        assert result == "see <#C_LOCAL_TARGET>"
+        mock_find.assert_called_with("CSOURCE123", 42)
+        assert "slack.com" not in result
+
+    @patch("helpers.user_matching.find_synced_channel_in_target")
+    def test_archive_mrkdwn_rewritten_to_native_when_synced(self, mock_find):
+        mock_find.return_value = "C_LOCAL"
+        client = MagicMock()
+        text = "see <https://acme.slack.com/archives/CSRC|#general (Remote)>"
+        result = helpers.resolve_channel_references(text, client, None, target_workspace_id=1)
+        assert result == "see <#C_LOCAL>"
+
+    @patch("helpers.user_matching.find_synced_channel_in_target")
+    def test_archive_mrkdwn_unchanged_when_not_synced(self, mock_find):
+        mock_find.return_value = None
+        client = MagicMock()
+        text = "see <https://acme.slack.com/archives/CSRC|#general (Remote)>"
+        result = helpers.resolve_channel_references(text, client, None, target_workspace_id=1)
+        assert result == text

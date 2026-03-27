@@ -17,6 +17,7 @@ This guide is for **workspace admins and end users** configuring SyncBot in Slac
 
 - Only workspace **admins and owners** can configure syncs (set `REQUIRE_ADMIN=false` to allow all users)
 - Messages, threads, edits, deletes, reactions, images, videos, and GIFs are all synced
+- **@mentions and #channel links** in synced messages are rewritten per target workspace: mapped users are tagged with the local Slack user, and channels that are part of the same sync are shown as native local channel links; otherwise users fall back to a code-style label and channels use a link back to the source workspace (or a code-style label if that cannot be built)
 - Messages from other bots are synced; only SyncBot's own messages are filtered to prevent loops
 - Existing messages are not back-filled; syncing starts from the moment a channel is linked
 - Do not add SyncBot manually to channels. SyncBot adds itself when you configure a Sync. If it detects it was added to an unconfigured channel it will post a message and leave automatically
@@ -41,7 +42,7 @@ If a workspace uninstalls SyncBot, group memberships and syncs are paused (not d
 
 ## User Mapping
 
-Users are automatically mapped across workspaces by email or display name. Admins can manually edit mappings via the User Mapping screen (scoped per group). Remote users are displayed as "Display Name (Workspace Name)" and sorted by normalized name.
+Users are automatically mapped across workspaces by email or display name. Admins can manually edit mappings via the User Mapping screen (scoped per group). Remote users are displayed as "Display Name (Workspace Name)" and sorted by normalized name. In synced messages, a mapped user is mentioned with a normal `@` tag in the receiving workspace; unmapped users appear as a code-style `[@Name (Workspace)]` label. Channel names that point at another synced channel in the same sync group are shown as native `#channel` links in each workspace.
 
 ## Refresh Behavior
 
@@ -64,7 +65,7 @@ Images and videos are downloaded from the source and uploaded directly to each t
 
 *(Opt-in — set `SYNCBOT_FEDERATION_ENABLED=true` and `SYNCBOT_PUBLIC_URL` to enable)*
 
-Workspaces running their own SyncBot deployment can be connected via the "External Connections" section on the Home tab. One admin generates a connection code and shares it out-of-band; the other admin enters it. Messages, edits, deletes, reactions, and user matching work across instances.
+Workspaces running their own SyncBot deployment can be connected via the "External Connections" section on the Home tab. One admin generates a connection code and shares it out-of-band; the other admin enters it. Messages, edits, deletes, reactions, and user matching work across instances. The receiving SyncBot instance rewrites `@` mentions and `#` channel links using the same rules as same-instance sync (native tags when mapped / synced, fallbacks otherwise).
 
 **Data Migration** in the same section lets you export your workspace data (syncs, channels, post meta, user directory, user mappings) for moving to another instance, or import a migration file after connecting. See [Backup and Migration](BACKUP_AND_MIGRATION.md) for details.
 

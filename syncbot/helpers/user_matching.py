@@ -489,6 +489,53 @@ def apply_mentioned_users(
     return re.sub(r"<@\w+>", lambda _: next(replace_iter), msg_text)
 
 
+def find_synced_channel_in_target(source_channel_id: str, target_workspace_id: int) -> str | None:
+    """If *source_channel_id* belongs to an active sync that *target_workspace_id* also has a channel in, return the local channel ID."""
+    source_rows = DbManager.find_records(
+        schemas.SyncChannel,
+        [
+            schemas.SyncChannel.channel_id == source_channel_id,
+            schemas.SyncChannel.deleted_at.is_(None),
+            schemas.SyncChannel.status == "active",
+        ],
+    )
+    if not source_rows:
+        return None
+    sync_id = source_rows[0].sync_id
+    target_rows = DbManager.find_records(
+        schemas.SyncChannel,
+        [
+            schemas.SyncChannel.sync_id == sync_id,
+            schemas.SyncChannel.workspace_id == target_workspace_id,
+            schemas.SyncChannel.deleted_at.is_(None),
+            schemas.SyncChannel.status == "active",
+        ],
+    )
+    if not target_rows:
+        return None
+    return target_rows[0].channel_id
+
+
+_ARCHIVE_LINK_PATTERN = re.compile(
+    r"<https://([a-z0-9-]+)\.slack\.com/archives/(C[A-Z0-9]+)\|([^>]+)>"
+)
+
+
+def _rewrite_slack_archive_links_to_native_channels(msg_text: str, target_workspace_id: int) -> str:
+    """Replace Slack archive mrkdwn links with native ``<#C_LOCAL>`` when that channel is synced to *target_workspace_id*."""
+    if not msg_text or not target_workspace_id:
+        return msg_text
+
+    def repl(m: re.Match) -> str:
+        ch_id = m.group(2)
+        local = find_synced_channel_in_target(ch_id, target_workspace_id)
+        if local:
+            return f"<#{local}>"
+        return m.group(0)
+
+    return _ARCHIVE_LINK_PATTERN.sub(repl, msg_text)
+
+
 def _get_workspace_domain(client: WebClient, team_id: str) -> str | None:
     """Return the workspace subdomain (e.g. ``acme`` for ``acme.slack.com``) from ``team.info``, cached."""
     cache_key = f"ws_domain:{team_id}"
@@ -509,37 +556,63 @@ def _get_workspace_domain(client: WebClient, team_id: str) -> str | None:
 
 def resolve_channel_references(
     msg_text: str,
-    source_client: WebClient,
+    source_client: WebClient | None,
     source_workspace: "schemas.Workspace | None" = None,
+    target_workspace_id: int | None = None,
 ) -> str:
-    """Replace ``<#CHANNEL_ID>`` references with deep-linked channel names."""
+    """Replace ``<#CHANNEL_ID>`` references with native local channels when synced, else archive URLs or fallbacks.
+
+    When *target_workspace_id* is set, Slack archive links from federated senders may be rewritten to
+    ``<#C_LOCAL>`` if that source channel is synced to the target workspace.
+    """
     if not msg_text:
         return msg_text
 
-    channel_pattern = re.compile(r"<#(C[A-Z0-9]+)(?:\|[^>]*)?>")
-    matches = channel_pattern.findall(msg_text)
-    if not matches:
+    if target_workspace_id:
+        msg_text = _rewrite_slack_archive_links_to_native_channels(msg_text, target_workspace_id)
+
+    channel_pattern = re.compile(r"<#(C[A-Z0-9]+)(?:\|([^>]*))?>")
+    pair_tuples = channel_pattern.findall(msg_text)
+    if not pair_tuples:
         return msg_text
+
+    by_channel_id: dict[str, str | None] = {}
+    for cid, pipe in pair_tuples:
+        if cid not in by_channel_id:
+            by_channel_id[cid] = pipe.strip() if pipe and pipe.strip() else None
 
     team_id = getattr(source_workspace, "team_id", None) if source_workspace else None
     ws_name = resolve_workspace_name(source_workspace) if source_workspace else None
 
-    for ch_id in set(matches):
+    for ch_id, inline_label in by_channel_id.items():
+        if target_workspace_id:
+            local_ch = find_synced_channel_in_target(ch_id, target_workspace_id)
+            if local_ch:
+                replacement = f"<#{local_ch}>"
+                msg_text = channel_pattern.sub(
+                    lambda m, _cid=ch_id, _rep=replacement: _rep if m.group(1) == _cid else m.group(0),
+                    msg_text,
+                )
+                continue
+
         ch_name = ch_id
-        try:
-            info = source_client.conversations_info(channel=ch_id)
-            ch_name = safe_get(info, "channel", "name") or ch_id
-        except Exception as exc:
-            # If we cannot resolve channel metadata, keep the raw channel ID.
-            # This preserves message content without blocking sync processing.
-            _logger.debug(
-                "resolve_channel_reference_failed",
-                extra={"channel_id": ch_id, "error": str(exc)},
-            )
+        if source_client:
+            try:
+                info = source_client.conversations_info(channel=ch_id)
+                ch_name = safe_get(info, "channel", "name") or ch_id
+            except Exception as exc:
+                _logger.debug(
+                    "resolve_channel_reference_failed",
+                    extra={"channel_id": ch_id, "error": str(exc)},
+                )
+                if inline_label:
+                    ch_name = inline_label
+        elif inline_label:
+            ch_name = inline_label
 
         if ch_name != ch_id:
             label = f"#{ch_name} ({ws_name})" if ws_name else f"#{ch_name}"
-            domain = _get_workspace_domain(source_client, team_id) if team_id else None
+            domain = _get_workspace_domain(source_client, team_id) if source_client and team_id else None
             if domain:
                 deep_link = f"https://{domain}.slack.com/archives/{ch_id}"
                 replacement = f"<{deep_link}|{label}>"

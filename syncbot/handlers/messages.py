@@ -246,7 +246,9 @@ def _handle_new_post(
                     target_workspace_id=workspace.id,
                 )
                 source_ws = helpers.get_workspace_by_id(source_workspace_id) if source_workspace_id else None
-                adapted_text = helpers.resolve_channel_references(adapted_text, client, source_ws)
+                adapted_text = helpers.resolve_channel_references(
+                    adapted_text, client, source_ws, target_workspace_id=workspace.id
+                )
 
                 target_display_name, target_icon_url = helpers.get_display_name_and_icon_for_synced_message(
                     user_id or "",
@@ -403,7 +405,9 @@ def _handle_thread_reply(
                     target_workspace_id=workspace.id,
                 )
                 source_ws = helpers.get_workspace_by_id(source_workspace_id) if source_workspace_id else None
-                adapted_text = helpers.resolve_channel_references(adapted_text, client, source_ws)
+                adapted_text = helpers.resolve_channel_references(
+                    adapted_text, client, source_ws, target_workspace_id=workspace.id
+                )
                 parent_ts = f"{post_meta.ts:.6f}"
 
                 target_display_name, target_icon_url = helpers.get_display_name_and_icon_for_synced_message(
@@ -542,7 +546,9 @@ def _handle_message_edit(
                     target_workspace_id=workspace.id,
                 )
                 source_ws = helpers.get_workspace_by_id(source_workspace_id) if source_workspace_id else None
-                adapted_text = helpers.resolve_channel_references(adapted_text, client, source_ws)
+                adapted_text = helpers.resolve_channel_references(
+                    adapted_text, client, source_ws, target_workspace_id=workspace.id
+                )
                 helpers.post_message(
                     bot_token=bot_token,
                     channel_id=sync_channel.channel_id,

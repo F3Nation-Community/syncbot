@@ -47,7 +47,7 @@ sequenceDiagram
 
     loop For each target channel
         L->>L: Re-map @mentions (cached user matching)
-        L->>L: Resolve #channel references (archive URLs)
+        L->>L: Resolve #channel refs (native if synced, else archive URL)
         L->>SB: chat.postMessage (as sender)
         SB-->>L: ts (timestamp)
         L->>DB: Save PostMeta record
@@ -59,6 +59,8 @@ sequenceDiagram
 ```
 
 The same pattern applies to edits (`chat.update`), deletes (`chat.delete`), thread replies (with `thread_ts`), and reactions (threaded reply with emoji attribution).
+
+For **federation**, the receiving instance resolves `@` mentions and `#` channel references locally before `chat.postMessage` / `chat.update`: mapped users become native `<@U>` tags, channels that are part of the same sync become native `<#C>` tags, and other channels keep the archive links sent by the origin instance.
 
 ## AWS Infrastructure
 
