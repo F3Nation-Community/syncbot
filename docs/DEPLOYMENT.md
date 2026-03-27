@@ -181,12 +181,7 @@ Configure **per-environment** (`test` / `prod`) variables and secrets so they ma
 
 The interactive deploy script can set these via `gh` when you opt in. Re-run that step after changing DB mode or engine so CI stays aligned.
 
-**Dependency hygiene:** The workflow runs `pip-audit` on `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt`. After changing `pyproject.toml`:
-
-```bash
-poetry lock
-poetry export --only main --format requirements.txt --without-hashes --output syncbot/requirements.txt
-```
+**Dependency hygiene:** The AWS deploy workflow runs `pip-audit` on `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt`. After changing `pyproject.toml`, run `poetry lock` and commit; the **pre-commit `sync-requirements` hook** (see [.pre-commit-config.yaml](../.pre-commit-config.yaml)) regenerates both requirements files when `poetry.lock` changes. If you do not use pre-commit, run the export commands documented in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ### 4. Ongoing local deploys (least privilege)
 

@@ -34,18 +34,20 @@ jobs:
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt
-          if git diff --quiet syncbot/requirements.txt; then
-            echo "requirements.txt is already in sync."
+          echo "# Required for MySQL 8+ caching_sha2_password; pin for reproducible CI (sam build)." > infra/aws/db_setup/requirements.txt
+          grep -E "^(pymysql|psycopg2-binary|cryptography)==" syncbot/requirements.txt >> infra/aws/db_setup/requirements.txt
+          if git diff --quiet syncbot/requirements.txt infra/aws/db_setup/requirements.txt; then
+            echo "requirements.txt files are already in sync."
           elif [[ -n "${PR_HEAD_REPO}" && "${PR_HEAD_REPO}" != "${GITHUB_REPOSITORY}" ]]; then
-            echo "::error::syncbot/requirements.txt is out of sync with poetry.lock. From the repo root run: poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt"
+            echo "::error::Requirements files are out of sync with poetry.lock. Commit with pre-commit installed (sync-requirements hook) or follow docs/DEVELOPMENT.md."
             exit 1
           else
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add syncbot/requirements.txt
-            git commit -m "chore: sync requirements.txt with poetry.lock"
+            git add syncbot/requirements.txt infra/aws/db_setup/requirements.txt
+            git commit -m "chore: sync requirements.txt files with poetry.lock"
             git push
-            echo "::notice::requirements.txt was out of sync and has been auto-fixed."
+            echo "::notice::requirements.txt files were out of sync and have been auto-fixed."
           fi
 
   sam-lint:

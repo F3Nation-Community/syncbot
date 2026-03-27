@@ -18,12 +18,7 @@ The application reads configuration from environment variables. Providers must i
   - CI Python version
   - `pyproject.toml` Python constraint
   - `syncbot/requirements.txt` deployment pins
-- When dependency constraints change in `pyproject.toml`, refresh both lock and deployment requirements:
-
-```bash
-poetry lock
-poetry export --only main --format requirements.txt --without-hashes --output syncbot/requirements.txt
-```
+- When dependency constraints change in `pyproject.toml`, refresh the lockfile and deployment requirements. The **pre-commit `sync-requirements` hook** regenerates **`syncbot/requirements.txt`** and **`infra/aws/db_setup/requirements.txt`** from `poetry.lock` when you commit lockfile changes. Manually: `poetry lock`, then `poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt` and rebuild `infra/aws/db_setup/requirements.txt` as in [.pre-commit-config.yaml](../.pre-commit-config.yaml).
 
 ### Database (backend-agnostic)
 
