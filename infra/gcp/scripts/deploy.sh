@@ -739,7 +739,7 @@ echo "Log level:        $LOG_LEVEL"
 if [[ -n "$PRIMARY_WORKSPACE_VAR" ]]; then
   echo "Primary workspace: $PRIMARY_WORKSPACE_VAR"
 else
-  echo "Primary workspace: (any)"
+  echo "Primary workspace: (not set — backup/restore hidden)"
 fi
 if [[ "$ENABLE_DB_RESET_VAR" == "true" ]]; then
   echo "DB reset:          enabled"

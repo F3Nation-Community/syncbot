@@ -58,12 +58,13 @@ def is_user_authorized(client, user_id: str) -> bool:
 def is_backup_visible_for_workspace(team_id: str | None) -> bool:
     """Return True if full backup/restore UI and handlers are allowed for this workspace.
 
-    When PRIMARY_WORKSPACE is set, only that Slack team_id may use backup/restore.
-    When unset, backup is available from all workspaces (backward-compatible).
+    Requires PRIMARY_WORKSPACE to be set and to match *team_id*.
+    When PRIMARY_WORKSPACE is unset, backup/restore is hidden everywhere.
     """
     primary = (os.environ.get(constants.PRIMARY_WORKSPACE) or "").strip()
     if not primary:
-        return True
+        _logger.debug("backup/restore hidden: PRIMARY_WORKSPACE not set")
+        return False
     visible = (team_id or "") == primary
     if not visible:
         _logger.debug(

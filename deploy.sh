@@ -274,8 +274,8 @@ prompt_soft_delete_retention_days() {
 
 prompt_primary_workspace() {
   local default="$1"
-  echo "Optional Slack Team ID for PRIMARY_WORKSPACE (scopes backup/restore and DB reset to one workspace)." >&2
-  echo "Leave empty so backup/restore is available from every workspace." >&2
+  echo "Slack Team ID for PRIMARY_WORKSPACE (required for backup/restore to appear; also scopes DB reset)." >&2
+  echo "Leave empty to hide backup/restore from all workspaces." >&2
   local disp
   if [[ -z "$default" ]]; then
     disp="(any workspace)"

@@ -64,7 +64,7 @@ poetry export --only main --format requirements.txt --without-hashes --output sy
 |----------|-------------|
 | `SLACK_BOT_TOKEN` | Set by OAuth flow; placeholder until first install. |
 | `REQUIRE_ADMIN` | `true` (default) or `false`; restricts config to admins/owners. |
-| `PRIMARY_WORKSPACE` | Optional Slack Team ID. When set, full backup/restore and DB reset (if enabled) are scoped to this workspace only. |
+| `PRIMARY_WORKSPACE` | Slack Team ID of the primary workspace. Required for backup/restore to be visible. DB reset (if enabled) is also scoped to this workspace. |
 | `ENABLE_DB_RESET` | When `true` / `1` / `yes` and `PRIMARY_WORKSPACE` matches the current workspace, shows the Reset Database button. Not prompted during deploy; set manually via infra config or GitHub Actions variable. |
 | `LOCAL_DEVELOPMENT` | `true` only for local dev; disables token verification and enables dev shortcuts. |
 | `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` (default `INFO`). |

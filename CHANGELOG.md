@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `PRIMARY_WORKSPACE` env var: when set to a Slack Team ID, restricts full backup/restore and DB reset to that workspace only.
+- `PRIMARY_WORKSPACE` env var: must be set to a Slack Team ID for backup/restore to appear. Also scopes DB reset to that workspace.
 
 ## [1.0.0] - 2026-03-25
 

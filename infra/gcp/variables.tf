@@ -231,7 +231,7 @@ variable "syncbot_public_url_override" {
 variable "primary_workspace" {
   type        = string
   default     = ""
-  description = "PRIMARY_WORKSPACE Slack Team ID; empty omits the env var (backup available from all workspaces)."
+  description = "PRIMARY_WORKSPACE Slack Team ID; required for backup/restore to appear. Empty omits the env var and hides backup/restore."
 }
 
 variable "enable_db_reset" {

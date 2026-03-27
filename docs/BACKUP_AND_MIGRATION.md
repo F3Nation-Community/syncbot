@@ -2,7 +2,7 @@
 
 ## Full-Instance Backup and Restore
 
-When **`PRIMARY_WORKSPACE`** is set to a Slack Team ID, the **Backup/Restore** button is only shown in that workspace. This prevents admins in other workspaces from downloading a full-instance backup. When **`PRIMARY_WORKSPACE`** is unset, backup/restore is available from every workspace (legacy behavior).
+**`PRIMARY_WORKSPACE`** must be set to a Slack Team ID for backup/restore to be available. When set, the **Backup/Restore** button is only shown in that workspace. When unset, backup/restore is hidden everywhere.
 
 Use **Backup/Restore** (Home tab, next to Refresh) to:
 

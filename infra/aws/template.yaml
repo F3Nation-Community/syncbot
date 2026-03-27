@@ -243,7 +243,7 @@ Parameters:
 
   PrimaryWorkspace:
     Description: >
-      Slack Team ID for PRIMARY_WORKSPACE (scopes backup/restore and DB reset). Leave empty to allow backup from all workspaces.
+      Slack Team ID for PRIMARY_WORKSPACE. Required for backup/restore to appear; also scopes DB reset. Leave empty to hide backup/restore.
     Type: String
     Default: ""
 

@@ -1583,7 +1583,7 @@ echo "Soft-delete days: $SOFT_DELETE_RETENTION_DAYS"
 if [[ -n "$PRIMARY_WORKSPACE" ]]; then
   echo "Primary workspace: $PRIMARY_WORKSPACE"
 else
-  echo "Primary workspace: (any — backup from all workspaces)"
+  echo "Primary workspace: (not set — backup/restore hidden)"
 fi
 if [[ "$ENABLE_DB_RESET" == "true" ]]; then
   echo "DB reset:          enabled (PRIMARY_WORKSPACE must match)"

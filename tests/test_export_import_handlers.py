@@ -19,10 +19,10 @@ from slack import actions  # noqa: E402
 class TestBackupRestoreSubmitValidation:
     def test_returns_error_when_file_missing(self):
         client = MagicMock()
-        body = {"user": {"id": "U1"}, "view": {"state": {"values": {}}}}
+        body = {"user": {"id": "U1"}, "team": {"id": "TTEST"}, "view": {"state": {"values": {}}}}
 
         with (
-            patch.dict(os.environ, {"PRIMARY_WORKSPACE": ""}),
+            patch.dict(os.environ, {"PRIMARY_WORKSPACE": "TTEST"}),
             patch("handlers.export_import._is_admin", return_value=True),
         ):
             resp = handle_backup_restore_submit_ack(body, client, context={})
@@ -34,6 +34,7 @@ class TestBackupRestoreSubmitValidation:
         client = MagicMock()
         body = {
             "user": {"id": "U1"},
+            "team": {"id": "TTEST"},
             "view": {
                 "state": {
                     "values": {
@@ -48,7 +49,7 @@ class TestBackupRestoreSubmitValidation:
         }
 
         with (
-            patch.dict(os.environ, {"PRIMARY_WORKSPACE": ""}),
+            patch.dict(os.environ, {"PRIMARY_WORKSPACE": "TTEST"}),
             patch("handlers.export_import._is_admin", return_value=True),
         ):
             resp = handle_backup_restore_submit_ack(body, client, context={})

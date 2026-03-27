@@ -18,10 +18,10 @@ from helpers.core import (  # noqa: E402
 
 
 class TestIsBackupVisibleForWorkspace:
-    def test_unset_primary_allows_all(self):
+    def test_unset_primary_denies_all(self):
         with patch.dict(os.environ, {"PRIMARY_WORKSPACE": ""}):
-            assert is_backup_visible_for_workspace("T111") is True
-            assert is_backup_visible_for_workspace(None) is True
+            assert is_backup_visible_for_workspace("T111") is False
+            assert is_backup_visible_for_workspace(None) is False
 
     def test_matching_team_allowed(self):
         with patch.dict(os.environ, {"PRIMARY_WORKSPACE": "TABC123"}):
