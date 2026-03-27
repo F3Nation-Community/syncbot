@@ -1,0 +1,34 @@
+# Pre-commit hooks for SyncBot
+#
+# Install:  pip install pre-commit && pre-commit install
+# Run all:  pre-commit run --all-files
+#
+# See https://pre-commit.com for more information.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: sync-requirements
+        name: Sync requirements.txt with poetry.lock
+        entry: bash -c 'poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt && git add syncbot/requirements.txt'
+        language: system
+        files: ^poetry\.lock$
+        pass_filenames: false

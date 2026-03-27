@@ -60,6 +60,8 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+test_syncbot.db
+test_bootstrap.db
 
 # Flask stuff:
 instance/
@@ -156,9 +158,19 @@ env.json
 .aws-sam/
 data/cache/
 
+# Local OAuth file stores (dev only)
+syncbot/.oauth-data/
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Cursor
+.cursor/
+
+# Generated deploy artifacts
+slack-manifest_*.json
+deploy-receipts/

@@ -1,0 +1,77 @@
+# PR / branch checks without cloud credentials. Deploy workflows stay in deploy-*.yml.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, test, prod]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  requirements-sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Poetry and export plugin
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry self add poetry-plugin-export
+      - name: Sync requirements.txt with poetry.lock
+        env:
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt
+          if git diff --quiet syncbot/requirements.txt; then
+            echo "requirements.txt is already in sync."
+          elif [[ -n "${PR_HEAD_REPO}" && "${PR_HEAD_REPO}" != "${GITHUB_REPOSITORY}" ]]; then
+            echo "::error::syncbot/requirements.txt is out of sync with poetry.lock. From the repo root run: poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt"
+            exit 1
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add syncbot/requirements.txt
+            git commit -m "chore: sync requirements.txt with poetry.lock"
+            git push
+            echo "::notice::requirements.txt was out of sync and has been auto-fixed."
+          fi
+
+  sam-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+      - name: sam validate --lint
+        run: |
+          sam validate -t infra/aws/template.yaml --lint
+          sam validate -t infra/aws/template.bootstrap.yaml --lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry install --with dev
+      # Infra + deploy-script smoke tests (fast). Use `poetry run pytest` locally for the full suite.
+      - name: pytest (infra & deploy scripts)
+        run: poetry run pytest -q tests/test_deploy_script_syntax.py infra/aws/tests infra/gcp/tests

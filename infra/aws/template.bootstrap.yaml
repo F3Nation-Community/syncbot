@@ -1,0 +1,279 @@
+# Bootstrap stack for SyncBot deployments.
+# Deploy once with admin credentials; creates OIDC role, deploy bucket, and
+# least-privilege policy for GitHub Actions and optional local deploy use.
+# No SAM Transform — plain CloudFormation (IAM + S3).
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  SyncBot bootstrap: GitHub OIDC deploy role, deployment artifact bucket,
+  and least-privilege policy. Deploy once locally, then use outputs in GitHub
+  and for future local deploys.
+
+Parameters:
+  GitHubRepository:
+    Type: String
+    Description: >
+      GitHub repository in form owner/repo (e.g. myorg/syncbot).
+      Used to scope OIDC trust so only this repo can assume the deploy role.
+  CreateOIDCProvider:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >
+      Set to false if an OIDC provider for token.actions.githubusercontent.com
+      already exists in this account (e.g. created by another stack).
+  DeploymentBucketPrefix:
+    Type: String
+    Default: "syncbot-deploy"
+    Description: >
+      Prefix for the deployment artifact bucket. The bucket resource name is
+      DeploymentBucketPrefix + account ID + region (see DeploymentBucket in Resources).
+
+Conditions:
+  CreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
+
+Resources:
+  # -------------------------------------------------------------------------
+  # GitHub OIDC identity provider (one per account)
+  # -------------------------------------------------------------------------
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOIDC
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  # -------------------------------------------------------------------------
+  # Deployment artifact bucket for SAM/CloudFormation packages
+  # -------------------------------------------------------------------------
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${DeploymentBucketPrefix}-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 7
+
+  # -------------------------------------------------------------------------
+  # IAM role for GitHub Actions (and optional local assume-role)
+  # -------------------------------------------------------------------------
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "syncbot-github-deploy-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOIDC
+                - !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+                - !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepository}:*"
+      ManagedPolicyArns:
+        - !Ref DeployPolicy
+
+  # -------------------------------------------------------------------------
+  # Least-privilege policy for SAM deploy (CloudFormation, S3, IAM PassRole, etc.)
+  # -------------------------------------------------------------------------
+  DeployPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "syncbot-deploy-policy-${AWS::Region}"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudFormation
+            Effect: Allow
+            Action:
+              - cloudformation:CreateStack
+              - cloudformation:UpdateStack
+              - cloudformation:DeleteStack
+              - cloudformation:CreateChangeSet
+              - cloudformation:ExecuteChangeSet
+              - cloudformation:DeleteChangeSet
+              - cloudformation:DescribeChangeSet
+              - cloudformation:ListChangeSets
+              - cloudformation:DescribeStacks
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStackResources
+              - cloudformation:DescribeStackResource
+              - cloudformation:GetTemplate
+              - cloudformation:GetTemplateSummary
+              - cloudformation:ListStackResources
+              - cloudformation:ValidateTemplate
+            Resource: "*"
+          - Sid: S3DeployBucket
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource:
+              - !GetAtt DeploymentBucket.Arn
+              - !Sub "${DeploymentBucket.Arn}/*"
+          - Sid: IAMCreateSyncBotRole
+            Effect: Allow
+            Action:
+              - iam:CreateRole
+            Resource: "*"
+            Condition:
+              StringLike:
+                iam:RoleName: syncbot-*
+          - Sid: IAMManageSyncBotRoles
+            Effect: Allow
+            Action:
+              - iam:PassRole
+              - iam:PutRolePolicy
+              - iam:AttachRolePolicy
+              - iam:GetRole
+              - iam:DeleteRole
+              - iam:DeleteRolePolicy
+              - iam:DetachRolePolicy
+            Resource:
+              - !Sub "arn:aws:iam::${AWS::AccountId}:role/syncbot-*"
+          - Sid: Lambda
+            Effect: Allow
+            Action:
+              - lambda:CreateFunction
+              - lambda:UpdateFunctionCode
+              - lambda:UpdateFunctionConfiguration
+              - lambda:GetFunction
+              - lambda:DeleteFunction
+              - lambda:AddPermission
+              - lambda:RemovePermission
+              - lambda:PublishVersion
+            Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:syncbot-*"
+          - Sid: ApiGateway
+            Effect: Allow
+            Action:
+              - apigateway:*
+            Resource: "*"
+          - Sid: Logs
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:PutRetentionPolicy
+              - logs:DescribeLogGroups
+              - logs:DeleteLogGroup
+            Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/syncbot-*"
+          - Sid: EC2Networking
+            Effect: Allow
+            Action:
+              - ec2:CreateVpc
+              - ec2:DeleteVpc
+              - ec2:DescribeVpcs
+              - ec2:CreateSubnet
+              - ec2:DeleteSubnet
+              - ec2:DescribeSubnets
+              - ec2:CreateInternetGateway
+              - ec2:DeleteInternetGateway
+              - ec2:AttachInternetGateway
+              - ec2:DetachInternetGateway
+              - ec2:CreateRouteTable
+              - ec2:DeleteRouteTable
+              - ec2:CreateRoute
+              - ec2:DeleteRoute
+              - ec2:AssociateRouteTable
+              - ec2:DisassociateRouteTable
+              - ec2:CreateSecurityGroup
+              - ec2:DeleteSecurityGroup
+              - ec2:DescribeSecurityGroups
+              - ec2:DescribeRouteTables
+              - ec2:DescribeInternetGateways
+              - ec2:DescribeVpcAttribute
+              - ec2:ModifyVpcAttribute
+              - ec2:CreateTags
+              - ec2:DeleteTags
+              - ec2:DescribeTags
+            Resource: "*"
+          - Sid: RDS
+            Effect: Allow
+            Action:
+              - rds:CreateDBInstance
+              - rds:DeleteDBInstance
+              - rds:ModifyDBInstance
+              - rds:DescribeDBInstances
+              - rds:CreateDBSubnetGroup
+              - rds:DeleteDBSubnetGroup
+              - rds:DescribeDBSubnetGroups
+              - rds:CreateDBParameterGroup
+              - rds:DeleteDBParameterGroup
+              - rds:DescribeDBParameters
+              - rds:AddTagsToResource
+              - rds:RemoveTagsFromResource
+              - rds:ListTagsForResource
+            Resource: "*"
+          - Sid: CloudWatchAlarms
+            Effect: Allow
+            Action:
+              - cloudwatch:PutMetricAlarm
+              - cloudwatch:DeleteAlarms
+              - cloudwatch:DescribeAlarms
+            Resource: "*"
+          - Sid: Events
+            Effect: Allow
+            Action:
+              - events:PutRule
+              - events:DeleteRule
+              - events:PutTargets
+              - events:RemoveTargets
+              - events:DescribeRule
+              - events:ListTargetsByRule
+            Resource: "*"
+          - Sid: SecretsManagerSyncBot
+            Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+              - secretsmanager:DescribeSecret
+              - secretsmanager:CreateSecret
+              - secretsmanager:UpdateSecret
+              - secretsmanager:DeleteSecret
+              - secretsmanager:TagResource
+              - secretsmanager:UntagResource
+              - secretsmanager:ListSecretVersionIds
+            Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:syncbot-*"
+
+Outputs:
+  GitHubDeployRoleArn:
+    Description: ARN of the role for GitHub Actions to assume (set as AWS_ROLE_TO_ASSUME).
+    Value: !GetAtt GitHubDeployRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-GitHubDeployRoleArn"
+  DeploymentBucketName:
+    Description: Name of the S3 bucket for SAM deploy artifacts (set as AWS_S3_BUCKET).
+    Value: !Ref DeploymentBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-DeploymentBucketName"
+  BootstrapRegion:
+    Description: Region where bootstrap and app stacks are deployed.
+    Value: !Ref AWS::Region
+    Export:
+      Name: !Sub "${AWS::StackName}-BootstrapRegion"
+  SuggestedTestStackName:
+    Description: Suggested stack name for test environment.
+    Value: syncbot-test
+  SuggestedProdStackName:
+    Description: Suggested stack name for prod environment.
+    Value: syncbot-prod

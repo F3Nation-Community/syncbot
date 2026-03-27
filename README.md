@@ -1,27 +1,66 @@
 # SyncBot
+<img src="assets/icon.png" alt="SyncBot Icon" width="128">
 
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+SyncBot is a Slack app for syncing messages across workspaces. Once configured, this app will sync messages, threads, edits, deletes, reactions, images, videos, and GIFs to every channel in a SyncBot group.
 
-SyncBot is a Slack app that replicates ("syncs") posts and replies across Slack workspaces. Once configured, this will happen automatically in synced channels.
+> **Using SyncBot in Slack?** See the [User Guide](docs/USER_GUIDE.md).
 
-## Installation and Getting Started
+---
 
-Set up is simple: 
+## Slack app setup
 
-1. Click [this link](https://utazcizeo0.execute-api.us-east-2.amazonaws.com/Prod/slack/install) from a desktop computer. Make sure you have selected your desired workspace in the upper right!
-2. Next, you can configure SyncBot by using the `/config-syncbot` slash command
-3. If this is the first workspace you are configuring, use the "Create new Sync" button. Otherwise, use "Join existing Sync".
+Do this before you deploy or run locally:
 
-Some notes:
- - Bot messages will not be synced, only actual user messages
- - Existing messages are not synced, but going forward all posts and their thread replies will be
- - Do not add SyncBot manually to channels - SyncBot will add itself to channels you configure. If it detects that it has been added to a non-configured channel, it will leave the channel
- - Private channels are not supported
+1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From an app manifest** → paste [`slack-manifest.json`](slack-manifest.json).
+2. Upload [`assets/icon.png`](assets/icon.png) under **Basic Information** → **Display Information**.
+3. Copy **Signing Secret**, **Client ID**, and **Client Secret** (needed for deploy). For **local dev**, install the app under **OAuth & Permissions** and copy the **Bot User OAuth Token** (`xoxb-...`).
 
-## Feature Request and Roadmap
+---
 
-I use GitHub Issues for tracking feature requests. Feel free to add some here: https://github.com/F3Nation-Community/syncbot/issues
+## Deploy
 
-Roadmap:
- - Picture sync
- - Reaction sync
+From the **repo root**, run the deploy script once for **`test`** and once for **`prod`** to automatically deploy to your infrastructure provider (currently AWS and GCP are supported).
+
+| OS | Command |
+|----|---------|
+| macOS / Linux | `./deploy.sh` |
+| Windows (PowerShell) | `.\deploy.ps1` |
+
+You can also fork the repo, set GitHub variables/secrets, and push to **`test`** or **`prod`** to trigger CI — see [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+### Prerequisites
+
+In order for the deploy script to work, you need **Git** and **Bash** (on Windows, use **Git for Windows** / **Git Bash** or **WSL**).
+
+**AWS:** AWS CLI v2, SAM CLI, Docker (for `sam build --use-container`), Python 3, and `curl`. Optional: `gh` for GitHub Actions setup.
+
+**GCP:** Terraform, `gcloud`, Python 3, and `curl`. Optional: `gh`.
+
+Full prerequisite checks, manual `sam` / Terraform, Slack URLs after deploy, and CI variables: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+
+---
+
+## Local development
+
+See **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** for Dev Container, Docker Compose, native Python, project layout, and refreshing `syncbot/requirements.txt` after dependency changes.
+
+---
+
+## Further reading
+
+| Doc | Contents |
+|-----|----------|
+| [USER_GUIDE.md](docs/USER_GUIDE.md) | End-user features (Home tab, syncs, groups) |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Guided + manual AWS/GCP deploy, CI, GitHub |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local dev, branching for forks, dependencies |
+| [INFRA_CONTRACT.md](docs/INFRA_CONTRACT.md) | Environment variables and platform expectations |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Sync flow, AWS reference architecture |
+| [BACKUP_AND_MIGRATION.md](docs/BACKUP_AND_MIGRATION.md) | Backup/restore and federation migration |
+| [API_REFERENCE.md](docs/API_REFERENCE.md) | HTTP routes and Slack events |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
+
+## License
+
+**AGPL-3.0** — see [LICENSE](LICENSE).

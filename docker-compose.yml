@@ -1,0 +1,44 @@
+services:
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_ROOT_HOST: "%"   # allow root from host (e.g. mysql -h 127.0.0.1 -P 3306 -u root -p)
+      MYSQL_DATABASE: syncbot
+    ports:
+      - "3306:3306"
+    volumes:
+      - syncbot-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_BACKEND: ${DATABASE_BACKEND:-mysql}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_HOST: ${DATABASE_HOST:-db}
+      DATABASE_USER: ${DATABASE_USER:-root}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-rootpass}
+      DATABASE_SCHEMA: ${DATABASE_SCHEMA:-syncbot}
+      DATABASE_TLS_ENABLED: ${DATABASE_TLS_ENABLED:-false}
+      DATABASE_SSL_CA_PATH: ${DATABASE_SSL_CA_PATH:-/etc/pki/tls/certs/ca-bundle.crt}
+      # Slack — replace with your values or use a .env file
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-xoxb-your-bot-token}
+      # Optional
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-123}
+      REQUIRE_ADMIN: ${REQUIRE_ADMIN:-true}
+    volumes:
+      - ./syncbot:/app/syncbot
+
+volumes:
+  syncbot-db:

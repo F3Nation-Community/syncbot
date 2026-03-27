@@ -1,0 +1,43 @@
+# SAM CLI configuration for local deployment.
+#
+# Full list of CloudFormation parameters is in infra/aws/template.yaml (Parameters).
+# Interactive deploy (infra/aws/scripts/deploy.sh) passes overrides on the CLI.
+# This file is for quick sam build / sam deploy with minimal Stage-only overrides.
+#
+# Usage:
+#   sam build --config-env test
+#   sam deploy --config-env test
+#   sam deploy --config-env prod
+#
+version = 0.1
+
+[default.build.parameters]
+template_file = "infra/aws/template.yaml"
+use_container = true
+
+[test.build.parameters]
+template_file = "infra/aws/template.yaml"
+use_container = true
+
+# test: minimal Stage; add other template parameters via --parameter-overrides or guided deploy.
+[test.deploy.parameters]
+stack_name = "syncbot-test"
+resolve_s3 = true
+s3_prefix = "syncbot-test"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+parameter_overrides = "Stage=test"
+
+[prod.build.parameters]
+template_file = "infra/aws/template.yaml"
+use_container = true
+
+[prod.deploy.parameters]
+stack_name = "syncbot-prod"
+resolve_s3 = true
+s3_prefix = "syncbot-prod"
+region = "us-east-2"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+parameter_overrides = "Stage=prod"

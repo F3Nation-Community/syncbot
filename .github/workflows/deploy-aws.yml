@@ -1,0 +1,180 @@
+# Deploy SyncBot to AWS (SAM). See docs/DEPLOYMENT.md and docs/INFRA_CONTRACT.md.
+# To use GCP instead: set repository variable DEPLOY_TARGET=gcp and disable this workflow.
+#
+# Token key policy: Non-local deploys require a secure TOKEN_ENCRYPTION_KEY. The AWS app stack
+# auto-generates it in Secrets Manager by default. Back up the generated key after first deploy.
+# Optional disaster recovery secret TOKEN_ENCRYPTION_KEY_OVERRIDE passes TokenEncryptionKeyOverride for restore.
+
+name: Deploy (AWS)
+
+on:
+  push:
+    branches:
+      - test
+      - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+# Skip when using GCP (set DEPLOY_TARGET=gcp to use deploy-gcp.yml instead)
+jobs:
+  sam-build:
+    if: vars.DEPLOY_TARGET != 'gcp'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Validate SAM templates (cfn-lint)
+        run: |
+          sam validate -t infra/aws/template.yaml --lint
+          sam validate -t infra/aws/template.bootstrap.yaml --lint
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - run: sam build -t infra/aws/template.yaml
+
+      - name: Security audit Python dependencies
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r syncbot/requirements.txt
+          pip-audit -r infra/aws/db_setup/requirements.txt
+
+      - name: Publish artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifact
+          path: './.aws-sam/build'
+
+  sam-deploy-test:
+    if: github.ref == 'refs/heads/test'
+    runs-on: ubuntu-latest
+    environment: test
+    needs: sam-build
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifact
+          path: './.aws-sam/build'
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Deploy to test
+        run: |
+          TOKEN_KEY_OVERRIDE="${{ secrets.TOKEN_ENCRYPTION_KEY_OVERRIDE }}"
+          OVERRIDE_PARAM=""
+          if [ -n "$TOKEN_KEY_OVERRIDE" ]; then
+            OVERRIDE_PARAM=" TokenEncryptionKeyOverride=$TOKEN_KEY_OVERRIDE"
+            echo "Using TOKEN_ENCRYPTION_KEY_OVERRIDE for disaster-recovery deploy."
+          fi
+          sam deploy \
+            -t .aws-sam/build/template.yaml \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --stack-name ${{ vars.AWS_STACK_NAME }} \
+            --s3-bucket ${{ vars.AWS_S3_BUCKET }} \
+            --capabilities CAPABILITY_IAM \
+            --region ${{ vars.AWS_REGION }} \
+            --no-disable-rollback \
+            --force-upload \
+            --parameter-overrides \
+              "Stage=${{ vars.STAGE_NAME }} \
+               DatabaseEngine=${{ vars.DATABASE_ENGINE || 'mysql' }} \
+               ExistingDatabaseHost=${{ vars.EXISTING_DATABASE_HOST }} \
+               ExistingDatabaseAdminUser=${{ vars.EXISTING_DATABASE_ADMIN_USER }} \
+               ExistingDatabaseAdminPassword=${{ secrets.EXISTING_DATABASE_ADMIN_PASSWORD }} \
+               ExistingDatabaseNetworkMode=${{ vars.EXISTING_DATABASE_NETWORK_MODE || 'public' }} \
+               ExistingDatabaseSubnetIdsCsv=${{ vars.EXISTING_DATABASE_SUBNET_IDS_CSV }} \
+               ExistingDatabaseLambdaSecurityGroupId=${{ vars.EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID }} \
+               DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
+               LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
+               RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \
+               SoftDeleteRetentionDays=${{ vars.SOFT_DELETE_RETENTION_DAYS || '30' }} \
+               SyncbotFederationEnabled=${{ vars.SYNCBOT_FEDERATION_ENABLED || 'false' }} \
+               SyncbotInstanceId=${{ vars.SYNCBOT_INSTANCE_ID }} \
+               SyncbotPublicUrl=${{ vars.SYNCBOT_PUBLIC_URL }} \
+               PrimaryWorkspace=${{ vars.PRIMARY_WORKSPACE }} \
+               EnableDbReset=${{ vars.ENABLE_DB_RESET }} \
+               SlackClientID=${{ vars.SLACK_CLIENT_ID }} \
+               SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
+               SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
+               $OVERRIDE_PARAM"
+
+  sam-deploy-prod:
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    environment: prod
+    needs: sam-build
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifact
+          path: './.aws-sam/build'
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Deploy to prod
+        run: |
+          TOKEN_KEY_OVERRIDE="${{ secrets.TOKEN_ENCRYPTION_KEY_OVERRIDE }}"
+          OVERRIDE_PARAM=""
+          if [ -n "$TOKEN_KEY_OVERRIDE" ]; then
+            OVERRIDE_PARAM=" TokenEncryptionKeyOverride=$TOKEN_KEY_OVERRIDE"
+            echo "Using TOKEN_ENCRYPTION_KEY_OVERRIDE for disaster-recovery deploy."
+          fi
+          sam deploy \
+            -t .aws-sam/build/template.yaml \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --stack-name ${{ vars.AWS_STACK_NAME }} \
+            --s3-bucket ${{ vars.AWS_S3_BUCKET }} \
+            --capabilities CAPABILITY_IAM \
+            --region ${{ vars.AWS_REGION }} \
+            --no-disable-rollback \
+            --force-upload \
+            --parameter-overrides \
+              "Stage=${{ vars.STAGE_NAME }} \
+               DatabaseEngine=${{ vars.DATABASE_ENGINE || 'mysql' }} \
+               ExistingDatabaseHost=${{ vars.EXISTING_DATABASE_HOST }} \
+               ExistingDatabaseAdminUser=${{ vars.EXISTING_DATABASE_ADMIN_USER }} \
+               ExistingDatabaseAdminPassword=${{ secrets.EXISTING_DATABASE_ADMIN_PASSWORD }} \
+               ExistingDatabaseNetworkMode=${{ vars.EXISTING_DATABASE_NETWORK_MODE || 'public' }} \
+               ExistingDatabaseSubnetIdsCsv=${{ vars.EXISTING_DATABASE_SUBNET_IDS_CSV }} \
+               ExistingDatabaseLambdaSecurityGroupId=${{ vars.EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID }} \
+               DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
+               LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
+               RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \
+               SoftDeleteRetentionDays=${{ vars.SOFT_DELETE_RETENTION_DAYS || '30' }} \
+               SyncbotFederationEnabled=${{ vars.SYNCBOT_FEDERATION_ENABLED || 'false' }} \
+               SyncbotInstanceId=${{ vars.SYNCBOT_INSTANCE_ID }} \
+               SyncbotPublicUrl=${{ vars.SYNCBOT_PUBLIC_URL }} \
+               PrimaryWorkspace=${{ vars.PRIMARY_WORKSPACE }} \
+               EnableDbReset=${{ vars.ENABLE_DB_RESET }} \
+               SlackClientID=${{ vars.SLACK_CLIENT_ID }} \
+               SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
+               SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
+               $OVERRIDE_PARAM"

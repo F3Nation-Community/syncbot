@@ -1,23 +1,65 @@
 [tool.poetry]
 name = "syncbot"
-version = "0.1.0"
-description = ""
-authors = ["Evan Petzoldt <evan.petzoldt@protonmail.com>"]
+version = "1.0.1"
+description = "Sync chat threads between Slack Workspaces."
+authors = ["Evan Petzoldt <evan.petzoldt@protonmail.com>", "Klint Van Tassel <developer@sprocktech.com>"]
 readme = "README.md"
 
+[tool.poetry.requires-plugins]
+poetry-plugin-export = ">=1.8"
+
 [tool.poetry.dependencies]
-python = "^3.11"
-slack-bolt = "^1.18.0"
-sqlalchemy = "<2.0"
-pymysql = "^1.1.0"
-cryptography = "^41.0.4"
-requests = "^2.31.0"
-pillow-heif = "^0.16.0"
+python = "^3.12"
+alembic = "^1.13"
+python-dotenv = "^1.2.0"
+slack-bolt = "^1.27.0"
+sqlalchemy = "^2.0"
+pymysql = "^1.1.2"
+psycopg2-binary = "^2.9"
+cryptography = "^46.0.0"
+requests = "^2.32.0"
 
 
 [tool.poetry.group.dev.dependencies]
-ipykernel = "^6.25.2"
 boto3 = "^1.28.57"
+pytest = "^9.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "infra/aws/tests", "infra/gcp/tests"]
+pythonpath = ["syncbot", "infra/aws/db_setup"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["syncbot", "tests", "infra/aws/tests", "infra/gcp/tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "LOG",  # flake8-logging
+]
+ignore = [
+    "E501",   # line-too-long (handled by formatter)
+    "B905",   # zip-without-explicit-strict
+    "SIM108", # ternary operator (readability preference)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"syncbot/app.py" = ["E402"]  # load_dotenv() must run before app imports
+"syncbot/builders/user_mapping.py" = ["I001"]  # import block sort (slack.blocks shorthand used)
+
+[tool.ruff.lint.isort]
+known-first-party = ["builders", "constants", "db", "federation", "handlers", "helpers", "logger", "routing", "slack"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [build-system]
 requires = ["poetry-core"]

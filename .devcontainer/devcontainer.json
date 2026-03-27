@@ -1,0 +1,42 @@
+{
+  "name": "SyncBot",
+  "dockerComposeFile": "docker-compose.dev.yml",
+  "service": "app",
+  "workspaceFolder": "/app",
+
+  "features": {
+    "ghcr.io/devcontainers/features/aws-cli:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  },
+
+  "forwardPorts": [3000, 3306],
+
+  "postCreateCommand": "pip install --no-cache-dir boto3 pytest && echo '✅ Dev container ready'",
+
+  "remoteEnv": {
+    "PYTHONPATH": "/app/syncbot",
+    "LOCAL_DEVELOPMENT": "true",
+    "DATABASE_HOST": "db",
+    "DATABASE_USER": "root",
+    "DATABASE_PASSWORD": "rootpass",
+    "DATABASE_SCHEMA": "syncbot"
+  }
+}
