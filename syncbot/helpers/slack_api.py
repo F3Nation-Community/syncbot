@@ -134,7 +134,7 @@ def post_message(
 ) -> dict:
     """Post or update a message in a Slack channel."""
     slack_client = WebClient(bot_token)
-    posted_from = f"({workspace_name})" if workspace_name else "(via SyncBot)"
+    posted_from = f"({workspace_name})" if workspace_name else ""
     if blocks:
         if msg_text.strip():
             msg_block = {"type": "section", "text": {"type": "mrkdwn", "text": msg_text}}
@@ -152,10 +152,11 @@ def post_message(
             blocks=all_blocks,
         )
     else:
+        username_str = f"{user_name} {posted_from}".strip() if user_name else None
         res = slack_client.chat_postMessage(
             channel=channel_id,
             text=fallback_text,
-            username=f"{user_name} {posted_from}",
+            username=username_str,
             icon_url=user_profile_url,
             thread_ts=thread_ts,
             blocks=all_blocks,

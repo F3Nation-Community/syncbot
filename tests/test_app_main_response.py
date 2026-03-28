@@ -1,5 +1,6 @@
 """Unit tests for syncbot.app.view_ack and main_response (ack + lazy work)."""
 
+import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -118,3 +119,36 @@ class TestMainResponseProdViewSubmission:
             app_module.main_response(_body_view_submit(cid), MagicMock(), MagicMock(), ack, context)
 
         ack.assert_not_called()
+
+
+class TestLambdaHandler:
+    """AWS Lambda :func:`~app.handler` branches (migrate, warmup, Slack)."""
+
+    def test_handler_migrate_event_calls_initialize_database(self):
+        with patch.object(app_module, "initialize_database") as mock_init:
+            result = app_module.handler({"action": "migrate"}, {})
+        mock_init.assert_called_once()
+        assert result["statusCode"] == 200
+        assert json.loads(result["body"]) == {"status": "ok", "action": "migrate"}
+
+    def test_handler_warmup_scheduler_returns_ok(self):
+        with patch.object(app_module, "SlackRequestHandler") as mock_srh:
+            result = app_module.handler({"source": "aws.scheduler"}, {})
+        mock_srh.assert_not_called()
+        assert result["statusCode"] == 200
+        assert json.loads(result["body"]) == {"status": "ok", "action": "warmup"}
+
+    def test_handler_warmup_events_returns_ok(self):
+        with patch.object(app_module, "SlackRequestHandler") as mock_srh:
+            result = app_module.handler({"source": "aws.events"}, {})
+        mock_srh.assert_not_called()
+        assert result["statusCode"] == 200
+        assert json.loads(result["body"])["action"] == "warmup"
+
+    def test_handler_slack_event_delegates_to_bolt(self):
+        mock_handle = MagicMock(return_value={"statusCode": 200, "body": "{}"})
+        with patch.object(app_module, "SlackRequestHandler") as mock_srh_class:
+            mock_srh_class.return_value.handle = mock_handle
+            app_module.handler({"httpMethod": "POST", "path": "/slack/events", "body": "{}"}, {})
+        mock_srh_class.assert_called_once_with(app=app_module.app)
+        mock_handle.assert_called_once()

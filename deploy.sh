@@ -669,7 +669,9 @@ main() {
     poetry update --quiet
     if poetry self show plugins 2>/dev/null | grep -q poetry-plugin-export; then
       poetry export -f requirements.txt --without-hashes -o "$REPO_ROOT/syncbot/requirements.txt"
-      echo "syncbot/requirements.txt updated from poetry.lock."
+      echo "# Required for MySQL 8+ caching_sha2_password; pin for reproducible CI (sam build)." > "$REPO_ROOT/infra/aws/db_setup/requirements.txt"
+      grep -E "^(pymysql|psycopg2-binary|cryptography)==" "$REPO_ROOT/syncbot/requirements.txt" >> "$REPO_ROOT/infra/aws/db_setup/requirements.txt"
+      echo "syncbot/requirements.txt and infra/aws/db_setup/requirements.txt updated from poetry.lock."
     else
       echo "Warning: poetry-plugin-export not installed. Run: poetry self add poetry-plugin-export" >&2
       echo "Skipping requirements.txt sync." >&2

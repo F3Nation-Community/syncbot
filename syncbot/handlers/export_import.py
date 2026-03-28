@@ -772,7 +772,13 @@ def handle_data_migration_submit_work(
     if not constants.FEDERATION_ENABLED:
         return
     err, data, group_id, team_id_to_workspace_id, workspace_record = _data_migration_prepare(body, client, context)
-    if err is not None or data is None or group_id is None or team_id_to_workspace_id is None or workspace_record is None:
+    if (
+        err is not None
+        or data is None
+        or group_id is None
+        or team_id_to_workspace_id is None
+        or workspace_record is None
+    ):
         return
 
     source = data.get("source_instance")

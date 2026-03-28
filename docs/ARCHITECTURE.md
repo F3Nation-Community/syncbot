@@ -119,6 +119,8 @@ flowchart TB
 
 All infrastructure is defined in `infra/aws/template.yaml` (AWS SAM). Dashed lines indicate resources that are conditionally created — when `Existing*` parameters are set, those resources are skipped.
 
+**Lambda cold start vs Slack acks:** The main function uses **256 MB** memory (faster init than 128 MB). Alembic migrations run only when the function is invoked with `{"action":"migrate"}` (post-deploy in CI), not on every cold start, so the first Slack interaction after deploy can ack within Slack’s time limit. EventBridge keep-warm ScheduleV2 invokes are handled in `app.handler` with a trivial JSON response instead of the Slack Bolt adapter.
+
 ## Security & Hardening
 
 | Layer | Protection |

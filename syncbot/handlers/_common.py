@@ -100,9 +100,7 @@ def _get_selected_conversation_or_option(body: dict, action_id: str) -> str | No
     """Return selected conversation ID, falling back to selected option value."""
     for aid, action_data in _iter_view_state_actions(body):
         if aid == action_id:
-            return action_data.get("selected_conversation") or helpers.safe_get(
-                action_data, "selected_option", "value"
-            )
+            return action_data.get("selected_conversation") or helpers.safe_get(action_data, "selected_option", "value")
     return None
 
 

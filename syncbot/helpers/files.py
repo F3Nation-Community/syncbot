@@ -87,9 +87,7 @@ def download_public_file(url: str, logger: Logger) -> dict | None:
         return None
 
 
-def download_slack_files(
-    files: list[dict], client: WebClient, logger: Logger
-) -> list[dict]:
+def download_slack_files(files: list[dict], client: WebClient, logger: Logger) -> list[dict]:
     """Download files from Slack to /tmp for direct re-upload."""
     downloaded: list[dict] = []
     auth_headers = {"Authorization": f"Bearer {client.token}"}
@@ -106,11 +104,13 @@ def download_slack_files(
 
             _download_to_file(url, file_path, headers=auth_headers)
 
-            downloaded.append({
-                "path": file_path,
-                "name": file_name,
-                "mimetype": f.get("mimetype", "application/octet-stream"),
-            })
+            downloaded.append(
+                {
+                    "path": file_path,
+                    "name": file_name,
+                    "mimetype": f.get("mimetype", "application/octet-stream"),
+                }
+            )
         except Exception as e:
             logger.error(f"download_slack_files: failed for {f.get('id')}: {e}")
     return downloaded
@@ -130,10 +130,12 @@ def upload_files_to_slack(
     slack_client = WebClient(bot_token)
     file_uploads = []
     for f in files:
-        file_uploads.append({
-            "file": f["path"],
-            "filename": f["name"],
-        })
+        file_uploads.append(
+            {
+                "file": f["path"],
+                "filename": f["name"],
+            }
+        )
 
     kwargs: dict = {"channel": channel_id}
     if initial_comment:
@@ -158,7 +160,9 @@ def upload_files_to_slack(
 
 
 def _extract_file_message_ts(
-    client: WebClient, upload_response, channel_id: str,
+    client: WebClient,
+    upload_response,
+    channel_id: str,
     thread_ts: str | None = None,
 ) -> str | None:
     """Extract the message ts created by a file upload."""
@@ -189,8 +193,9 @@ def _extract_file_message_ts(
                 channel_shares = shares.get(share_type, {}).get(channel_id, [])
                 if channel_shares:
                     ts = channel_shares[0].get("ts")
-                    _logger.info("_extract_file_message_ts: success",
-                                 extra={"file_id": file_id, "ts": ts, "attempt": attempt})
+                    _logger.info(
+                        "_extract_file_message_ts: success", extra={"file_id": file_id, "ts": ts, "attempt": attempt}
+                    )
                     return ts
         except (KeyError, TypeError, IndexError):
             pass

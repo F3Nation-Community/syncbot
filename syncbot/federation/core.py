@@ -98,12 +98,8 @@ def get_or_create_instance_keypair():
         return private_key, existing[0].public_key
 
     private_key = Ed25519PrivateKey.generate()
-    public_pem = private_key.public_key().public_bytes(
-        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
-    ).decode()
-    private_pem = private_key.private_bytes(
-        Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
-    ).decode()
+    public_pem = private_key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode()
+    private_pem = private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode()
 
     record = schemas.InstanceKey(
         public_key=public_pem,
@@ -219,6 +215,7 @@ def validate_webhook_url(url: str) -> bool:
         return False
 
     import socket
+
     try:
         addr_infos = socket.getaddrinfo(hostname, None)
         for info in addr_infos:
@@ -604,18 +601,22 @@ def build_message_payload(
     thread_post_id: str | None = None,
     images: list[dict] | None = None,
     timestamp: str | None = None,
+    user_id: str | None = None,
 ) -> dict:
     """Build a standardised federation message payload."""
+    user_obj: dict = {
+        "display_name": user_name,
+        "avatar_url": user_avatar_url,
+        "workspace_name": workspace_name,
+    }
+    if user_id:
+        user_obj["user_id"] = user_id
     return {
         "type": msg_type,
         "sync_id": sync_id,
         "post_id": post_id,
         "channel_id": channel_id,
-        "user": {
-            "display_name": user_name,
-            "avatar_url": user_avatar_url,
-            "workspace_name": workspace_name,
-        },
+        "user": user_obj,
         "text": text,
         "thread_post_id": thread_post_id,
         "images": images or [],
@@ -665,9 +666,10 @@ def build_reaction_payload(
     user_avatar_url: str | None = None,
     workspace_name: str | None = None,
     timestamp: str,
+    user_id: str | None = None,
 ) -> dict:
     """Build a federation reaction payload."""
-    return {
+    payload: dict = {
         "type": "react",
         "post_id": post_id,
         "channel_id": channel_id,
@@ -678,3 +680,6 @@ def build_reaction_payload(
         "workspace_name": workspace_name,
         "timestamp": timestamp,
     }
+    if user_id:
+        payload["user_id"] = user_id
+    return payload

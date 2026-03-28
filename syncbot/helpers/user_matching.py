@@ -343,22 +343,22 @@ def get_display_name_and_icon_for_synced_message(
     source_icon_url: str | None,
     target_client: WebClient,
     target_workspace_id: int,
-) -> tuple[str | None, str | None]:
-    """Return (display_name, icon_url) to use when syncing a message into the target workspace.
+) -> tuple[str | None, str | None, bool]:
+    """Return (display_name, icon_url, is_mapped) when syncing into the target workspace.
 
     If the source user is mapped to a user in the target workspace, returns that
-    local user's display name and profile image so the synced message appears
-    under the name familiar to users in the target workspace. Otherwise
-    returns the source display name and icon.     Display names are normalized
-    (text in parens or after a dash at the end is dropped); the app then
-    appends the remote workspace name in parens when posting.
+    local user's display name and profile image (third element ``True``). Otherwise
+    returns the source display name and icon (``False``). Display names are
+    normalized (text in parens or after a dash at the end is dropped). Callers
+    omit the remote workspace suffix in the posted username when ``is_mapped``
+    is true.
     """
     mapped_id = get_mapped_target_user_id(source_user_id, source_workspace_id, target_workspace_id)
     if mapped_id:
         local_name, local_icon = get_user_info(target_client, mapped_id)
         if local_name:
-            return normalize_display_name(local_name), local_icon or source_icon_url
-    return normalize_display_name(source_display_name), source_icon_url
+            return normalize_display_name(local_name), local_icon or source_icon_url, True
+    return normalize_display_name(source_display_name), source_icon_url, False
 
 
 def resolve_mention_for_workspace(
@@ -516,9 +516,7 @@ def find_synced_channel_in_target(source_channel_id: str, target_workspace_id: i
     return target_rows[0].channel_id
 
 
-_ARCHIVE_LINK_PATTERN = re.compile(
-    r"<https://([a-z0-9-]+)\.slack\.com/archives/(C[A-Z0-9]+)\|([^>]+)>"
-)
+_ARCHIVE_LINK_PATTERN = re.compile(r"<https://([a-z0-9-]+)\.slack\.com/archives/(C[A-Z0-9]+)\|([^>]+)>")
 
 
 def _rewrite_slack_archive_links_to_native_channels(msg_text: str, target_workspace_id: int) -> str:

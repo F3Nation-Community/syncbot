@@ -62,13 +62,18 @@ syncbot/
 
 ## Dependency management
 
-After `poetry add` / `poetry update`, regenerate the pinned file used by the Docker image and **`pip-audit`** in CI so it matches `poetry.lock`:
+After `poetry add` / `poetry update`, keep `poetry.lock` and the pinned requirements files aligned:
+
+- **Recommended:** Install [pre-commit](https://pre-commit.com) (`pip install pre-commit && pre-commit install`). When you commit a change to `poetry.lock`, the **`sync-requirements`** hook runs `poetry export` and refreshes **`syncbot/requirements.txt`** and **`infra/aws/db_setup/requirements.txt`** (the DbSetup Lambda subset) automatically.
+
+- **Without pre-commit:** Run the export yourself (Poetry 2.x needs the export plugin once: `poetry self add poetry-plugin-export`):
 
 ```bash
-poetry self add poetry-plugin-export   # Poetry 2.x; once per Poetry install
 poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt
+echo "# Required for MySQL 8+ caching_sha2_password; pin for reproducible CI (sam build)." > infra/aws/db_setup/requirements.txt
+grep -E "^(pymysql|psycopg2-binary|cryptography)==" syncbot/requirements.txt >> infra/aws/db_setup/requirements.txt
 ```
 
-The root **`./deploy.sh`** may run `poetry update` and regenerate `syncbot/requirements.txt` when Poetry is on your `PATH` (see [DEPLOYMENT.md](DEPLOYMENT.md)).
+The root **`./deploy.sh`** dependency-sync menu may run `poetry update` and regenerate both requirements files when Poetry is on your `PATH` (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
-CI runs `pip-audit` on `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt` (see [.github/workflows/ci.yml](../.github/workflows/ci.yml)).
+The AWS deploy workflow runs **`pip-audit`** on `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt` (see [.github/workflows/deploy-aws.yml](../.github/workflows/deploy-aws.yml)). CI verifies both files match `poetry.lock` (see [.github/workflows/ci.yml](../.github/workflows/ci.yml)).

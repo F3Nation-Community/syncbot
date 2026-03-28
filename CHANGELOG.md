@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- External DB deploy parameters: `ExistingDatabasePort`, `ExistingDatabaseCreateAppUser`, `ExistingDatabaseCreateSchema`, `ExistingDatabaseUsernamePrefix`, `ExistingDatabaseAppUsername` (AWS) / GCP equivalents — support TiDB Cloud and other managed DB providers with cluster-prefixed usernames and 32-char limits
+
+### Changed
+
+- Synced message author shows local display name and avatar for mapped users, including federated messages (no workspace suffix)
+- Shortened default DB usernames: `sbadmin_{stage}` (was `syncbot_admin_{stage}`), `sbapp_{stage}` (was `syncbot_user_{stage}`). Existing RDS instances keep their original master username.
+- Bumped GitHub Actions: `actions/checkout` v6, `actions/setup-python` v6, `actions/upload-artifact` v7, `actions/download-artifact` v8, `aws-actions/configure-aws-credentials` v6
+- Dependabot: ignore semver-major updates for the Docker `python` image (keeps base image on Python 3.12.x line)
+- AWS Lambda: Alembic migrations now run via a post-deploy invoke instead of on every cold start, fixing Slack ack timeouts after deployment; Cloud Run and local dev unchanged
+- AWS Lambda memory increased from 128 MB to 256 MB for faster cold starts
+- EventBridge keep-warm invokes now return a clean JSON response instead of falling through to Slack Bolt
+- AWS bootstrap deploy policy: added `lambda:InvokeFunction` -- **re-run the deploy script (Bootstrap task) or `aws cloudformation deploy` the bootstrap stack to pick up this permission**
+
+### Fixed
+
+- Replaced deprecated `datetime.utcnow()` with `datetime.now(UTC)` in backup/migration export helpers
+
 ## [1.0.1] - 2026-03-26
 
 ### Changed

@@ -345,6 +345,7 @@ def handle_remove_federation_connection(
         return
 
     from datetime import UTC, datetime
+
     now = datetime.now(UTC)
     DbManager.update_records(
         schemas.WorkspaceGroupMember,

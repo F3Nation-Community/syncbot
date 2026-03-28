@@ -5,6 +5,7 @@ Revises:
 Create Date: Baseline from ORM models + OAuth tables
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa

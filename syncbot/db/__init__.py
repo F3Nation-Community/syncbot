@@ -48,9 +48,7 @@ _ALEMBIC_SCRIPT_LOCATION = Path(__file__).resolve().parent / "alembic"
 
 # Repo root locally; Lambda deployment root (/var/task) in AWS — used for relative SQLite paths.
 _syncbot_dir = Path(__file__).resolve().parent.parent
-_PROJECT_ROOT = (
-    _syncbot_dir if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") else _syncbot_dir.parent
-)
+_PROJECT_ROOT = _syncbot_dir if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") else _syncbot_dir.parent
 
 
 def _mysql_port() -> str:
@@ -202,6 +200,7 @@ def _ensure_database_exists() -> None:
 def _alembic_config():
     """Build Alembic config with script_location set to syncbot/db/alembic."""
     from alembic.config import Config  # pyright: ignore[reportMissingImports]
+
     config = Config()
     config.set_main_option("script_location", str(_ALEMBIC_SCRIPT_LOCATION))
     return config
@@ -253,22 +252,14 @@ def _drop_all_tables_dialect_aware(engine) -> None:
     if engine.dialect.name == "postgresql":
         with engine.begin() as conn:
             result = conn.execute(
-                text(
-                    "SELECT tablename FROM pg_tables "
-                    "WHERE schemaname = 'public' ORDER BY tablename"
-                )
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")
             )
             for (table_name,) in result:
                 conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
         return
     with engine.begin() as conn:
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-        result = conn.execute(
-            text(
-                "SELECT TABLE_NAME FROM information_schema.TABLES "
-                "WHERE TABLE_SCHEMA = DATABASE()"
-            )
-        )
+        result = conn.execute(text("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()"))
         for (table_name,) in result:
             conn.execute(text(f"DROP TABLE IF EXISTS `{table_name}`"))
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
@@ -283,9 +274,7 @@ def drop_and_init_db() -> None:
     """
     global GLOBAL_ENGINE, GLOBAL_SESSION, GLOBAL_SCHEMA
 
-    _logger.critical(
-        "DB RESET: emptying schema and reinitializing via Alembic. All data will be lost."
-    )
+    _logger.critical("DB RESET: emptying schema and reinitializing via Alembic. All data will be lost.")
 
     db_url, connect_args = _get_database_url_and_args()
     engine = create_engine(
@@ -316,9 +305,7 @@ def get_engine(echo: bool = False, schema: str = None):
 
     backend = constants.get_database_backend()
     target_schema = (
-        (schema or os.environ.get(constants.DATABASE_SCHEMA, "syncbot"))
-        if backend in ("mysql", "postgresql")
-        else ""
+        (schema or os.environ.get(constants.DATABASE_SCHEMA, "syncbot")) if backend in ("mysql", "postgresql") else ""
     )
     cache_key = target_schema or backend
 
@@ -565,4 +552,3 @@ class DbManager:
             raise
         finally:
             close_session(session)
-

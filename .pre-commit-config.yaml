@@ -27,8 +27,8 @@ repos:
   - repo: local
     hooks:
       - id: sync-requirements
-        name: Sync requirements.txt with poetry.lock
-        entry: bash -c 'poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt && git add syncbot/requirements.txt'
+        name: Sync requirements.txt files with poetry.lock
+        entry: bash -c 'poetry export -f requirements.txt --without-hashes -o syncbot/requirements.txt && echo "# Required for MySQL 8+ caching_sha2_password; pin for reproducible CI (sam build)." > infra/aws/db_setup/requirements.txt && grep -E "^(pymysql|psycopg2-binary|cryptography)==" syncbot/requirements.txt >> infra/aws/db_setup/requirements.txt && git add syncbot/requirements.txt infra/aws/db_setup/requirements.txt'
         language: system
         files: ^poetry\.lock$
         pass_filenames: false

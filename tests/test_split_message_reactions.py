@@ -40,7 +40,9 @@ class TestSplitMessagePostMeta:
             created.extend(rows)
 
         with (
-            patch("handlers.messages.helpers.get_sync_list", return_value=[(sc_source, ws_source), (sc_target, ws_target)]),
+            patch(
+                "handlers.messages.helpers.get_sync_list", return_value=[(sc_source, ws_source), (sc_target, ws_target)]
+            ),
             patch("handlers.messages.helpers.get_user_info", return_value=("N", "http://i")),
             patch("handlers.messages.helpers.get_mapped_target_user_id", return_value=None),
             patch("handlers.messages.helpers.get_federated_workspace_for_sync", return_value=None),
@@ -50,7 +52,7 @@ class TestSplitMessagePostMeta:
             patch("handlers.messages.helpers.get_workspace_by_id", return_value=None),
             patch(
                 "handlers.messages.helpers.get_display_name_and_icon_for_synced_message",
-                return_value=("N", None),
+                return_value=("N", None, False),
             ),
             patch("handlers.messages.helpers.post_message", return_value={"ts": "200.000000"}),
             patch("handlers.messages.helpers.upload_files_to_slack", return_value=(None, "300.000000")),
@@ -102,7 +104,7 @@ class TestSplitMessagePostMeta:
             patch("handlers.messages.helpers.get_workspace_by_id", return_value=None),
             patch(
                 "handlers.messages.helpers.get_display_name_and_icon_for_synced_message",
-                return_value=("N", None),
+                return_value=("N", None, False),
             ),
             patch("handlers.messages.helpers.post_message", return_value={"ts": "250.000000"}),
             patch("handlers.messages.helpers.upload_files_to_slack", return_value=(None, "350.000000")),

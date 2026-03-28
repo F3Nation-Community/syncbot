@@ -569,6 +569,9 @@ fi
 if [[ "$TASK_BUILD_DEPLOY" == "true" ]]; then
 echo
 echo "=== Configuration ==="
+DB_PORT="3306"
+EXISTING_DB_CREATE_APP_USER="true"
+EXISTING_DB_CREATE_SCHEMA="true"
 echo "=== Database Source ==="
 # USE_EXISTING=true: point Terraform at an external DB only (use_existing_database); skip creating Cloud SQL.
 # USE_EXISTING_DEFAULT: y/n default for the prompt when redeploying without a managed instance for this stage.
@@ -600,16 +603,49 @@ if [[ -n "$EXISTING_SERVICE_URL" ]]; then
   DETECTED_EXISTING_USER="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_USER")"
 fi
 if [[ "$USE_EXISTING" == "true" ]]; then
+  EXISTING_DB_APP_USERNAME=""
   EXISTING_HOST="$(prompt_line "Existing DB host" "$DETECTED_EXISTING_HOST")"
   EXISTING_SCHEMA="$(prompt_line "Database schema name" "${DETECTED_EXISTING_SCHEMA:-syncbot}")"
-  EXISTING_USER="$(prompt_line "Database user" "$DETECTED_EXISTING_USER")"
+  EXISTING_DB_USERNAME_PREFIX="$(prompt_line "DB username prefix (optional; e.g. TiDB Cloud abc123; blank = enter full DB user next)" "")"
+  if [[ -n "$EXISTING_DB_USERNAME_PREFIX" ]]; then
+    EXISTING_USER=""
+  else
+    EXISTING_USER="$(prompt_line "Database user" "$DETECTED_EXISTING_USER")"
+  fi
+  EXISTING_DB_APP_USERNAME="$(prompt_line "Override DATABASE_USER (optional; full username e.g. TiDB-prefixed; blank = prefix+sbapp_{stage} or Database user above)" "")"
   if [[ -z "$EXISTING_HOST" ]]; then
     echo "Error: Existing DB host is required when using existing database mode." >&2
     exit 1
   fi
-  if [[ -z "$EXISTING_USER" ]]; then
-    echo "Error: Database user is required when using existing database mode." >&2
+  if [[ -z "$EXISTING_USER" && -z "$EXISTING_DB_USERNAME_PREFIX" && -z "$EXISTING_DB_APP_USERNAME" ]]; then
+    echo "Error: Database user, DB username prefix, or DATABASE_USER override is required when using existing database mode." >&2
     exit 1
+  fi
+
+  echo
+  echo "=== Existing database port and setup (operator / external DB) ==="
+  DEFAULT_DB_PORT="3306"
+  if [[ -n "$EXISTING_SERVICE_URL" ]]; then
+    DETECTED_DB_PORT_EARLY="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_PORT")"
+    [[ -n "$DETECTED_DB_PORT_EARLY" ]] && DEFAULT_DB_PORT="$DETECTED_DB_PORT_EARLY"
+  fi
+  DB_PORT="$(prompt_line "Database TCP port (DATABASE_PORT)" "$DEFAULT_DB_PORT")"
+  if [[ -z "$DB_PORT" ]]; then
+    echo "Error: Database TCP port is required when using existing database mode." >&2
+    exit 1
+  fi
+
+  CREATE_APP_DEF="y"
+  CREATE_SCHEMA_DEF="y"
+  if prompt_yn "Create dedicated app DB user on the server (CREATE USER / grants)?" "$CREATE_APP_DEF"; then
+    EXISTING_DB_CREATE_APP_USER="true"
+  else
+    EXISTING_DB_CREATE_APP_USER="false"
+  fi
+  if prompt_yn "Run CREATE DATABASE IF NOT EXISTS for DatabaseSchema (you or a hook)?" "$CREATE_SCHEMA_DEF"; then
+    EXISTING_DB_CREATE_SCHEMA="true"
+  else
+    EXISTING_DB_CREATE_SCHEMA="false"
   fi
 fi
 
@@ -652,7 +688,6 @@ ENABLE_DB_RESET_VAR=""
 DB_TLS_VAR=""
 DB_SSL_CA_VAR=""
 DB_BACKEND="mysql"
-DB_PORT="3306"
 if [[ -n "$EXISTING_SERVICE_URL" ]]; then
   DETECTED_RA="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "REQUIRE_ADMIN")"
   [[ -n "$DETECTED_RA" ]] && REQUIRE_ADMIN_DEFAULT="$DETECTED_RA"
@@ -679,8 +714,10 @@ if [[ -n "$EXISTING_SERVICE_URL" ]]; then
   DB_SSL_CA_VAR="${DETECTED_DB_SSL_CA:-}"
   DETECTED_DB_BACKEND="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_BACKEND")"
   [[ -n "$DETECTED_DB_BACKEND" ]] && DB_BACKEND="$DETECTED_DB_BACKEND"
-  DETECTED_DB_PORT="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_PORT")"
-  [[ -n "$DETECTED_DB_PORT" ]] && DB_PORT="$DETECTED_DB_PORT"
+  if [[ "$USE_EXISTING" != "true" ]]; then
+    DETECTED_DB_PORT="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_PORT")"
+    [[ -n "$DETECTED_DB_PORT" ]] && DB_PORT="$DETECTED_DB_PORT"
+  fi
 fi
 
 echo
@@ -726,8 +763,14 @@ if [[ "$USE_EXISTING" == "true" ]]; then
   VARS+=("-var=existing_db_host=$EXISTING_HOST")
   VARS+=("-var=existing_db_schema=$EXISTING_SCHEMA")
   VARS+=("-var=existing_db_user=$EXISTING_USER")
+  VARS+=("-var=existing_db_username_prefix=$EXISTING_DB_USERNAME_PREFIX")
+  VARS+=("-var=existing_db_app_username=$EXISTING_DB_APP_USERNAME")
+  VARS+=("-var=existing_db_create_app_user=$EXISTING_DB_CREATE_APP_USER")
+  VARS+=("-var=existing_db_create_schema=$EXISTING_DB_CREATE_SCHEMA")
 else
   VARS+=("-var=use_existing_database=false")
+  VARS+=("-var=existing_db_username_prefix=")
+  VARS+=("-var=existing_db_app_username=")
 fi
 
 VARS+=("-var=cloud_run_image=$CLOUD_IMAGE")

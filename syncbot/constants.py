@@ -101,6 +101,7 @@ FEDERATION_ENABLED = os.environ.get("SYNCBOT_FEDERATION_ENABLED", "false").lower
 # handles any requests.  Fails fast in production; warns in local dev.
 # ---------------------------------------------------------------------------
 
+
 def get_database_backend() -> str:
     """Return ``postgresql``, ``mysql``, or ``sqlite``.
 

@@ -45,6 +45,7 @@ def _find_post_records(post_id: str, sync_channel_id: int) -> list[schemas.PostM
         [schemas.PostMeta.post_id == pid, schemas.PostMeta.sync_channel_id == sync_channel_id],
     )
 
+
 _PAIRING_CODE_RE = re.compile(r"^FED-[0-9A-Fa-f]{8}$")
 
 _FIELD_MAX_LENGTHS = {
@@ -83,7 +84,9 @@ def _validate_fields(body: dict, required: list[str], extras: list[str] | None =
     return None
 
 
-def _pick_user_mapping_for_federated_target(source_user_id: str, target_workspace_id: int) -> schemas.UserMapping | None:
+def _pick_user_mapping_for_federated_target(
+    source_user_id: str, target_workspace_id: int
+) -> schemas.UserMapping | None:
     maps = DbManager.find_records(
         schemas.UserMapping,
         [
@@ -400,9 +403,22 @@ def handle_message(body: dict, fed_ws: schemas.FederatedWorkspace) -> tuple[int,
     user_name = user.get("display_name", "Remote User")
     user_avatar = user.get("avatar_url")
     workspace_name = user.get("workspace_name", "Remote")
+    remote_label_for_mentions = workspace_name
 
-    text = _resolve_mentions_for_federated(text, workspace.id, workspace_name)
-    ws_client = WebClient(token=helpers.decrypt_bot_token(workspace.bot_token))
+    bot_token = helpers.decrypt_bot_token(workspace.bot_token)
+    ws_client = WebClient(token=bot_token)
+
+    source_user_id = user.get("user_id")
+    if source_user_id:
+        mapping = _pick_user_mapping_for_federated_target(source_user_id, workspace.id)
+        if mapping and mapping.target_user_id:
+            local_name, local_icon = helpers.get_user_info(ws_client, mapping.target_user_id)
+            if local_name:
+                user_name = helpers.normalize_display_name(local_name)
+                user_avatar = local_icon or user_avatar
+                workspace_name = None
+
+    text = _resolve_mentions_for_federated(text, workspace.id, remote_label_for_mentions)
     text = helpers.resolve_channel_references(text, ws_client, None, target_workspace_id=workspace.id)
 
     try:
@@ -430,7 +446,7 @@ def handle_message(body: dict, fed_ws: schemas.FederatedWorkspace) -> tuple[int,
                 )
 
         res = helpers.post_message(
-            bot_token=helpers.decrypt_bot_token(workspace.bot_token),
+            bot_token=bot_token,
             channel_id=channel_id,
             msg_text=text,
             user_name=user_name,
@@ -562,6 +578,17 @@ def handle_message_react(body: dict, fed_ws: schemas.FederatedWorkspace) -> tupl
     applied = 0
     bot_token = helpers.decrypt_bot_token(workspace.bot_token)
     ws_client = WebClient(token=bot_token)
+
+    source_user_id = body.get("user_id")
+    if source_user_id:
+        mapping = _pick_user_mapping_for_federated_target(source_user_id, workspace.id)
+        if mapping and mapping.target_user_id:
+            local_name, local_icon = helpers.get_user_info(ws_client, mapping.target_user_id)
+            if local_name:
+                user_name = helpers.normalize_display_name(local_name)
+                user_avatar_url = local_icon or user_avatar_url
+                workspace_name = None
+
     for post_meta in post_records:
         try:
             if action == "add":
