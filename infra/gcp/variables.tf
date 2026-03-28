@@ -45,7 +45,13 @@ variable "existing_db_schema" {
 variable "existing_db_user" {
   type        = string
   default     = ""
-  description = "Existing MySQL user (when use_existing_database = true)"
+  description = "Existing MySQL user (when use_existing_database = true). Ignored when existing_db_username_prefix is set (DATABASE_USER becomes prefix + syncbot_user_{stage})."
+}
+
+variable "existing_db_username_prefix" {
+  type        = string
+  default     = ""
+  description = "Optional prefix for DATABASE_USER (e.g. TiDB Cloud cluster prefix \"abc123\"). A dot separator is added automatically. When non-empty, DATABASE_USER is {prefix}.syncbot_user_{stage} and existing_db_user is ignored."
 }
 
 variable "existing_db_create_app_user" {

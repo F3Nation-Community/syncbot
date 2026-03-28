@@ -420,6 +420,7 @@ configure_github_actions_aws() {
   # $15 Existing DB port (empty = engine default in SAM)
   # $16 ExistingDatabaseCreateAppUser: true | false
   # $17 ExistingDatabaseCreateSchema: true | false
+  # $18 ExistingDatabaseUsernamePrefix (e.g. TiDB cluster prefix; empty for RDS)
   local bootstrap_outputs="$1"
   local bootstrap_stack_name="$2"
   local aws_region="$3"
@@ -439,6 +440,7 @@ configure_github_actions_aws() {
   local existing_db_port="${15:-}"
   local existing_db_create_app_user="${16:-true}"
   local existing_db_create_schema="${17:-true}"
+  local existing_db_username_prefix="${18:-}"
   [[ -z "$existing_db_create_app_user" ]] && existing_db_create_app_user="true"
   [[ -z "$existing_db_create_schema" ]] && existing_db_create_schema="true"
   local role bucket boot_region
@@ -500,6 +502,7 @@ configure_github_actions_aws() {
       gh variable set EXISTING_DATABASE_PORT --env "$env_name" --body "$existing_db_port" -R "$repo"
       gh variable set EXISTING_DATABASE_CREATE_APP_USER --env "$env_name" --body "$existing_db_create_app_user" -R "$repo"
       gh variable set EXISTING_DATABASE_CREATE_SCHEMA --env "$env_name" --body "$existing_db_create_schema" -R "$repo"
+      gh variable set EXISTING_DATABASE_USERNAME_PREFIX --env "$env_name" --body "$existing_db_username_prefix" -R "$repo"
     else
       # Clear existing-host vars for new-RDS mode to avoid stale CI config.
       gh variable set EXISTING_DATABASE_HOST --env "$env_name" --body "" -R "$repo"
@@ -510,6 +513,7 @@ configure_github_actions_aws() {
       gh variable set EXISTING_DATABASE_PORT --env "$env_name" --body "" -R "$repo"
       gh variable set EXISTING_DATABASE_CREATE_APP_USER --env "$env_name" --body "true" -R "$repo"
       gh variable set EXISTING_DATABASE_CREATE_SCHEMA --env "$env_name" --body "true" -R "$repo"
+      gh variable set EXISTING_DATABASE_USERNAME_PREFIX --env "$env_name" --body "" -R "$repo"
     fi
     echo "Environment variables updated for '$env_name'."
   fi
@@ -1292,6 +1296,7 @@ PREV_EXISTING_DATABASE_LAMBDA_SG_ID=""
 PREV_EXISTING_DATABASE_PORT=""
 PREV_EXISTING_DATABASE_CREATE_APP_USER=""
 PREV_EXISTING_DATABASE_CREATE_SCHEMA=""
+PREV_EXISTING_DATABASE_USERNAME_PREFIX=""
 PREV_DATABASE_ENGINE=""
 PREV_DATABASE_SCHEMA=""
 PREV_LOG_LEVEL=""
@@ -1323,6 +1328,7 @@ if [[ -n "$EXISTING_STACK_STATUS" && "$EXISTING_STACK_STATUS" != "None" ]]; then
   PREV_EXISTING_DATABASE_PORT="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabasePort")"
   PREV_EXISTING_DATABASE_CREATE_APP_USER="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabaseCreateAppUser")"
   PREV_EXISTING_DATABASE_CREATE_SCHEMA="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabaseCreateSchema")"
+  PREV_EXISTING_DATABASE_USERNAME_PREFIX="$(stack_param_value "$EXISTING_STACK_PARAMS" "ExistingDatabaseUsernamePrefix")"
   PREV_DATABASE_ENGINE="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseEngine")"
   PREV_DATABASE_SCHEMA="$(stack_param_value "$EXISTING_STACK_PARAMS" "DatabaseSchema")"
   PREV_LOG_LEVEL="$(stack_param_value "$EXISTING_STACK_PARAMS" "LogLevel")"
@@ -1472,6 +1478,7 @@ ENV_EXISTING_DATABASE_ADMIN_PASSWORD="${EXISTING_DATABASE_ADMIN_PASSWORD:-}"
 ENV_EXISTING_DATABASE_PORT="${EXISTING_DATABASE_PORT:-}"
 ENV_EXISTING_DATABASE_CREATE_APP_USER="${EXISTING_DATABASE_CREATE_APP_USER:-}"
 ENV_EXISTING_DATABASE_CREATE_SCHEMA="${EXISTING_DATABASE_CREATE_SCHEMA:-}"
+ENV_EXISTING_DATABASE_USERNAME_PREFIX="${EXISTING_DATABASE_USERNAME_PREFIX:-}"
 EXISTING_DB_ADMIN_PASSWORD_SOURCE="prompt"
 EXISTING_DATABASE_HOST=""
 EXISTING_DATABASE_ADMIN_USER=""
@@ -1482,6 +1489,7 @@ EXISTING_DATABASE_LAMBDA_SG_ID=""
 EXISTING_DATABASE_PORT=""
 EXISTING_DATABASE_CREATE_APP_USER="true"
 EXISTING_DATABASE_CREATE_SCHEMA="true"
+EXISTING_DATABASE_USERNAME_PREFIX=""
 EXISTING_DB_EFFECTIVE_PORT=""
 DATABASE_SCHEMA=""
 DATABASE_SCHEMA_DEFAULT="syncbot_${STAGE}"
@@ -1581,6 +1589,14 @@ if [[ "$DB_MODE" == "2" ]]; then
     "${PREV_EXISTING_DATABASE_CREATE_SCHEMA:-}" \
     "$CREATE_SCHEMA_DEFAULT" \
     bool)"
+
+  EXISTING_DATABASE_USERNAME_PREFIX_DEFAULT=""
+  [[ -n "$PREV_EXISTING_DATABASE_USERNAME_PREFIX" ]] && EXISTING_DATABASE_USERNAME_PREFIX_DEFAULT="$PREV_EXISTING_DATABASE_USERNAME_PREFIX"
+  EXISTING_DATABASE_USERNAME_PREFIX="$(resolve_with_conflict_check \
+    "DB username prefix (e.g. abc123 for TiDB Cloud; blank for RDS/standard)" \
+    "$ENV_EXISTING_DATABASE_USERNAME_PREFIX" \
+    "$PREV_EXISTING_DATABASE_USERNAME_PREFIX" \
+    "$EXISTING_DATABASE_USERNAME_PREFIX_DEFAULT")"
 
   if [[ -z "$EXISTING_DATABASE_HOST" || "$EXISTING_DATABASE_HOST" == REPLACE_ME* ]]; then
     echo "Error: valid ExistingDatabaseHost is required for existing DB mode." >&2
@@ -1760,6 +1776,18 @@ if [[ "$DB_MODE" == "2" ]]; then
   echo "DB port:          ${EXISTING_DB_EFFECTIVE_PORT:-engine default}"
   echo "DB create user:   $EXISTING_DATABASE_CREATE_APP_USER"
   echo "DB create schema: $EXISTING_DATABASE_CREATE_SCHEMA"
+  echo "DB admin user (parameter): $EXISTING_DATABASE_ADMIN_USER"
+  if [[ -n "$EXISTING_DATABASE_USERNAME_PREFIX" ]]; then
+    _dbpfx="$EXISTING_DATABASE_USERNAME_PREFIX"
+    [[ "$_dbpfx" != *. ]] && _dbpfx="${_dbpfx}."
+    echo "DB username prefix: $EXISTING_DATABASE_USERNAME_PREFIX"
+    echo "  effective admin (bootstrap): ${_dbpfx}${EXISTING_DATABASE_ADMIN_USER}"
+    echo "  effective app user (if created): ${_dbpfx}syncbot_user_${STAGE//-/_}"
+  else
+    echo "DB username prefix: (none)"
+    echo "  admin (bootstrap): $EXISTING_DATABASE_ADMIN_USER"
+    echo "  app user (if created): syncbot_user_${STAGE//-/_}"
+  fi
   echo "DB schema:        $DATABASE_SCHEMA"
 else
   echo "DB mode:          create new RDS"
@@ -1839,6 +1867,7 @@ if [[ "$DB_MODE" == "2" ]]; then
   PARAMS+=(
     "ExistingDatabaseCreateAppUser=$EXISTING_DATABASE_CREATE_APP_USER"
     "ExistingDatabaseCreateSchema=$EXISTING_DATABASE_CREATE_SCHEMA"
+    "ExistingDatabaseUsernamePrefix=$EXISTING_DATABASE_USERNAME_PREFIX"
   )
 else
   # Clear existing-host parameters on updates to avoid stale previous values.
@@ -1853,6 +1882,7 @@ else
     "ParameterKey=ExistingDatabasePort,ParameterValue="
     "ExistingDatabaseCreateAppUser=true"
     "ExistingDatabaseCreateSchema=true"
+    "ParameterKey=ExistingDatabaseUsernamePrefix,ParameterValue="
   )
 fi
 
@@ -1915,6 +1945,7 @@ else
   EXISTING_DATABASE_PORT="${PREV_EXISTING_DATABASE_PORT:-}"
   EXISTING_DATABASE_CREATE_APP_USER="${PREV_EXISTING_DATABASE_CREATE_APP_USER:-true}"
   EXISTING_DATABASE_CREATE_SCHEMA="${PREV_EXISTING_DATABASE_CREATE_SCHEMA:-true}"
+  EXISTING_DATABASE_USERNAME_PREFIX="${PREV_EXISTING_DATABASE_USERNAME_PREFIX:-}"
   [[ -z "$EXISTING_DATABASE_CREATE_APP_USER" ]] && EXISTING_DATABASE_CREATE_APP_USER="true"
   [[ -z "$EXISTING_DATABASE_CREATE_SCHEMA" ]] && EXISTING_DATABASE_CREATE_SCHEMA="true"
   SLACK_SIGNING_SECRET="${SLACK_SIGNING_SECRET:-}"
@@ -1966,7 +1997,8 @@ if [[ "$TASK_CICD" == "true" ]]; then
     "$DATABASE_ENGINE" \
     "${EXISTING_DATABASE_PORT:-}" \
     "${EXISTING_DATABASE_CREATE_APP_USER:-true}" \
-    "${EXISTING_DATABASE_CREATE_SCHEMA:-true}"
+    "${EXISTING_DATABASE_CREATE_SCHEMA:-true}" \
+    "${EXISTING_DATABASE_USERNAME_PREFIX:-}"
 fi
 
 if [[ "$TASK_BUILD_DEPLOY" == "true" || "$TASK_BACKUP_SECRETS" == "true" ]]; then

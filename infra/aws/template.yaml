@@ -90,6 +90,7 @@ Parameters:
     Description: >
       Database admin user that can create databases and users (e.g. RDS master). Used only when
       ExistingDatabaseHost is set; the deploy creates a dedicated app user and schema.
+      When ExistingDatabaseUsernamePrefix is set, use the bare name (e.g. root); the prefix is prepended in the bootstrap Lambda.
     Type: String
     Default: ""
 
@@ -152,6 +153,15 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
+
+  ExistingDatabaseUsernamePrefix:
+    Description: >
+      Username prefix required by some managed DB providers (e.g. TiDB Cloud cluster prefix "abc123").
+      A dot separator is added automatically if missing. Prepended to ExistingDatabaseAdminUser and to the
+      dedicated app user ({prefix}.syncbot_user_{Stage}). Use the bare admin name (e.g. root) when this is set.
+      Leave empty for standard databases (RDS, self-hosted). Ignored when creating new RDS in stack.
+    Type: String
+    Default: ""
 
   DatabaseSchema:
     Description: >
@@ -673,6 +683,10 @@ Resources:
         - UseExistingDatabase
         - !Ref ExistingDatabaseCreateSchema
         - "true"
+      UsernamePrefix: !If
+        - UseExistingDatabase
+        - !Ref ExistingDatabaseUsernamePrefix
+        - ""
 
   # ============================================================
   # Lambda Function

@@ -76,6 +76,13 @@ def _safe_ident(name: str) -> str:
     return name
 
 
+def _safe_username(name: str) -> str:
+    """Validate a database username. Allows dots for provider prefixes (e.g. TiDB Cloud)."""
+    if not re.match(r"^[A-Za-z0-9_][A-Za-z0-9_.]*$", name):
+        raise ValueError(f"Invalid username: {name}")
+    return name
+
+
 def _default_port(database_engine: str) -> int:
     return 3306 if database_engine == "mysql" else 5432
 
@@ -145,7 +152,12 @@ def _handler_impl(event, context):
         )
         return
 
-    app_username = f"syncbot_user_{stage}".replace("-", "_")
+    username_prefix = (props.get("UsernamePrefix") or "").strip()
+    if username_prefix and not username_prefix.endswith("."):
+        username_prefix += "."
+    if username_prefix:
+        admin_user = f"{username_prefix}{admin_user}"
+    app_username = f"{username_prefix}syncbot_user_{stage}".replace("-", "_")
     app_password = ""
     if create_app_user:
         try:
@@ -264,7 +276,7 @@ def setup_database_mysql(
 ) -> None:
     safe_schema = _safe_ident(schema)
     if create_app_user:
-        _safe_ident(app_username)
+        _safe_username(app_username)
     conn = None
     last_exc = None
     for _attempt in range(1, DB_CONNECT_ATTEMPTS + 1):
@@ -317,8 +329,8 @@ def setup_database_postgresql(
     db_connect_retry_seconds = POSTGRES_DB_CONNECT_RETRY_SECONDS
     _safe_ident(schema)
     if create_app_user:
-        _safe_ident(app_username)
-    _safe_ident(admin_user)
+        _safe_username(app_username)
+    _safe_username(admin_user)
 
     conn = psycopg2.connect(
         host=host,
