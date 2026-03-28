@@ -154,10 +154,12 @@ def _handler_impl(event, context):
         )
         return
 
-    app_username_prefix = (props.get("AppUsernamePrefix") or "").strip()
-    if app_username_prefix and not app_username_prefix.endswith("."):
-        app_username_prefix += "."
-    app_username = f"{app_username_prefix}syncbot_user_{stage}".replace("-", "_")
+    username_prefix = (props.get("UsernamePrefix") or "").strip()
+    if username_prefix and not username_prefix.endswith("."):
+        username_prefix += "."
+    if username_prefix:
+        admin_user = f"{username_prefix}{admin_user}"
+    app_username = f"{username_prefix}syncbot_user_{stage}".replace("-", "_")
     app_password = ""
     if create_app_user:
         try:
@@ -334,7 +336,7 @@ def setup_database_postgresql(
     _safe_ident(schema)
     if create_app_user:
         _safe_username(app_username)
-    _safe_ident(admin_user)
+    _safe_username(admin_user)
 
     conn = psycopg2.connect(
         host=host,

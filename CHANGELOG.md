@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `ExistingDatabasePort`, `ExistingDatabaseCreateAppUser`, and `ExistingDatabaseCreateSchema` deploy parameters for external DB providers (e.g. TiDB Cloud)
-- `ExistingDatabaseAppUsernamePrefix` (AWS) / `existing_db_app_username_prefix` (GCP): optional prefix so the dedicated app user is `{prefix}syncbot_user_{stage}` (required for TiDB Cloud Serverless username rules)
+- `ExistingDatabaseUsernamePrefix` (AWS) / `existing_db_username_prefix` (GCP): optional prefix prepended to admin and app DB usernames in the AWS bootstrap Lambda; app user is `{prefix}.syncbot_user_{stage}` (required for TiDB Cloud Serverless username rules). Renamed from `ExistingDatabaseAppUsernamePrefix` / `existing_db_app_username_prefix`.
 
 ## [1.0.1] - 2026-03-26
 

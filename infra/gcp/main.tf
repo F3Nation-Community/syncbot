@@ -46,8 +46,8 @@ locals {
   db_schema = var.use_existing_database ? var.existing_db_schema : "syncbot"
   stage_syncbot_user = "syncbot_user_${replace(var.stage, "-", "_")}"
   normalized_prefix = (
-    trimspace(var.existing_db_app_username_prefix) != ""
-    ? (endswith(trimspace(var.existing_db_app_username_prefix), ".") ? trimspace(var.existing_db_app_username_prefix) : "${trimspace(var.existing_db_app_username_prefix)}.")
+    trimspace(var.existing_db_username_prefix) != ""
+    ? (endswith(trimspace(var.existing_db_username_prefix), ".") ? trimspace(var.existing_db_username_prefix) : "${trimspace(var.existing_db_username_prefix)}.")
     : ""
   )
   db_user = var.use_existing_database ? (

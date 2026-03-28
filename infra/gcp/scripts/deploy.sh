@@ -605,8 +605,8 @@ fi
 if [[ "$USE_EXISTING" == "true" ]]; then
   EXISTING_HOST="$(prompt_line "Existing DB host" "$DETECTED_EXISTING_HOST")"
   EXISTING_SCHEMA="$(prompt_line "Database schema name" "${DETECTED_EXISTING_SCHEMA:-syncbot}")"
-  EXISTING_DB_APP_USERNAME_PREFIX="$(prompt_line "App username prefix (optional; e.g. TiDB Cloud abc123; blank = enter full DB user next)" "")"
-  if [[ -n "$EXISTING_DB_APP_USERNAME_PREFIX" ]]; then
+  EXISTING_DB_USERNAME_PREFIX="$(prompt_line "DB username prefix (optional; e.g. TiDB Cloud abc123; blank = enter full DB user next)" "")"
+  if [[ -n "$EXISTING_DB_USERNAME_PREFIX" ]]; then
     EXISTING_USER=""
   else
     EXISTING_USER="$(prompt_line "Database user" "$DETECTED_EXISTING_USER")"
@@ -615,8 +615,8 @@ if [[ "$USE_EXISTING" == "true" ]]; then
     echo "Error: Existing DB host is required when using existing database mode." >&2
     exit 1
   fi
-  if [[ -z "$EXISTING_USER" && -z "$EXISTING_DB_APP_USERNAME_PREFIX" ]]; then
-    echo "Error: Database user or app username prefix is required when using existing database mode." >&2
+  if [[ -z "$EXISTING_USER" && -z "$EXISTING_DB_USERNAME_PREFIX" ]]; then
+    echo "Error: Database user or DB username prefix is required when using existing database mode." >&2
     exit 1
   fi
 
@@ -761,12 +761,12 @@ if [[ "$USE_EXISTING" == "true" ]]; then
   VARS+=("-var=existing_db_host=$EXISTING_HOST")
   VARS+=("-var=existing_db_schema=$EXISTING_SCHEMA")
   VARS+=("-var=existing_db_user=$EXISTING_USER")
-  VARS+=("-var=existing_db_app_username_prefix=$EXISTING_DB_APP_USERNAME_PREFIX")
+  VARS+=("-var=existing_db_username_prefix=$EXISTING_DB_USERNAME_PREFIX")
   VARS+=("-var=existing_db_create_app_user=$EXISTING_DB_CREATE_APP_USER")
   VARS+=("-var=existing_db_create_schema=$EXISTING_DB_CREATE_SCHEMA")
 else
   VARS+=("-var=use_existing_database=false")
-  VARS+=("-var=existing_db_app_username_prefix=")
+  VARS+=("-var=existing_db_username_prefix=")
 fi
 
 VARS+=("-var=cloud_run_image=$CLOUD_IMAGE")
