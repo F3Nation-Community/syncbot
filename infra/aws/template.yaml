@@ -153,6 +153,14 @@ Parameters:
       - "true"
       - "false"
 
+  ExistingDatabaseAppUsernamePrefix:
+    Description: >
+      Username prefix required by some managed DB providers (e.g. TiDB Cloud cluster prefix "abc123.").
+      Include the trailing dot/separator. The app username becomes {prefix}syncbot_user_{Stage}.
+      Leave empty for standard databases (RDS, self-hosted). Ignored when creating new RDS in stack.
+    Type: String
+    Default: ""
+
   DatabaseSchema:
     Description: >
       Database/schema name for MySQL or PostgreSQL. Each app sharing an RDS instance
@@ -673,6 +681,10 @@ Resources:
         - UseExistingDatabase
         - !Ref ExistingDatabaseCreateSchema
         - "true"
+      AppUsernamePrefix: !If
+        - UseExistingDatabase
+        - !Ref ExistingDatabaseAppUsernamePrefix
+        - ""
 
   # ============================================================
   # Lambda Function

@@ -28,7 +28,7 @@ The application reads configuration from environment variables. Providers must i
 | `DATABASE_URL` | Full SQLAlchemy URL. When set, overrides host/user/password/schema. **Required for SQLite** (e.g. `sqlite:///path/to/syncbot.db`). For `mysql` / `postgresql`, optional if unset (legacy vars below are used). |
 | `DATABASE_HOST` | Database hostname (IP or FQDN). Required when backend is `mysql` or `postgresql` and `DATABASE_URL` is unset. |
 | `DATABASE_PORT` | Optional. Defaults to **5432** for `postgresql`, **3306** for `mysql`. Set explicitly for external providers that use a non-standard port (e.g. TiDB Cloud **4000**). |
-| `DATABASE_USER` | Username. Required when backend is `mysql` or `postgresql` and `DATABASE_URL` is unset. |
+| `DATABASE_USER` | Username. Required when backend is `mysql` or `postgresql` and `DATABASE_URL` is unset. Some providers (e.g. TiDB Cloud Serverless) require a cluster-specific prefix on every SQL user; AWS SAM exposes **`ExistingDatabaseAppUsernamePrefix`** so the bootstrap Lambda can create `{prefix}syncbot_user_{stage}`. On GCP with **`existing_db_app_username_prefix`** set, Terraform sets `DATABASE_USER` the same way and ignores **`existing_db_user`**. |
 | `DATABASE_PASSWORD` | Password. Required when backend is `mysql` or `postgresql` and `DATABASE_URL` is unset. |
 | `DATABASE_SCHEMA` | Database name (MySQL) or PostgreSQL database name (same convention as MySQL). Use alphanumeric and underscore only for PostgreSQL when the app must `CREATE DATABASE` at bootstrap. |
 | `DATABASE_TLS_ENABLED` | Optional TLS toggle (`true`/`false`). Defaults to enabled outside local dev. |
