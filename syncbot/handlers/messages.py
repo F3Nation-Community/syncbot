@@ -230,6 +230,7 @@ def _handle_new_post(
                     text=fed_adapted_text,
                     images=image_payloads,
                     timestamp=helpers.safe_get(body, "event", "ts"),
+                    user_id=user_id,
                 )
                 result = federation.push_message(fed_ws, payload)
                 ts = helpers.safe_get(result, "ts") if result else helpers.safe_get(body, "event", "ts")
@@ -391,6 +392,7 @@ def _handle_thread_reply(
                     text=fed_adapted_text,
                     thread_post_id=str(thread_post_id) if thread_post_id else None,
                     timestamp=helpers.safe_get(body, "event", "ts"),
+                    user_id=user_id,
                 )
                 result = federation.push_message(fed_ws, payload)
                 ts = helpers.safe_get(result, "ts") if result else helpers.safe_get(body, "event", "ts")
@@ -686,6 +688,7 @@ def _handle_reaction(
                     user_avatar_url=user_profile_url,
                     workspace_name=ws_name,
                     timestamp=f"{post_meta.ts:.6f}",
+                    user_id=user_id,
                 )
                 federation.push_reaction(fed_ws, payload)
             else:

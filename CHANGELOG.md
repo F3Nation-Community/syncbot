@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Synced message author shows local display name and avatar for mapped users (no workspace suffix)
+- Synced message author shows local display name and avatar for mapped users, including federated messages (no workspace suffix)
 - Shortened default DB usernames: `sbadmin_{stage}` (was `syncbot_admin_{stage}`), `sbapp_{stage}` (was `syncbot_user_{stage}`). Existing RDS instances keep their original master username.
 - Bumped GitHub Actions: `actions/checkout` v6, `actions/setup-python` v6, `actions/upload-artifact` v7, `actions/download-artifact` v8, `aws-actions/configure-aws-credentials` v6
 - Dependabot: ignore semver-major updates for the Docker `python` image (keeps base image on Python 3.12.x line)
