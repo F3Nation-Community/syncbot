@@ -11,10 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bumped GitHub Actions: `actions/checkout` v6, `actions/setup-python` v6, `actions/upload-artifact` v7, `actions/download-artifact` v8, `aws-actions/configure-aws-credentials` v6
 - Dependabot: ignore semver-major updates for the Docker `python` image (keeps base image on Python 3.12.x line)
-- AWS Lambda: Alembic migrations run via a post-deploy `{"action":"migrate"}` invoke (GitHub Actions after `sam deploy`) instead of on every cold start, keeping Slack interaction acks under the 3s budget; Cloud Run and local dev still run migrations at startup
+- AWS Lambda: Alembic migrations now run via a post-deploy invoke instead of on every cold start, fixing Slack ack timeouts after deployment; Cloud Run and local dev unchanged
 - AWS Lambda memory increased from 128 MB to 256 MB for faster cold starts
-- EventBridge keep-warm ScheduleV2 invokes return a clean JSON response from `app.handler` instead of falling through to the Slack Bolt handler
-- AWS bootstrap IAM deploy policy: added `lambda:InvokeFunction` on `syncbot-*` functions so CI and the guided deploy script can run the post-deploy migrate invoke (re-sync the bootstrap stack to pick this up)
+- EventBridge keep-warm invokes now return a clean JSON response instead of falling through to Slack Bolt
+- AWS bootstrap deploy policy: added `lambda:InvokeFunction` -- **re-run the deploy script (Bootstrap task) or `aws cloudformation deploy` the bootstrap stack to pick up this permission**
 
 ### Fixed
 
