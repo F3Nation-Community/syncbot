@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve SyncBot.
+Thanks for helping to improve SyncBot!
 
 ## Branching (upstream vs downstream)
 
@@ -11,7 +11,27 @@ The **upstream** repository ([F3Nation-Community/syncbot](https://github.com/F3N
 | **`main`** | Tracks upstream. Use it to merge PRs and to **sync with the upstream repository** (`git pull upstream main`, etc.). |
 | **`test`** / **`prod`** | On your fork, use these for **deployments**: GitHub Actions deploy workflows run on **push** to `test` and `prod` (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). |
 
-Typical flow: develop on a feature branch → open a PR to **`main`** → merge → when ready to deploy, merge **`main`** into **`test`** or **`prod`** on your fork.
+Typical flow: develop a fix or new feature on a branch in your repo → test and deploy to your infra → open a PR to **`upstream/main`**.
+
+### Branch Naming Conventions
+
+Format: `<type>/<description>` or `<type>/<ticket>-<description>`
+
+Types:
+
+- feature/ New functionality
+- bugfix/ Bug fixes for existing features
+- hotfix/ Urgent production issues
+- refactor/ Code improvements without behavior changes
+- docs/ Documentation only changes
+- chore/ Build process, dependency updates, etc.
+
+Rules:
+
+- Use lowercase
+- Separate words with hyphens
+- Keep descriptions under 50 characters
+- Be specific: feature/user-auth not feature/auth
 
 ## Workflow
 
