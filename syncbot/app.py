@@ -84,7 +84,10 @@ SlackRequestHandler.clear_all_log_handlers()
 configure_logging()
 
 validate_config()
-initialize_database()
+# On Lambda, defer Alembic to a post-deploy invoke (see handler migrate branch) so cold
+# starts stay under Slack's 3s ack budget. Cloud Run / local still run migrations here.
+if not os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    initialize_database()
 
 app = App(
     process_before_response=not LOCAL_DEVELOPMENT,
@@ -113,7 +116,25 @@ def handler(event: dict, context: dict) -> dict:
     Receives an API Gateway proxy event.  Federation API paths
     (``/api/federation/*``) are handled directly; everything else
     is delegated to the Slack Bolt request handler.
+
+    Also handles post-deploy ``{"action": "migrate"}`` (Alembic) and EventBridge
+    keep-warm invokes before Slack routing.
     """
+    if event.get("action") == "migrate":
+        initialize_database()
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"status": "ok", "action": "migrate"}),
+        }
+
+    if event.get("source") in ("aws.scheduler", "aws.events"):
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"status": "ok", "action": "warmup"}),
+        }
+
     path = event.get("path", "") or event.get("rawPath", "")
     if path.startswith("/api/federation"):
         return _lambda_federation_handler(event)

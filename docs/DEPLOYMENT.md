@@ -90,7 +90,7 @@ See [infra/gcp/README.md](../infra/gcp/README.md) for Terraform variables and ou
 
 ## Database backends
 
-The app supports **MySQL** (default), **PostgreSQL**, and **SQLite**. Schema changes are applied at startup via Alembic (`alembic upgrade head`).
+The app supports **MySQL** (default), **PostgreSQL**, and **SQLite**. Schema changes use Alembic (`alembic upgrade head`). **AWS Lambda:** Applied after each deploy via a workflow step that invokes the function with `{"action":"migrate"}` (not on every cold start). **Cloud Run / local:** Applied at process startup before serving HTTP.
 
 - **AWS:** Choose engine in the deploy script or pass `DatabaseEngine=mysql` / `postgresql` to `sam deploy`.
 - **Contract:** [INFRA_CONTRACT.md](INFRA_CONTRACT.md) — `DATABASE_BACKEND`, `DATABASE_URL` or host/user/password/schema.
@@ -151,6 +151,17 @@ Use **`sam deploy --guided`** the first time if you prefer prompts. For **existi
 **samconfig:** Predefined profiles in `samconfig.toml` (`test-new-rds`, `test-existing-rds`, etc.) — adjust placeholders before use.
 
 **Token key:** The stack can auto-generate `TOKEN_ENCRYPTION_KEY` in Secrets Manager. Back it up after first deploy. Optional: `TokenEncryptionKeyOverride`, `ExistingTokenEncryptionKeySecretArn` for recovery.
+
+**Post-deploy migrate (Lambda only):** After `sam deploy`, run Alembic and warm the function (same as CI):
+
+```bash
+FUNCTION_ARN=$(aws cloudformation describe-stacks --stack-name syncbot-test \
+  --query "Stacks[0].Outputs[?OutputKey=='SyncBotFunctionArn'].OutputValue" --output text)
+aws lambda invoke --function-name "$FUNCTION_ARN" --payload '{"action":"migrate"}' \
+  --cli-binary-format raw-in-base64-out /tmp/migrate.json && cat /tmp/migrate.json
+```
+
+The GitHub deploy role and bootstrap policy must allow `lambda:InvokeFunction` on `syncbot-*` functions; re-deploy the **bootstrap** stack if your policy predates that permission.
 
 ### 3. GitHub Actions (AWS)
 
@@ -270,7 +281,10 @@ See also [Sharing infrastructure across apps](#sharing-infrastructure-across-app
 
 ## Database schema (Alembic)
 
-Schema lives under `syncbot/db/alembic/`. On startup the app runs **`alembic upgrade head`**.
+Schema lives under `syncbot/db/alembic/`. **`alembic upgrade head`** runs:
+
+- **AWS (GitHub Actions):** After `sam deploy`, the workflow invokes the Lambda with `{"action":"migrate"}` (migrations + warm instance). Manual `sam deploy` from the guided script should be followed by the same invoke (see script post-deploy or run `aws lambda invoke` with that payload using stack output `SyncBotFunctionArn`).
+- **Cloud Run / `python app.py`:** At process startup before the server listens.
 
 ---
 

@@ -117,6 +117,19 @@ jobs:
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
                $OVERRIDE_PARAM"
 
+      - name: Run migrations and warm up Lambda
+        run: |
+          FUNCTION_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ vars.AWS_STACK_NAME }} \
+            --query "Stacks[0].Outputs[?OutputKey=='SyncBotFunctionArn'].OutputValue" \
+            --output text)
+          aws lambda invoke \
+            --function-name "$FUNCTION_ARN" \
+            --payload '{"action":"migrate"}' \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/migrate-response.json
+          cat /tmp/migrate-response.json
+
   sam-deploy-prod:
     if: github.ref == 'refs/heads/prod'
     runs-on: ubuntu-latest
@@ -178,3 +191,16 @@ jobs:
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
                $OVERRIDE_PARAM"
+
+      - name: Run migrations and warm up Lambda
+        run: |
+          FUNCTION_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ vars.AWS_STACK_NAME }} \
+            --query "Stacks[0].Outputs[?OutputKey=='SyncBotFunctionArn'].OutputValue" \
+            --output text)
+          aws lambda invoke \
+            --function-name "$FUNCTION_ARN" \
+            --payload '{"action":"migrate"}' \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/migrate-response.json
+          cat /tmp/migrate-response.json

@@ -1716,6 +1716,21 @@ sam deploy \
 
 APP_OUTPUTS="$(app_describe_outputs "$STACK_NAME" "$REGION")"
 
+  FUNCTION_ARN="$(output_value "$APP_OUTPUTS" "SyncBotFunctionArn")"
+  if [[ -n "$FUNCTION_ARN" ]]; then
+    echo "=== Lambda migrate + warm-up ==="
+    TMP_MIGRATE="$(mktemp)"
+    aws lambda invoke \
+      --function-name "$FUNCTION_ARN" \
+      --payload '{"action":"migrate"}' \
+      --cli-binary-format raw-in-base64-out \
+      "$TMP_MIGRATE" \
+      --region "$REGION"
+    cat "$TMP_MIGRATE"
+    echo
+    rm -f "$TMP_MIGRATE"
+  fi
+
 else
   echo
   echo "Skipping Build/Deploy (task 2 not selected)."

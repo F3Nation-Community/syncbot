@@ -645,7 +645,7 @@ Resources:
       Architectures:
         - x86_64
       Timeout: 30
-      MemorySize: 128
+      MemorySize: 256
       Policies:
         - AWSLambdaVPCAccessExecutionRole
       VpcConfig: !If

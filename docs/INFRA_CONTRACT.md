@@ -4,7 +4,7 @@ This document defines what any infrastructure provider (AWS, GCP, Azure, etc.) m
 
 **Deploy entrypoint:** From the repo root, `./deploy.sh` (macOS/Linux, or Git Bash/WSL bash) or `.\deploy.ps1` (Windows PowerShell — finds Git Bash or WSL, then bash) runs an interactive helper that delegates to `infra/<provider>/scripts/deploy.sh`. After identity/auth prompts, each provider script shows a **Deploy Tasks** menu (comma-separated numbers, default all): bootstrap (AWS only), build/deploy, CI/CD (GitHub Actions), Slack API configuration, and DR backup secret output—so operators can run subsets (e.g. CI/CD only against an existing stack) without mid-flow surprises. That flow sets Cloud/Terraform resources and runtime env vars consistent with this document. Step-by-step and manual alternatives: [DEPLOYMENT.md](DEPLOYMENT.md).
 
-**Schema:** The database schema is managed by **Alembic**. On startup the app runs **`alembic upgrade head`** so new and existing databases stay current with the latest migrations.
+**Schema:** The database schema is managed by **Alembic** (`alembic upgrade head`). **AWS Lambda:** Migrations are **not** run on every cold start (that would exceed Slack’s interaction ack budget). The Lambda handler accepts a post-deploy invoke with payload `{"action":"migrate"}` to run migrations; the reference GitHub Actions deploy workflow invokes this after `sam deploy`. **Cloud Run / local / container:** Migrations still run at process startup before the HTTP server accepts traffic (no Slack ack on that path).
 
 ## Runtime Environment Variables
 
@@ -93,7 +93,7 @@ The provider must deliver:
    **PostgreSQL / MySQL:** In non–local environments the app uses TLS by default; allow outbound TCP to the DB host (typically **5432** for PostgreSQL, **3306** for MySQL). **SQLite:** No network; the app uses a local file. Single-writer; ensure backups and file durability for production use.
 
 4. **Keep-warm / scheduled ping (optional but recommended)**  
-   To avoid cold-start latency, the app supports a periodic HTTP GET to a configurable path. The provider should support a scheduled job (e.g. CloudWatch Events, Cloud Scheduler) that hits the service on an interval (e.g. 5 minutes).
+   To avoid cold-start latency, the app supports a periodic HTTP GET to a configurable path. The provider should support a scheduled job (e.g. CloudWatch Events, Cloud Scheduler) that hits the service on an interval (e.g. 5 minutes). **AWS (SAM):** EventBridge Scheduler invokes the Lambda directly on a schedule; the Lambda handler returns a small JSON success for `source` `aws.scheduler` / `aws.events` without treating the payload as a Slack request.
 
 5. **Stateless execution**  
    The app is stateless; state lives in the configured database (PostgreSQL, MySQL, or SQLite). Horizontal scaling is supported with PostgreSQL/MySQL as long as all instances share the same DB and env; SQLite is single-writer.
