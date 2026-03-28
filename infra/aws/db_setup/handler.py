@@ -155,6 +155,8 @@ def _handler_impl(event, context):
         return
 
     app_username_prefix = (props.get("AppUsernamePrefix") or "").strip()
+    if app_username_prefix and not app_username_prefix.endswith("."):
+        app_username_prefix += "."
     app_username = f"{app_username_prefix}syncbot_user_{stage}".replace("-", "_")
     app_password = ""
     if create_app_user:

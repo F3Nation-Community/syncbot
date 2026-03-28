@@ -51,7 +51,7 @@ variable "existing_db_user" {
 variable "existing_db_app_username_prefix" {
   type        = string
   default     = ""
-  description = "Optional prefix for app DB username (e.g. TiDB Cloud cluster prefix \"abc123.\"). When non-empty, DATABASE_USER is {prefix}syncbot_user_{stage} and existing_db_user is ignored."
+  description = "Optional prefix for app DB username (e.g. TiDB Cloud cluster prefix \"abc123\"). A dot separator is added automatically. When non-empty, DATABASE_USER is {prefix}.syncbot_user_{stage} and existing_db_user is ignored."
 }
 
 variable "existing_db_create_app_user" {

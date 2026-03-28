@@ -605,7 +605,7 @@ fi
 if [[ "$USE_EXISTING" == "true" ]]; then
   EXISTING_HOST="$(prompt_line "Existing DB host" "$DETECTED_EXISTING_HOST")"
   EXISTING_SCHEMA="$(prompt_line "Database schema name" "${DETECTED_EXISTING_SCHEMA:-syncbot}")"
-  EXISTING_DB_APP_USERNAME_PREFIX="$(prompt_line "App username prefix (optional; e.g. TiDB Cloud abc123.; blank = enter full DB user next)" "")"
+  EXISTING_DB_APP_USERNAME_PREFIX="$(prompt_line "App username prefix (optional; e.g. TiDB Cloud abc123; blank = enter full DB user next)" "")"
   if [[ -n "$EXISTING_DB_APP_USERNAME_PREFIX" ]]; then
     EXISTING_USER=""
   else

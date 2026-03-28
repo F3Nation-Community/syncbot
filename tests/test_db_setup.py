@@ -105,8 +105,22 @@ def test_safe_ident_rejects_dots():
         handler._safe_ident("bad.schema")
 
 
-def test_handler_app_username_prefix_passed_to_mysql(cfn_create_event):
+def test_handler_app_username_prefix_with_dot(cfn_create_event):
     cfn_create_event["ResourceProperties"]["AppUsernamePrefix"] = "pre."
+    handler = _fresh_handler()
+    with (
+        patch.object(handler, "send"),
+        patch.object(handler, "get_secret_value", return_value="apppw"),
+        patch.object(handler, "_assert_tcp_reachable"),
+        patch.object(handler, "setup_database_mysql") as mock_mysql,
+        patch.object(handler, "setup_database_postgresql"),
+    ):
+        handler._handler_impl(cfn_create_event, MagicMock())
+    assert mock_mysql.call_args[1]["app_username"] == "pre.syncbot_user_test"
+
+
+def test_handler_app_username_prefix_without_dot(cfn_create_event):
+    cfn_create_event["ResourceProperties"]["AppUsernamePrefix"] = "pre"
     handler = _fresh_handler()
     with (
         patch.object(handler, "send"),

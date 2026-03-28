@@ -45,8 +45,13 @@ locals {
   )
   db_schema = var.use_existing_database ? var.existing_db_schema : "syncbot"
   stage_syncbot_user = "syncbot_user_${replace(var.stage, "-", "_")}"
+  normalized_prefix = (
+    trimspace(var.existing_db_app_username_prefix) != ""
+    ? (endswith(trimspace(var.existing_db_app_username_prefix), ".") ? trimspace(var.existing_db_app_username_prefix) : "${trimspace(var.existing_db_app_username_prefix)}.")
+    : ""
+  )
   db_user = var.use_existing_database ? (
-    trimspace(var.existing_db_app_username_prefix) != "" ? "${var.existing_db_app_username_prefix}${local.stage_syncbot_user}" : var.existing_db_user
+    local.normalized_prefix != "" ? "${local.normalized_prefix}${local.stage_syncbot_user}" : var.existing_db_user
   ) : "syncbot_app"
 
   # Non-secret Cloud Run env (see docs/INFRA_CONTRACT.md)
