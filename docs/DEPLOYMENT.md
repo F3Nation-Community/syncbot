@@ -48,7 +48,7 @@ Runs from repo root (or via `./deploy.sh` → **aws**). It:
 3. **Bootstrap probe** — Reads bootstrap stack outputs if the stack exists (for suggested stack names and later CI/CD). Full **bootstrap** create/sync runs only if you select it in **Deploy Tasks** (see below).
 4. **App stack identity** — Prompts for stage (`test`/`prod`) and stack name; detects an existing CloudFormation stack for update.
 5. **Deploy Tasks** — Multi-select menu (comma-separated, default all): **Bootstrap** (create/sync bootstrap stack; respects `SYNCBOT_SKIP_BOOTSTRAP_SYNC=1` for sync), **Build/Deploy** (full config + SAM), **CI/CD** (`gh` / GitHub Actions), **Slack API**, **Backup Secrets** (DR plaintext echo). Omitting **Build/Deploy** requires an existing stack for tasks that need live outputs.
-6. **Configuration** (if Build/Deploy selected) — **Database source** (stack-managed RDS vs existing RDS host) and **engine** (MySQL vs PostgreSQL). **Slack app credentials** (signing secret, client secret, client ID). **Existing database host** mode: RDS endpoint, admin user/password, **public vs private** network mode, and for **private** mode: subnet IDs and Lambda security group (with optional auto-detect and **connectivity preflight**). **New RDS in stack** mode: summarizes auto-generated DB users and prompts for **DatabaseSchema**. Optional **token encryption** recovery override, **log level** (numbered list `1`–`5` with `Choose level [N]:`, default from prior stack or **INFO**), **deploy summary**, then **SAM build** (`--use-container`) and **sam deploy**.
+6. **Configuration** (if Build/Deploy selected) — **Database source** (stack-managed RDS vs existing RDS host) and **engine** (MySQL vs PostgreSQL). **Slack app credentials** (signing secret, client secret, client ID). **Existing database host** mode: RDS endpoint, admin user/password, optional **ExistingDatabasePort** (blank = engine default; use for non-standard ports e.g. TiDB **4000**), optional **ExistingDatabaseUsernamePrefix** (e.g. TiDB Cloud cluster prefix `abc123`; a dot separator is added automatically; prepended to **ExistingDatabaseAdminUser** and the default app user `{prefix}.sbapp_{stage}` — use bare admin names like `root` when set), optional **ExistingDatabaseAppUsername** (full app username override when the default would exceed provider limits, e.g. MySQL 32 chars), whether to **create a dedicated app DB user** and whether to run **`CREATE DATABASE IF NOT EXISTS`**, **public vs private** network mode, and for **private** mode: subnet IDs and Lambda security group (with optional auto-detect and **connectivity preflight** using the effective DB port). **New RDS in stack** mode: summarizes auto-generated DB users and prompts for **DatabaseSchema**. Optional **token encryption** recovery override, **log level** (numbered list `1`–`5` with `Choose level [N]:`, default from prior stack or **INFO**), **deploy summary**, then **SAM build** (`--use-container`) and **sam deploy**.
 7. **Post-deploy** — According to selected tasks: stack outputs, `slack-manifest_<stage>.json`, Slack API, **`gh`** setup, deploy receipt under `deploy-receipts/` (gitignored), and DR backup lines.
 
 ### GCP: `infra/gcp/scripts/deploy.sh`
@@ -90,7 +90,7 @@ See [infra/gcp/README.md](../infra/gcp/README.md) for Terraform variables and ou
 
 ## Database backends
 
-The app supports **MySQL** (default), **PostgreSQL**, and **SQLite**. Schema changes are applied at startup via Alembic (`alembic upgrade head`).
+The app supports **MySQL** (default), **PostgreSQL**, and **SQLite**. Schema changes use Alembic (`alembic upgrade head`). **AWS Lambda:** Applied after each deploy via a workflow step that invokes the function with `{"action":"migrate"}` (not on every cold start). **Cloud Run / local:** Applied at process startup before serving HTTP.
 
 - **AWS:** Choose engine in the deploy script or pass `DatabaseEngine=mysql` / `postgresql` to `sam deploy`.
 - **Contract:** [INFRA_CONTRACT.md](INFRA_CONTRACT.md) — `DATABASE_BACKEND`, `DATABASE_URL` or host/user/password/schema.
@@ -146,11 +146,22 @@ sam deploy \
     ...
 ```
 
-Use **`sam deploy --guided`** the first time if you prefer prompts. For **existing RDS**, set `ExistingDatabaseHost`, `ExistingDatabaseAdminUser`, `ExistingDatabaseAdminPassword`, and for **private** DBs also `ExistingDatabaseNetworkMode=private`, `ExistingDatabaseSubnetIdsCsv`, `ExistingDatabaseLambdaSecurityGroupId`. Omit `ExistingDatabaseHost` to create a **new** RDS in the stack.
+Use **`sam deploy --guided`** the first time if you prefer prompts. For **existing RDS**, set `ExistingDatabaseHost`, `ExistingDatabaseAdminUser`, `ExistingDatabaseAdminPassword`, and for **private** DBs also `ExistingDatabaseNetworkMode=private`, `ExistingDatabaseSubnetIdsCsv`, `ExistingDatabaseLambdaSecurityGroupId`. Optional: `ExistingDatabasePort` (empty = engine default), `ExistingDatabaseCreateAppUser` / `ExistingDatabaseCreateSchema` (`true`/`false`). Omit `ExistingDatabaseHost` to create a **new** RDS in the stack.
 
 **samconfig:** Predefined profiles in `samconfig.toml` (`test-new-rds`, `test-existing-rds`, etc.) — adjust placeholders before use.
 
 **Token key:** The stack can auto-generate `TOKEN_ENCRYPTION_KEY` in Secrets Manager. Back it up after first deploy. Optional: `TokenEncryptionKeyOverride`, `ExistingTokenEncryptionKeySecretArn` for recovery.
+
+**Post-deploy migrate (Lambda only):** After `sam deploy`, run Alembic and warm the function (same as CI):
+
+```bash
+FUNCTION_ARN=$(aws cloudformation describe-stacks --stack-name syncbot-test \
+  --query "Stacks[0].Outputs[?OutputKey=='SyncBotFunctionArn'].OutputValue" --output text)
+aws lambda invoke --function-name "$FUNCTION_ARN" --payload '{"action":"migrate"}' \
+  --cli-binary-format raw-in-base64-out /tmp/migrate.json && cat /tmp/migrate.json
+```
+
+The GitHub deploy role and bootstrap policy must allow `lambda:InvokeFunction` on `syncbot-*` functions; re-deploy the **bootstrap** stack if your policy predates that permission.
 
 ### 3. GitHub Actions (AWS)
 
@@ -175,18 +186,18 @@ Configure **per-environment** (`test` / `prod`) variables and secrets so they ma
 | Var | `EXISTING_DATABASE_NETWORK_MODE` | `public` or `private` |
 | Var | `EXISTING_DATABASE_SUBNET_IDS_CSV` | **Private** mode: comma-separated subnet IDs (no spaces) |
 | Var | `EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID` | **Private** mode: Lambda ENI security group |
+| Var | `EXISTING_DATABASE_PORT` | Optional; non-standard TCP port (e.g. `4000`). Empty = engine default in SAM. |
+| Var | `EXISTING_DATABASE_CREATE_APP_USER` | `true` / `false` (default `true`). Set `false` when the DB cannot create a dedicated app user. |
+| Var | `EXISTING_DATABASE_CREATE_SCHEMA` | `true` / `false` (default `true`). Set `false` when the database/schema already exists. |
+| Var | `EXISTING_DATABASE_USERNAME_PREFIX` | Optional. Provider-specific username prefix (e.g. TiDB Cloud `abc123`; dot separator added automatically). Prepended to admin and default app user `{prefix}.sbapp_{stage}` in the bootstrap Lambda; use bare `EXISTING_DATABASE_ADMIN_USER` (e.g. `root`). Empty for RDS/standard MySQL. |
+| Var | `EXISTING_DATABASE_APP_USERNAME` | Optional. Full dedicated app DB username (bypasses prefix + default `sbapp_{stage}`). Use if the auto name exceeds provider limits. Empty = default. |
 | Secret | `SLACK_SIGNING_SECRET`, `SLACK_CLIENT_SECRET` | |
 | Secret | `EXISTING_DATABASE_ADMIN_PASSWORD` | When `EXISTING_DATABASE_HOST` is set |
 | Secret | `TOKEN_ENCRYPTION_KEY_OVERRIDE` | Optional DR only |
 
 The interactive deploy script can set these via `gh` when you opt in. Re-run that step after changing DB mode or engine so CI stays aligned.
 
-**Dependency hygiene:** The workflow runs `pip-audit` on `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt`. After changing `pyproject.toml`:
-
-```bash
-poetry lock
-poetry export --only main --format requirements.txt --without-hashes --output syncbot/requirements.txt
-```
+**Dependency hygiene:** The AWS deploy workflow runs `pip-audit` on `syncbot/requirements.txt` and `infra/aws/db_setup/requirements.txt`. After changing `pyproject.toml`, run `poetry lock` and commit; the **pre-commit `sync-requirements` hook** (see [.pre-commit-config.yaml](../.pre-commit-config.yaml)) regenerates both requirements files when `poetry.lock` changes. If you do not use pre-commit, run the export commands documented in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ### 4. Ongoing local deploys (least privilege)
 
@@ -232,9 +243,9 @@ Build and push an image to Artifact Registry, then `gcloud run deploy` or `terra
 
 ## Using an existing RDS host (AWS)
 
-When **ExistingDatabaseHost** is set, the template **does not** create VPC/RDS; a custom resource creates the schema and `syncbot_user_<stage>` with a generated app password in Secrets Manager.
+When **ExistingDatabaseHost** is set, the template **does not** create VPC/RDS; a custom resource can create the schema and optionally a dedicated app user (default `sbapp_<stage>`, or **ExistingDatabaseAppUsername** if set) with a generated app password in Secrets Manager—or skip user/schema steps and copy the admin password into the app secret when **`ExistingDatabaseCreateAppUser=false`**.
 
-- **Public:** Lambda is not in your VPC; RDS must be reachable on the Internet on port **3306** or **5432**.
+- **Public:** Lambda is not in your VPC; the DB must be reachable on the Internet on the configured port (**`ExistingDatabasePort`**, or **3306** / **5432** by engine).
 - **Private:** Lambda uses `ExistingDatabaseSubnetIdsCsv` and `ExistingDatabaseLambdaSecurityGroupId`; DB security group must allow the Lambda SG; subnets need **NAT** egress for Slack API calls.
 
 See also [Sharing infrastructure across apps](#sharing-infrastructure-across-apps-aws) below.
@@ -270,7 +281,10 @@ See also [Sharing infrastructure across apps](#sharing-infrastructure-across-app
 
 ## Database schema (Alembic)
 
-Schema lives under `syncbot/db/alembic/`. On startup the app runs **`alembic upgrade head`**.
+Schema lives under `syncbot/db/alembic/`. **`alembic upgrade head`** runs:
+
+- **AWS (GitHub Actions):** After `sam deploy`, the workflow invokes the Lambda with `{"action":"migrate"}` (migrations + warm instance). Manual `sam deploy` from the guided script should be followed by the same invoke (see script post-deploy or run `aws lambda invoke` with that payload using stack output `SyncBotFunctionArn`).
+- **Cloud Run / `python app.py`:** At process startup before the server listens.
 
 ---
 

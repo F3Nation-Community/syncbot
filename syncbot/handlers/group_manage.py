@@ -48,7 +48,7 @@ def handle_leave_group(
         blocks=[
             orm.SectionBlock(
                 label=(
-                    f":warning: *Are you sure you want to leave the group \"{group.name}\"?*\n\n"
+                    f':warning: *Are you sure you want to leave the group "{group.name}"?*\n\n'
                     "This will:\n"
                     "\u2022 Stop all channel syncs you have in this group\n"
                     "\u2022 Remove your synced message history from this group\n"
@@ -162,6 +162,7 @@ def handle_leave_group_confirm(
     )
 
     from datetime import UTC, datetime
+
     now = datetime.now(UTC)
     for member in members:
         DbManager.update_records(

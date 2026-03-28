@@ -516,9 +516,7 @@ def find_synced_channel_in_target(source_channel_id: str, target_workspace_id: i
     return target_rows[0].channel_id
 
 
-_ARCHIVE_LINK_PATTERN = re.compile(
-    r"<https://([a-z0-9-]+)\.slack\.com/archives/(C[A-Z0-9]+)\|([^>]+)>"
-)
+_ARCHIVE_LINK_PATTERN = re.compile(r"<https://([a-z0-9-]+)\.slack\.com/archives/(C[A-Z0-9]+)\|([^>]+)>")
 
 
 def _rewrite_slack_archive_links_to_native_channels(msg_text: str, target_workspace_id: int) -> str:

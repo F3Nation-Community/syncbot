@@ -60,7 +60,9 @@ class TestFederationReactionFallback:
             patch.object(federation_api, "_find_post_records", return_value=[post_meta]),
             patch.object(federation_api.helpers, "decrypt_bot_token", return_value="xoxb-test"),
             patch.object(federation_api, "WebClient", return_value=ws_client),
-            patch.object(federation_api.helpers, "post_message", return_value={"ts": "200.000001"}) as post_message_mock,
+            patch.object(
+                federation_api.helpers, "post_message", return_value={"ts": "200.000001"}
+            ) as post_message_mock,
         ):
             status, resp = federation_api.handle_message_react(body, fed_ws)
 
@@ -201,7 +203,9 @@ class TestFederationReactionFallback:
             patch.object(federation_api, "_find_post_records", return_value=[post_meta]),
             patch.object(federation_api.helpers, "decrypt_bot_token", return_value="xoxb-test"),
             patch.object(federation_api, "WebClient", return_value=ws_client),
-            patch.object(federation_api.helpers, "post_message", return_value={"ts": "200.000001"}) as post_message_mock,
+            patch.object(
+                federation_api.helpers, "post_message", return_value={"ts": "200.000001"}
+            ) as post_message_mock,
         ):
             status, resp = federation_api.handle_message_react(body, fed_ws)
 

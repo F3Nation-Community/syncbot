@@ -45,7 +45,31 @@ variable "existing_db_schema" {
 variable "existing_db_user" {
   type        = string
   default     = ""
-  description = "Existing MySQL user (when use_existing_database = true)"
+  description = "Existing MySQL user (when use_existing_database = true). Ignored when existing_db_app_username or existing_db_username_prefix is set."
+}
+
+variable "existing_db_username_prefix" {
+  type        = string
+  default     = ""
+  description = "Optional prefix for DATABASE_USER (e.g. TiDB Cloud cluster prefix \"abc123\"). A dot separator is added automatically. When non-empty, DATABASE_USER is {prefix}.sbapp_{stage} unless existing_db_app_username is set; existing_db_user is ignored."
+}
+
+variable "existing_db_app_username" {
+  type        = string
+  default     = ""
+  description = "Optional full DATABASE_USER override when use_existing_database (bypasses prefix + sbapp_{stage} and existing_db_user)."
+}
+
+variable "existing_db_create_app_user" {
+  type        = bool
+  default     = true
+  description = "When use_existing_database: operator note — whether a dedicated app DB user exists (no Cloud SQL user resource; app uses existing_db_user / secret)."
+}
+
+variable "existing_db_create_schema" {
+  type        = bool
+  default     = true
+  description = "When use_existing_database: operator note — whether DatabaseSchema was created manually (Terraform does not create schema for existing host)."
 }
 
 # ---------------------------------------------------------------------------

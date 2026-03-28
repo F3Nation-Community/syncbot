@@ -164,6 +164,7 @@ Resources:
               - lambda:AddPermission
               - lambda:RemovePermission
               - lambda:PublishVersion
+              - lambda:InvokeFunction
             Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:syncbot-*"
           - Sid: ApiGateway
             Effect: Allow

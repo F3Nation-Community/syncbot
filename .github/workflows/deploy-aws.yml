@@ -103,6 +103,11 @@ jobs:
                ExistingDatabaseNetworkMode=${{ vars.EXISTING_DATABASE_NETWORK_MODE || 'public' }} \
                ExistingDatabaseSubnetIdsCsv=${{ vars.EXISTING_DATABASE_SUBNET_IDS_CSV }} \
                ExistingDatabaseLambdaSecurityGroupId=${{ vars.EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID }} \
+               ExistingDatabasePort=${{ vars.EXISTING_DATABASE_PORT }} \
+               ExistingDatabaseCreateAppUser=${{ vars.EXISTING_DATABASE_CREATE_APP_USER || 'true' }} \
+               ExistingDatabaseCreateSchema=${{ vars.EXISTING_DATABASE_CREATE_SCHEMA || 'true' }} \
+               ExistingDatabaseUsernamePrefix=${{ vars.EXISTING_DATABASE_USERNAME_PREFIX }} \
+               ExistingDatabaseAppUsername=${{ vars.EXISTING_DATABASE_APP_USERNAME }} \
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
                RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \
@@ -116,6 +121,19 @@ jobs:
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
                $OVERRIDE_PARAM"
+
+      - name: Run migrations and warm up Lambda
+        run: |
+          FUNCTION_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ vars.AWS_STACK_NAME }} \
+            --query "Stacks[0].Outputs[?OutputKey=='SyncBotFunctionArn'].OutputValue" \
+            --output text)
+          aws lambda invoke \
+            --function-name "$FUNCTION_ARN" \
+            --payload '{"action":"migrate"}' \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/migrate-response.json
+          cat /tmp/migrate-response.json
 
   sam-deploy-prod:
     if: github.ref == 'refs/heads/prod'
@@ -165,6 +183,11 @@ jobs:
                ExistingDatabaseNetworkMode=${{ vars.EXISTING_DATABASE_NETWORK_MODE || 'public' }} \
                ExistingDatabaseSubnetIdsCsv=${{ vars.EXISTING_DATABASE_SUBNET_IDS_CSV }} \
                ExistingDatabaseLambdaSecurityGroupId=${{ vars.EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID }} \
+               ExistingDatabasePort=${{ vars.EXISTING_DATABASE_PORT }} \
+               ExistingDatabaseCreateAppUser=${{ vars.EXISTING_DATABASE_CREATE_APP_USER || 'true' }} \
+               ExistingDatabaseCreateSchema=${{ vars.EXISTING_DATABASE_CREATE_SCHEMA || 'true' }} \
+               ExistingDatabaseUsernamePrefix=${{ vars.EXISTING_DATABASE_USERNAME_PREFIX }} \
+               ExistingDatabaseAppUsername=${{ vars.EXISTING_DATABASE_APP_USERNAME }} \
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
                RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \
@@ -178,3 +201,16 @@ jobs:
                SlackClientSecret=${{ secrets.SLACK_CLIENT_SECRET }} \
                SlackSigningSecret=${{ secrets.SLACK_SIGNING_SECRET }} \
                $OVERRIDE_PARAM"
+
+      - name: Run migrations and warm up Lambda
+        run: |
+          FUNCTION_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ vars.AWS_STACK_NAME }} \
+            --query "Stacks[0].Outputs[?OutputKey=='SyncBotFunctionArn'].OutputValue" \
+            --output text)
+          aws lambda invoke \
+            --function-name "$FUNCTION_ARN" \
+            --payload '{"action":"migrate"}' \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/migrate-response.json
+          cat /tmp/migrate-response.json

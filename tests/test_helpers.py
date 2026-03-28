@@ -325,9 +325,7 @@ class TestResolveChannelReferences:
         client.conversations_info.side_effect = conv_info
         client.team_info.return_value = {"team": {"domain": "acme"}}
         ws = self._make_workspace(team_id="T123", name="Acme")
-        result = helpers.resolve_channel_references(
-            "see <#CABC111> and <#CABC222>", client, ws
-        )
+        result = helpers.resolve_channel_references("see <#CABC111> and <#CABC222>", client, ws)
         assert "archives/CABC111" in result
         assert "archives/CABC222" in result
         assert "#alpha" in result
@@ -344,9 +342,7 @@ class TestResolveChannelReferences:
         mock_find.return_value = "C_LOCAL_TARGET"
         client = self._make_client(channel_name="general", domain="acme")
         ws = self._make_workspace(team_id="T123", name="Acme")
-        result = helpers.resolve_channel_references(
-            "see <#CSOURCE123>", client, ws, target_workspace_id=42
-        )
+        result = helpers.resolve_channel_references("see <#CSOURCE123>", client, ws, target_workspace_id=42)
         assert result == "see <#C_LOCAL_TARGET>"
         mock_find.assert_called_with("CSOURCE123", 42)
         assert "slack.com" not in result

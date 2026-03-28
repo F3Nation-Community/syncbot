@@ -708,9 +708,7 @@ def handle_subscribe_channel(
     channel_options = _get_publishable_channel_options(client, workspace_record.id)
     if not channel_options:
         channel_options = [
-            orm.SelectorOption(
-                name="— No Channels available to Sync in this Workspace. —", value="__none__"
-            ),
+            orm.SelectorOption(name="— No Channels available to Sync in this Workspace. —", value="__none__"),
         ]
     blocks.append(
         orm.InputBlock(

@@ -39,8 +39,7 @@ def test_terraform_validates() -> None:
         )
         if init.returncode != 0:
             pytest.skip(
-                "terraform init failed (terraform missing or no network for providers?):\n"
-                f"{init.stdout}\n{init.stderr}"
+                f"terraform init failed (terraform missing or no network for providers?):\n{init.stdout}\n{init.stderr}"
             )
         validate = subprocess.run(
             [tf, "validate"],

@@ -56,10 +56,17 @@ from logger import (
 )
 from routing import MAIN_MAPPER, VIEW_ACK_MAPPER, VIEW_MAPPER
 
-_SENSITIVE_KEYS = frozenset({
-    "token", "bot_token", "access_token", "shared_secret",
-    "public_key", "private_key", "private_key_encrypted",
-})
+_SENSITIVE_KEYS = frozenset(
+    {
+        "token",
+        "bot_token",
+        "access_token",
+        "shared_secret",
+        "public_key",
+        "private_key",
+        "private_key_encrypted",
+    }
+)
 
 
 def _redact_sensitive(obj, _depth=0):
@@ -67,10 +74,7 @@ def _redact_sensitive(obj, _depth=0):
     if _depth > 10:
         return obj
     if isinstance(obj, dict):
-        return {
-            k: "[REDACTED]" if k in _SENSITIVE_KEYS else _redact_sensitive(v, _depth + 1)
-            for k, v in obj.items()
-        }
+        return {k: "[REDACTED]" if k in _SENSITIVE_KEYS else _redact_sensitive(v, _depth + 1) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_redact_sensitive(v, _depth + 1) for v in obj]
     return obj
@@ -80,7 +84,10 @@ SlackRequestHandler.clear_all_log_handlers()
 configure_logging()
 
 validate_config()
-initialize_database()
+# On Lambda, defer Alembic to a post-deploy invoke (see handler migrate branch) so cold
+# starts stay under Slack's 3s ack budget. Cloud Run / local still run migrations here.
+if not os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    initialize_database()
 
 app = App(
     process_before_response=not LOCAL_DEVELOPMENT,
@@ -109,7 +116,25 @@ def handler(event: dict, context: dict) -> dict:
     Receives an API Gateway proxy event.  Federation API paths
     (``/api/federation/*``) are handled directly; everything else
     is delegated to the Slack Bolt request handler.
+
+    Also handles post-deploy ``{"action": "migrate"}`` (Alembic) and EventBridge
+    keep-warm invokes before Slack routing.
     """
+    if event.get("action") == "migrate":
+        initialize_database()
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"status": "ok", "action": "migrate"}),
+        }
+
+    if event.get("source") in ("aws.scheduler", "aws.events"):
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"status": "ok", "action": "warmup"}),
+        }
+
     path = event.get("path", "") or event.get("rawPath", "")
     if path.startswith("/api/federation"):
         return _lambda_federation_handler(event)
@@ -224,11 +249,7 @@ def main_response(body: dict, logger, client, ack, context: dict) -> None:
             )
             raise
     else:
-        if not (
-            request_type == "view_submission"
-            and request_id in VIEW_ACK_MAPPER
-            and request_id not in VIEW_MAPPER
-        ):
+        if not (request_type == "view_submission" and request_id in VIEW_ACK_MAPPER and request_id not in VIEW_MAPPER):
             _logger.error(
                 "no_handler",
                 extra={
@@ -386,9 +407,7 @@ def run_syncbot_http_server(
                 content_len = 0
             body_str = self.rfile.read(content_len).decode() if content_len else ""
             headers = {k: v for k, v in self.headers.items()}
-            status, resp = dispatch_federation_request(
-                method, self._path_no_query(), body_str, headers
-            )
+            status, resp = dispatch_federation_request(method, self._path_no_query(), body_str, headers)
             self._send_raw(
                 status,
                 {"Content-Type": ["application/json"]},

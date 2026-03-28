@@ -44,7 +44,17 @@ locals {
     length(google_sql_database_instance.main) > 0 ? google_sql_database_instance.main[0].public_ip_address : ""
   )
   db_schema = var.use_existing_database ? var.existing_db_schema : "syncbot"
-  db_user   = var.use_existing_database ? var.existing_db_user : "syncbot_app"
+  stage_sbapp_user = "sbapp_${replace(var.stage, "-", "_")}"
+  normalized_prefix = (
+    trimspace(var.existing_db_username_prefix) != ""
+    ? (endswith(trimspace(var.existing_db_username_prefix), ".") ? trimspace(var.existing_db_username_prefix) : "${trimspace(var.existing_db_username_prefix)}.")
+    : ""
+  )
+  db_user = var.use_existing_database ? (
+    trimspace(var.existing_db_app_username) != "" ? trimspace(var.existing_db_app_username) : (
+      local.normalized_prefix != "" ? "${local.normalized_prefix}${local.stage_sbapp_user}" : var.existing_db_user
+    )
+  ) : "syncbot_app"
 
   # Non-secret Cloud Run env (see docs/INFRA_CONTRACT.md)
   syncbot_public_url_effective = trimspace(var.syncbot_public_url_override) != "" ? trimspace(var.syncbot_public_url_override) : ""
@@ -262,6 +272,14 @@ resource "google_cloud_run_v2_service" "syncbot" {
   name     = local.name_prefix
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
+
+  labels = merge(
+    {},
+    var.use_existing_database ? {
+      syncbot_existing_db_create_app_user = var.existing_db_create_app_user ? "true" : "false"
+      syncbot_existing_db_create_schema   = var.existing_db_create_schema ? "true" : "false"
+    } : {},
+  )
 
   template {
     service_account = google_service_account.cloud_run.email

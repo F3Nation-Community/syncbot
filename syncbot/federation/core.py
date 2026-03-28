@@ -98,12 +98,8 @@ def get_or_create_instance_keypair():
         return private_key, existing[0].public_key
 
     private_key = Ed25519PrivateKey.generate()
-    public_pem = private_key.public_key().public_bytes(
-        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
-    ).decode()
-    private_pem = private_key.private_bytes(
-        Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
-    ).decode()
+    public_pem = private_key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode()
+    private_pem = private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode()
 
     record = schemas.InstanceKey(
         public_key=public_pem,
@@ -219,6 +215,7 @@ def validate_webhook_url(url: str) -> bool:
         return False
 
     import socket
+
     try:
         addr_infos = socket.getaddrinfo(hostname, None)
         for info in addr_infos:

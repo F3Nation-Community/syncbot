@@ -263,7 +263,8 @@ def _restore_workspace(
                 )
 
                 syncs_in_group = DbManager.find_records(
-                    schemas.Sync, [schemas.Sync.group_id == group_id],
+                    schemas.Sync,
+                    [schemas.Sync.group_id == group_id],
                 )
                 other_channel_ids = []
                 for sync in syncs_in_group:
