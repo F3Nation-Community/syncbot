@@ -42,7 +42,7 @@ If a workspace uninstalls SyncBot, group memberships and syncs are paused (not d
 
 ## User Mapping
 
-Users are automatically mapped across workspaces by email or display name. Admins can manually edit mappings via the User Mapping screen (scoped per group). Remote users are displayed as "Display Name (Workspace Name)" and sorted by normalized name. In synced messages, a mapped user is mentioned with a normal `@` tag in the receiving workspace; unmapped users appear as a code-style `[@Name (Workspace)]` label. Channel names that point at another synced channel in the same sync group are shown as native `#channel` links in each workspace.
+Users are automatically mapped across workspaces by email or display name. Admins can manually edit mappings via the User Mapping screen (scoped per group). On that screen, remote users are listed as "Display Name (Workspace Name)" and sorted by normalized name. In synced messages, a mapped author appears with their **local** display name and profile photo (no workspace suffix in the author line); an unmapped author uses the remote display name and photo, with the source workspace in parentheses. In message text, a mapped user is mentioned with a normal `@` tag in the receiving workspace; unmapped users appear as a code-style `[@Name (Workspace)]` label. Channel names that point at another synced channel in the same sync group are shown as native `#channel` links in each workspace.
 
 ## Refresh Behavior
 

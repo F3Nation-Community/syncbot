@@ -251,13 +251,15 @@ def _handle_new_post(
                     adapted_text, client, source_ws, target_workspace_id=workspace.id
                 )
 
-                target_display_name, target_icon_url = helpers.get_display_name_and_icon_for_synced_message(
-                    user_id or "",
-                    source_workspace_id or 0,
-                    user_name,
-                    user_profile_url,
-                    target_client,
-                    workspace.id,
+                target_display_name, target_icon_url, author_is_mapped = (
+                    helpers.get_display_name_and_icon_for_synced_message(
+                        user_id or "",
+                        source_workspace_id or 0,
+                        user_name,
+                        user_profile_url,
+                        target_client,
+                        workspace.id,
+                    )
                 )
                 name_for_target = target_display_name or user_name or "Someone"
 
@@ -285,7 +287,7 @@ def _handle_new_post(
                         msg_text=adapted_text,
                         user_name=name_for_target,
                         user_profile_url=target_icon_url or user_profile_url,
-                        workspace_name=workspace_name,
+                        workspace_name=None if author_is_mapped else workspace_name,
                         blocks=photo_blocks,
                     )
                     ts = helpers.safe_get(res, "ts") or helpers.safe_get(body, "event", "ts")
@@ -411,13 +413,15 @@ def _handle_thread_reply(
                 )
                 parent_ts = f"{post_meta.ts:.6f}"
 
-                target_display_name, target_icon_url = helpers.get_display_name_and_icon_for_synced_message(
-                    user_id or "",
-                    source_workspace_id or 0,
-                    user_name,
-                    user_profile_url,
-                    target_client,
-                    workspace.id,
+                target_display_name, target_icon_url, author_is_mapped = (
+                    helpers.get_display_name_and_icon_for_synced_message(
+                        user_id or "",
+                        source_workspace_id or 0,
+                        user_name,
+                        user_profile_url,
+                        target_client,
+                        workspace.id,
+                    )
                 )
                 name_for_target = target_display_name or user_name or "Someone"
 
@@ -447,7 +451,7 @@ def _handle_thread_reply(
                         user_name=name_for_target,
                         user_profile_url=target_icon_url or user_profile_url,
                         thread_ts=parent_ts,
-                        workspace_name=workspace_name,
+                        workspace_name=None if author_is_mapped else workspace_name,
                         blocks=photo_blocks,
                     )
                     ts = helpers.safe_get(res, "ts")
@@ -688,15 +692,18 @@ def _handle_reaction(
                 target_client = WebClient(token=helpers.decrypt_bot_token(workspace.bot_token))
                 target_msg_ts = f"{post_meta.ts:.6f}"
 
-                target_display_name, target_icon_url = helpers.get_display_name_and_icon_for_synced_message(
-                    user_id or "",
-                    source_workspace_id or 0,
-                    user_name,
-                    user_profile_url,
-                    target_client,
-                    workspace.id,
+                target_display_name, target_icon_url, author_is_mapped = (
+                    helpers.get_display_name_and_icon_for_synced_message(
+                        user_id or "",
+                        source_workspace_id or 0,
+                        user_name,
+                        user_profile_url,
+                        target_client,
+                        workspace.id,
+                    )
                 )
                 display_name = target_display_name or user_name or user_id or "Someone"
+                reaction_username_suffix = "" if author_is_mapped else posted_from
 
                 permalink = None
                 try:
@@ -721,7 +728,7 @@ def _handle_reaction(
                 resp = target_client.chat_postMessage(
                     channel=sync_channel.channel_id,
                     text=msg_text,
-                    username=f"{display_name} {posted_from}",
+                    username=f"{display_name} {reaction_username_suffix}".strip(),
                     icon_url=target_icon_url or user_profile_url,
                     thread_ts=target_msg_ts,
                     unfurl_links=False,
