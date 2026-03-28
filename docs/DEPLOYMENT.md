@@ -2,7 +2,7 @@
 
 This guide explains **what the guided deploy scripts do**, how to perform the **same steps manually** on **AWS** or **GCP**, and how **GitHub Actions** fits in. For the runtime environment variables the app expects in any cloud, see [INFRA_CONTRACT.md](INFRA_CONTRACT.md).
 
-**Runtime baseline:** Python 3.14 — keep `pyproject.toml`, `syncbot/requirements.txt`, Lambda/Cloud Run runtimes, and CI aligned.
+**Runtime baseline:** Python 3.12 — keep `pyproject.toml`, `syncbot/requirements.txt`, Lambda/Cloud Run runtimes, and CI aligned.
 
 ---
 

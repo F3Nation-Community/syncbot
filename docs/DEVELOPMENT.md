@@ -37,7 +37,7 @@ App on port **3000**; restart the `app` service after code changes.
 
 ### Native Python
 
-**Needs:** Python 3.14+, Poetry. Run MySQL locally (e.g. `docker run ... mysql:8`) or SQLite. See [`.env.example`](../.env.example) and [INFRA_CONTRACT.md](INFRA_CONTRACT.md).
+**Needs:** Python 3.12+, Poetry. Run MySQL locally (e.g. `docker run ... mysql:8`) or SQLite. See [`.env.example`](../.env.example) and [INFRA_CONTRACT.md](INFRA_CONTRACT.md).
 
 ## Configuration reference
 

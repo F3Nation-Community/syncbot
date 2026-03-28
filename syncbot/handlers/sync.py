@@ -35,7 +35,7 @@ def handle_remove_sync(
     raw_value = helpers.safe_get(body, "actions", 0, "value")
     try:
         sync_channel_id = int(raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         _logger.warning(f"Invalid sync_channel_id value: {raw_value!r}")
         return
 

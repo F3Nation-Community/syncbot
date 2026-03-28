@@ -563,7 +563,7 @@ Resources:
     Properties:
       CodeUri: db_setup/
       Handler: handler.handler
-      Runtime: python3.14
+      Runtime: python3.12
       Architectures:
         - x86_64
       Timeout: 60
@@ -641,7 +641,7 @@ Resources:
     Properties:
       CodeUri: ../../syncbot/
       Handler: app.handler
-      Runtime: python3.14
+      Runtime: python3.12
       Architectures:
         - x86_64
       Timeout: 30

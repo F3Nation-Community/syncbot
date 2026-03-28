@@ -128,7 +128,7 @@ def save_dm_messages_to_group_member(member_id: int, dm_entries: list[dict]) -> 
         return
     try:
         prev = _json.loads(existing.dm_messages) if existing.dm_messages else []
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         prev = []
     prev.extend(dm_entries)
     DbManager.update_records(

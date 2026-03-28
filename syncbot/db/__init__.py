@@ -74,7 +74,7 @@ def _build_mysql_url(include_schema: bool = False) -> tuple[str, dict]:
         if ca_path:
             try:
                 ssl_ctx = ssl.create_default_context(cafile=ca_path)
-            except OSError, ssl.SSLError:
+            except (OSError, ssl.SSLError):
                 ssl_ctx = ssl.create_default_context()
         else:
             ssl_ctx = ssl.create_default_context()
@@ -112,7 +112,7 @@ def _network_sql_connect_args_from_url() -> dict:
         if ca_path:
             try:
                 ssl_ctx = ssl.create_default_context(cafile=ca_path)
-            except OSError, ssl.SSLError:
+            except (OSError, ssl.SSLError):
                 ssl_ctx = ssl.create_default_context()
         else:
             ssl_ctx = ssl.create_default_context()

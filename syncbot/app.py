@@ -102,7 +102,7 @@ def _capture_slack_retry_num(req, resp, next):
         try:
             v = vals[0] if isinstance(vals, (list, tuple)) else vals
             req.context["slack_retry_num"] = int(v)
-        except ValueError, TypeError, IndexError:
+        except (ValueError, TypeError, IndexError):
             pass
     return next()
 
@@ -364,7 +364,7 @@ def run_syncbot_http_server(
                 return
             try:
                 content_len = int(self.headers.get("Content-Length") or 0)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 content_len = 0
             query = self.path.partition("?")[2]
             request_body = self.rfile.read(content_len).decode("utf-8")
@@ -382,7 +382,7 @@ def run_syncbot_http_server(
                     int(self.headers.get("Content-Length", 0)),
                     _fed_max_body,
                 )
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 content_len = 0
             body_str = self.rfile.read(content_len).decode() if content_len else ""
             headers = {k: v for k, v in self.headers.items()}

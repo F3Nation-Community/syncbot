@@ -12,7 +12,7 @@ The application reads configuration from environment variables. Providers must i
 
 ## Toolchain Baseline
 
-- Runtime baseline: **Python 3.14**.
+- Runtime baseline: **Python 3.12**.
 - Keep runtime/tooling aligned across:
   - Lambda/Cloud Run runtime configuration
   - CI Python version

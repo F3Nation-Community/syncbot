@@ -10,8 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Bumped GitHub Actions: `actions/checkout` v6, `actions/setup-python` v6, `actions/upload-artifact` v7, `actions/download-artifact` v8, `aws-actions/configure-aws-credentials` v6
-- Python runtime baseline from 3.12 to 3.14 (Docker base image, AWS Lambda, CI)
-- Ruff `target-version` set to Python 3.14 (import order and annotation cleanups applied repo-wide)
+- Dependabot: ignore semver-major updates for the Docker `python` image (keeps base image on Python 3.12.x line)
 
 ### Fixed
 

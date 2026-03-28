@@ -143,7 +143,7 @@ def handle_publish_channel(
     raw_group_id = helpers.safe_get(body, "actions", 0, "value")
     try:
         group_id = int(raw_group_id)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         _logger.warning(f"publish_channel: invalid group_id: {raw_group_id!r}")
         return
 
@@ -386,7 +386,7 @@ def handle_unpublish_channel(
     raw_value = helpers.safe_get(body, "actions", 0, "value")
     try:
         sync_id = int(raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         _logger.warning(f"Invalid sync_id for unpublish: {raw_value!r}")
         return
 
@@ -452,7 +452,7 @@ def _toggle_sync_status(
 
     try:
         sync_id = int(sync_id_str)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         _logger.warning(f"{log_event}_invalid_id", extra={"action_id": action_id})
         return
 
@@ -564,7 +564,7 @@ def handle_stop_sync(
 
     try:
         sync_id = int(sync_id_str)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         _logger.warning("stop_sync_invalid_id", extra={"action_id": action_id})
         return
 

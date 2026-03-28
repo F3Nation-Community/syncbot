@@ -555,7 +555,7 @@ def _get_workspace_domain(client: WebClient, team_id: str) -> str | None:
 def resolve_channel_references(
     msg_text: str,
     source_client: WebClient | None,
-    source_workspace: schemas.Workspace | None = None,
+    source_workspace: "schemas.Workspace | None" = None,
     target_workspace_id: int | None = None,
 ) -> str:
     """Replace ``<#CHANNEL_ID>`` references with native local channels when synced, else archive URLs or fallbacks.

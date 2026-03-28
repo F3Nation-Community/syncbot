@@ -178,7 +178,7 @@ def _extract_file_message_ts(
             files_list = upload_response["files"]
             if files_list and len(files_list) > 0:
                 file_id = files_list[0]["id"] if isinstance(files_list[0], dict) else files_list[0].get("id")
-        except KeyError, TypeError, IndexError:
+        except (KeyError, TypeError, IndexError):
             pass
 
     if not file_id:
@@ -197,7 +197,7 @@ def _extract_file_message_ts(
                         "_extract_file_message_ts: success", extra={"file_id": file_id, "ts": ts, "attempt": attempt}
                     )
                     return ts
-        except KeyError, TypeError, IndexError:
+        except (KeyError, TypeError, IndexError):
             pass
         except Exception as e:
             _logger.warning(f"_extract_file_message_ts: files.info error (attempt {attempt}): {e}")

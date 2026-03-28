@@ -31,7 +31,7 @@ def handle_leave_group(
 
     try:
         group_id = int(group_id_str)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         _logger.warning("leave_group_invalid_id", extra={"action_id": action_id})
         return
 
