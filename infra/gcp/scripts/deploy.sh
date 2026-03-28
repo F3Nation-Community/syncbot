@@ -603,6 +603,7 @@ if [[ -n "$EXISTING_SERVICE_URL" ]]; then
   DETECTED_EXISTING_USER="$(cloud_run_env_value "$PROJECT_ID" "$REGION" "$SERVICE_NAME" "DATABASE_USER")"
 fi
 if [[ "$USE_EXISTING" == "true" ]]; then
+  EXISTING_DB_APP_USERNAME=""
   EXISTING_HOST="$(prompt_line "Existing DB host" "$DETECTED_EXISTING_HOST")"
   EXISTING_SCHEMA="$(prompt_line "Database schema name" "${DETECTED_EXISTING_SCHEMA:-syncbot}")"
   EXISTING_DB_USERNAME_PREFIX="$(prompt_line "DB username prefix (optional; e.g. TiDB Cloud abc123; blank = enter full DB user next)" "")"
@@ -611,12 +612,13 @@ if [[ "$USE_EXISTING" == "true" ]]; then
   else
     EXISTING_USER="$(prompt_line "Database user" "$DETECTED_EXISTING_USER")"
   fi
+  EXISTING_DB_APP_USERNAME="$(prompt_line "Override DATABASE_USER (optional; full username e.g. TiDB-prefixed; blank = prefix+sbapp_{stage} or Database user above)" "")"
   if [[ -z "$EXISTING_HOST" ]]; then
     echo "Error: Existing DB host is required when using existing database mode." >&2
     exit 1
   fi
-  if [[ -z "$EXISTING_USER" && -z "$EXISTING_DB_USERNAME_PREFIX" ]]; then
-    echo "Error: Database user or DB username prefix is required when using existing database mode." >&2
+  if [[ -z "$EXISTING_USER" && -z "$EXISTING_DB_USERNAME_PREFIX" && -z "$EXISTING_DB_APP_USERNAME" ]]; then
+    echo "Error: Database user, DB username prefix, or DATABASE_USER override is required when using existing database mode." >&2
     exit 1
   fi
 
@@ -762,11 +764,13 @@ if [[ "$USE_EXISTING" == "true" ]]; then
   VARS+=("-var=existing_db_schema=$EXISTING_SCHEMA")
   VARS+=("-var=existing_db_user=$EXISTING_USER")
   VARS+=("-var=existing_db_username_prefix=$EXISTING_DB_USERNAME_PREFIX")
+  VARS+=("-var=existing_db_app_username=$EXISTING_DB_APP_USERNAME")
   VARS+=("-var=existing_db_create_app_user=$EXISTING_DB_CREATE_APP_USER")
   VARS+=("-var=existing_db_create_schema=$EXISTING_DB_CREATE_SCHEMA")
 else
   VARS+=("-var=use_existing_database=false")
   VARS+=("-var=existing_db_username_prefix=")
+  VARS+=("-var=existing_db_app_username=")
 fi
 
 VARS+=("-var=cloud_run_image=$CLOUD_IMAGE")

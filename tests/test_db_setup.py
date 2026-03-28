@@ -96,7 +96,7 @@ def test_handler_calls_postgresql_setup(cfn_create_event):
 
 def test_safe_username_accepts_dotted_prefix():
     handler = _fresh_handler()
-    handler._safe_username("42bvZAUSurKwhxc.syncbot_user_test")
+    handler._safe_username("42bvZAUSurKwhxc.sbapp_test")
 
 
 def test_safe_ident_rejects_dots():
@@ -116,7 +116,7 @@ def test_handler_username_prefix_with_dot(cfn_create_event):
         patch.object(handler, "setup_database_postgresql"),
     ):
         handler._handler_impl(cfn_create_event, MagicMock())
-    assert mock_mysql.call_args[1]["app_username"] == "pre.syncbot_user_test"
+    assert mock_mysql.call_args[1]["app_username"] == "pre.sbapp_test"
     assert mock_mysql.call_args[1]["admin_user"] == "pre.admin"
 
 
@@ -131,7 +131,7 @@ def test_handler_username_prefix_without_dot(cfn_create_event):
         patch.object(handler, "setup_database_postgresql"),
     ):
         handler._handler_impl(cfn_create_event, MagicMock())
-    assert mock_mysql.call_args[1]["app_username"] == "pre.syncbot_user_test"
+    assert mock_mysql.call_args[1]["app_username"] == "pre.sbapp_test"
     assert mock_mysql.call_args[1]["admin_user"] == "pre.admin"
 
 
@@ -148,7 +148,23 @@ def test_handler_username_prefix_applied_to_bare_root_admin(cfn_create_event):
     ):
         handler._handler_impl(cfn_create_event, MagicMock())
     assert mock_mysql.call_args[1]["admin_user"] == "cluster.root"
-    assert mock_mysql.call_args[1]["app_username"] == "cluster.syncbot_user_test"
+    assert mock_mysql.call_args[1]["app_username"] == "cluster.sbapp_test"
+
+
+def test_handler_app_username_override_bypasses_prefix_and_default(cfn_create_event):
+    cfn_create_event["ResourceProperties"]["UsernamePrefix"] = "pre"
+    cfn_create_event["ResourceProperties"]["AppUsername"] = "custom.app_user"
+    handler = _fresh_handler()
+    with (
+        patch.object(handler, "send"),
+        patch.object(handler, "get_secret_value", return_value="apppw"),
+        patch.object(handler, "_assert_tcp_reachable"),
+        patch.object(handler, "setup_database_mysql") as mock_mysql,
+        patch.object(handler, "setup_database_postgresql"),
+    ):
+        handler._handler_impl(cfn_create_event, MagicMock())
+    assert mock_mysql.call_args[1]["app_username"] == "custom.app_user"
+    assert mock_mysql.call_args[1]["admin_user"] == "pre.admin"
 
 
 def test_handler_custom_port_passed_to_tcp_and_mysql(cfn_create_event):

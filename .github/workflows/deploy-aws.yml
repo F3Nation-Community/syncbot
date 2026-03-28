@@ -107,6 +107,7 @@ jobs:
                ExistingDatabaseCreateAppUser=${{ vars.EXISTING_DATABASE_CREATE_APP_USER || 'true' }} \
                ExistingDatabaseCreateSchema=${{ vars.EXISTING_DATABASE_CREATE_SCHEMA || 'true' }} \
                ExistingDatabaseUsernamePrefix=${{ vars.EXISTING_DATABASE_USERNAME_PREFIX }} \
+               ExistingDatabaseAppUsername=${{ vars.EXISTING_DATABASE_APP_USERNAME }} \
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
                RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \
@@ -186,6 +187,7 @@ jobs:
                ExistingDatabaseCreateAppUser=${{ vars.EXISTING_DATABASE_CREATE_APP_USER || 'true' }} \
                ExistingDatabaseCreateSchema=${{ vars.EXISTING_DATABASE_CREATE_SCHEMA || 'true' }} \
                ExistingDatabaseUsernamePrefix=${{ vars.EXISTING_DATABASE_USERNAME_PREFIX }} \
+               ExistingDatabaseAppUsername=${{ vars.EXISTING_DATABASE_APP_USERNAME }} \
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
                RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \

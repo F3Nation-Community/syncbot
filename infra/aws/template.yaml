@@ -158,8 +158,17 @@ Parameters:
     Description: >
       Username prefix required by some managed DB providers (e.g. TiDB Cloud cluster prefix "abc123").
       A dot separator is added automatically if missing. Prepended to ExistingDatabaseAdminUser and to the
-      dedicated app user ({prefix}.syncbot_user_{Stage}). Use the bare admin name (e.g. root) when this is set.
+      default app user ({prefix}.sbapp_{Stage}) unless ExistingDatabaseAppUsername is set.
+      Use the bare admin name (e.g. root) when this is set.
       Leave empty for standard databases (RDS, self-hosted). Ignored when creating new RDS in stack.
+    Type: String
+    Default: ""
+
+  ExistingDatabaseAppUsername:
+    Description: >
+      When ExistingDatabaseHost is set and CreateAppUser is true: optional full app DB username (bypasses
+      prefix + default sbapp_{Stage}). Use when the auto-generated name exceeds provider limits (e.g. MySQL 32 chars)
+      or you need a fixed name. Leave empty for default {prefix}.sbapp_{Stage}. Ignored when creating new RDS in stack.
     Type: String
     Default: ""
 
@@ -502,7 +511,7 @@ Resources:
       Engine: mysql
       # Minor version must match cfn-lint / RDS allowed list (major-only "8.0" fails E3691)
       EngineVersion: "8.0.40"
-      MasterUsername: !Sub "syncbot_admin_${Stage}"
+      MasterUsername: !Sub "sbadmin_${Stage}"
       ManageMasterUserPassword: true
       DBName: !Ref DatabaseSchema
       AllocatedStorage: 20
@@ -535,7 +544,7 @@ Resources:
       DBInstanceClass: !Ref DatabaseInstanceClass
       Engine: postgres
       EngineVersion: "16.6"
-      MasterUsername: !Sub "syncbot_admin_${Stage}"
+      MasterUsername: !Sub "sbadmin_${Stage}"
       ManageMasterUserPassword: true
       DBName: !Ref DatabaseSchema
       AllocatedStorage: 20
@@ -649,7 +658,7 @@ Resources:
       AdminUser: !If
         - UseExistingDatabase
         - !Ref ExistingDatabaseAdminUser
-        - !Sub "syncbot_admin_${Stage}"
+        - !Sub "sbadmin_${Stage}"
       AdminPassword: !If
         - UseExistingDatabase
         - !Ref ExistingDatabaseAdminPassword
@@ -686,6 +695,10 @@ Resources:
       UsernamePrefix: !If
         - UseExistingDatabase
         - !Ref ExistingDatabaseUsernamePrefix
+        - ""
+      AppUsername: !If
+        - UseExistingDatabase
+        - !Ref ExistingDatabaseAppUsername
         - ""
 
   # ============================================================

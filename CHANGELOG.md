@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `ExistingDatabasePort`, `ExistingDatabaseCreateAppUser`, and `ExistingDatabaseCreateSchema` deploy parameters for external DB providers (e.g. TiDB Cloud)
-- `ExistingDatabaseUsernamePrefix` (AWS) / `existing_db_username_prefix` (GCP): optional prefix prepended to admin and app DB usernames in the AWS bootstrap Lambda; app user is `{prefix}.syncbot_user_{stage}` (required for TiDB Cloud Serverless username rules). Renamed from `ExistingDatabaseAppUsernamePrefix` / `existing_db_app_username_prefix`.
+- External DB deploy parameters: `ExistingDatabasePort`, `ExistingDatabaseCreateAppUser`, `ExistingDatabaseCreateSchema`, `ExistingDatabaseUsernamePrefix`, `ExistingDatabaseAppUsername` (AWS) / GCP equivalents — support TiDB Cloud and other managed DB providers with cluster-prefixed usernames and 32-char limits
 
 ### Changed
 
+- Shortened default DB usernames: `sbadmin_{stage}` (was `syncbot_admin_{stage}`), `sbapp_{stage}` (was `syncbot_user_{stage}`). Existing RDS instances keep their original master username.
 - Bumped GitHub Actions: `actions/checkout` v6, `actions/setup-python` v6, `actions/upload-artifact` v7, `actions/download-artifact` v8, `aws-actions/configure-aws-credentials` v6
 - Dependabot: ignore semver-major updates for the Docker `python` image (keeps base image on Python 3.12.x line)
 - AWS Lambda: Alembic migrations now run via a post-deploy invoke instead of on every cold start, fixing Slack ack timeouts after deployment; Cloud Run and local dev unchanged

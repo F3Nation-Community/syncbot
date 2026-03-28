@@ -48,7 +48,8 @@ Minimal Terraform scaffold to run SyncBot on Google Cloud. Satisfies the [infras
 | `stage` | Stage name, e.g. `test` or `prod` |
 | `use_existing_database` | If `true`, use `existing_db_*` vars instead of creating Cloud SQL |
 | `existing_db_host`, `existing_db_schema`, `existing_db_user` | Existing MySQL connection (when `use_existing_database = true`) |
-| `existing_db_username_prefix` | Optional (e.g. TiDB Cloud `abc123`). A dot separator is added automatically. When set, `DATABASE_USER` is `{prefix}.syncbot_user_{stage}` and `existing_db_user` is ignored |
+| `existing_db_username_prefix` | Optional (e.g. TiDB Cloud `abc123`). A dot separator is added automatically. When set, `DATABASE_USER` is `{prefix}.sbapp_{stage}` unless `existing_db_app_username` is set; `existing_db_user` is ignored |
+| `existing_db_app_username` | Optional full `DATABASE_USER` (bypasses prefix + `sbapp_{stage}` and `existing_db_user`) |
 | `cloud_run_image` | Container image URL for Cloud Run (set after first build) |
 | `secret_slack_bot_scopes` | Secret Manager secret ID for **bot** OAuth scopes (runtime `SLACK_BOT_SCOPES`; default `syncbot-slack-scopes`). The **secret value** must match `oauth_config.scopes.bot` / `BOT_SCOPES` (same requirement as AWS SAM `SlackOauthBotScopes`). |
 | `slack_user_scopes` | Plain-text **user** OAuth scopes for Cloud Run (`SLACK_USER_SCOPES`). Default matches repo standard (same comma-separated string as AWS SAM `SlackOauthUserScopes`); must match manifest `oauth_config.scopes.user` and `USER_SCOPES` in `slack_manifest_scopes.py`. |

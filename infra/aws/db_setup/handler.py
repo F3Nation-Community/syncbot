@@ -157,7 +157,11 @@ def _handler_impl(event, context):
         username_prefix += "."
     if username_prefix:
         admin_user = f"{username_prefix}{admin_user}"
-    app_username = f"{username_prefix}syncbot_user_{stage}".replace("-", "_")
+    app_username_override = (props.get("AppUsername") or "").strip()
+    if app_username_override:
+        app_username = app_username_override
+    else:
+        app_username = f"{username_prefix}sbapp_{stage}".replace("-", "_")
     app_password = ""
     if create_app_user:
         try:
