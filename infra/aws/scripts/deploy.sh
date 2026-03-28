@@ -97,6 +97,92 @@ required_from_env_or_prompt() {
   fi
 }
 
+# When local env overrides differ from the CloudFormation stack (e.g. GitHub-deployed TiDB vs .env RDS),
+# prompt the operator instead of silently preferring env.
+resolve_with_conflict_check() {
+  local label="$1"
+  local env_value="$2"
+  local stack_value="$3"
+  local prompt_default_value="$4"
+  local mode="${5:-plain}" # plain|secret|bool
+
+  if [[ -z "$env_value" ]]; then
+    if [[ "$mode" == "secret" ]]; then
+      prompt_secret_required "$label"
+    elif [[ "$mode" == "bool" ]]; then
+      local yn_def="${prompt_default_value:-y}"
+      if prompt_yes_no "$label" "$yn_def"; then
+        echo "true"
+      else
+        echo "false"
+      fi
+    else
+      prompt_default "$label" "$prompt_default_value"
+    fi
+    return 0
+  fi
+
+  if [[ "$mode" == "bool" ]]; then
+    if [[ "$env_value" != "true" && "$env_value" != "false" ]]; then
+      echo "Error: environment value for $label must be true or false." >&2
+      exit 1
+    fi
+    if [[ -z "$stack_value" || "$env_value" == "$stack_value" ]]; then
+      echo "Using $label from environment variable." >&2
+      echo "$env_value"
+      return 0
+    fi
+    echo "" >&2
+    echo "CONFLICT: $label differs between local env and deployed stack:" >&2
+    echo "  Local env:  $env_value" >&2
+    echo "  AWS stack:  $stack_value" >&2
+    local choice
+    read -r -p "Use (l)ocal env / (a)ws stack / (e)nter new value? [l/a/e]: " choice >&2
+    case "$choice" in
+      a | A) echo "$stack_value" ;;
+      e | E)
+        if prompt_yes_no "$label" "${prompt_default_value:-y}"; then
+          echo "true"
+        else
+          echo "false"
+        fi
+        ;;
+      *) echo "$env_value" ;;
+    esac
+    return 0
+  fi
+
+  if [[ -z "$stack_value" || "$env_value" == "$stack_value" ]]; then
+    echo "Using $label from environment variable." >&2
+    echo "$env_value"
+    return 0
+  fi
+
+  local display_env="$env_value"
+  local display_stack="$stack_value"
+  if [[ "$mode" == "secret" ]]; then
+    display_env="(hidden)"
+    display_stack="(hidden)"
+  fi
+  echo "" >&2
+  echo "CONFLICT: $label differs between local env and deployed stack:" >&2
+  echo "  Local env:  $display_env" >&2
+  echo "  AWS stack:  $display_stack" >&2
+  local choice
+  read -r -p "Use (l)ocal env / (a)ws stack / (e)nter new value? [l/a/e]: " choice >&2
+  case "$choice" in
+    a | A) echo "$stack_value" ;;
+    e | E)
+      if [[ "$mode" == "secret" ]]; then
+        prompt_secret_required "$label"
+      else
+        prompt_required "$label"
+      fi
+      ;;
+    *) echo "$env_value" ;;
+  esac
+}
+
 prompt_yes_no() {
   local prompt="$1"
   local default="${2:-y}"
@@ -1411,12 +1497,11 @@ if [[ "$DB_MODE" == "2" ]]; then
   EXISTING_DATABASE_ADMIN_USER_DEFAULT="admin"
   [[ -n "$PREV_EXISTING_DATABASE_ADMIN_USER" ]] && EXISTING_DATABASE_ADMIN_USER_DEFAULT="$PREV_EXISTING_DATABASE_ADMIN_USER"
 
-  if [[ -n "$ENV_EXISTING_DATABASE_HOST" ]]; then
-    echo "Using ExistingDatabaseHost from environment variable EXISTING_DATABASE_HOST."
-    EXISTING_DATABASE_HOST="$ENV_EXISTING_DATABASE_HOST"
-  else
-    EXISTING_DATABASE_HOST="$(prompt_default "ExistingDatabaseHost (RDS endpoint hostname)" "$EXISTING_DATABASE_HOST_DEFAULT")"
-  fi
+  EXISTING_DATABASE_HOST="$(resolve_with_conflict_check \
+    "ExistingDatabaseHost (RDS endpoint hostname)" \
+    "$ENV_EXISTING_DATABASE_HOST" \
+    "$PREV_EXISTING_DATABASE_HOST" \
+    "$EXISTING_DATABASE_HOST_DEFAULT")"
 
   DETECTED_ADMIN_USER=""
   DETECTED_ADMIN_SECRET_ARN=""
@@ -1432,12 +1517,11 @@ if [[ "$DB_MODE" == "2" ]]; then
   if [[ -z "$EXISTING_DATABASE_ADMIN_USER_DEFAULT" || "$EXISTING_DATABASE_ADMIN_USER_DEFAULT" == "admin" ]]; then
     [[ -n "$DETECTED_ADMIN_USER" ]] && EXISTING_DATABASE_ADMIN_USER_DEFAULT="$DETECTED_ADMIN_USER"
   fi
-  if [[ -n "$ENV_EXISTING_DATABASE_ADMIN_USER" ]]; then
-    echo "Using ExistingDatabaseAdminUser from environment variable EXISTING_DATABASE_ADMIN_USER."
-    EXISTING_DATABASE_ADMIN_USER="$ENV_EXISTING_DATABASE_ADMIN_USER"
-  else
-    EXISTING_DATABASE_ADMIN_USER="$(prompt_default "ExistingDatabaseAdminUser" "$EXISTING_DATABASE_ADMIN_USER_DEFAULT")"
-  fi
+  EXISTING_DATABASE_ADMIN_USER="$(resolve_with_conflict_check \
+    "ExistingDatabaseAdminUser" \
+    "$ENV_EXISTING_DATABASE_ADMIN_USER" \
+    "$PREV_EXISTING_DATABASE_ADMIN_USER" \
+    "$EXISTING_DATABASE_ADMIN_USER_DEFAULT")"
 
   if [[ -n "$ENV_EXISTING_DATABASE_ADMIN_PASSWORD" ]]; then
     echo "Using ExistingDatabaseAdminPassword from environment variable EXISTING_DATABASE_ADMIN_PASSWORD."
@@ -1465,12 +1549,11 @@ if [[ "$DB_MODE" == "2" ]]; then
   echo "Leave port blank to use the engine default (3306 MySQL, 5432 PostgreSQL)."
   DEFAULT_EXISTING_DB_PORT=""
   [[ -n "$PREV_EXISTING_DATABASE_PORT" ]] && DEFAULT_EXISTING_DB_PORT="$PREV_EXISTING_DATABASE_PORT"
-  if [[ -n "$ENV_EXISTING_DATABASE_PORT" ]]; then
-    echo "Using ExistingDatabasePort from environment variable EXISTING_DATABASE_PORT."
-    EXISTING_DATABASE_PORT="$ENV_EXISTING_DATABASE_PORT"
-  else
-    EXISTING_DATABASE_PORT="$(prompt_default "ExistingDatabasePort (optional)" "$DEFAULT_EXISTING_DB_PORT")"
-  fi
+  EXISTING_DATABASE_PORT="$(resolve_with_conflict_check \
+    "ExistingDatabasePort (optional)" \
+    "$ENV_EXISTING_DATABASE_PORT" \
+    "$PREV_EXISTING_DATABASE_PORT" \
+    "$DEFAULT_EXISTING_DB_PORT")"
   if [[ "$DATABASE_ENGINE" == "mysql" && "$EXISTING_DATABASE_PORT" == "3306" ]]; then
     EXISTING_DATABASE_PORT=""
   fi
@@ -1483,33 +1566,21 @@ if [[ "$DB_MODE" == "2" ]]; then
 
   CREATE_APP_DEFAULT="y"
   [[ "${PREV_EXISTING_DATABASE_CREATE_APP_USER:-}" == "false" ]] && CREATE_APP_DEFAULT="n"
-  if [[ -n "$ENV_EXISTING_DATABASE_CREATE_APP_USER" ]]; then
-    echo "Using ExistingDatabaseCreateAppUser from environment variable EXISTING_DATABASE_CREATE_APP_USER."
-    EXISTING_DATABASE_CREATE_APP_USER="$ENV_EXISTING_DATABASE_CREATE_APP_USER"
-    if [[ "$EXISTING_DATABASE_CREATE_APP_USER" != "true" && "$EXISTING_DATABASE_CREATE_APP_USER" != "false" ]]; then
-      echo "Error: EXISTING_DATABASE_CREATE_APP_USER must be true or false." >&2
-      exit 1
-    fi
-  elif prompt_yes_no "Create dedicated app DB user (CREATE USER / grants)?" "$CREATE_APP_DEFAULT"; then
-    EXISTING_DATABASE_CREATE_APP_USER="true"
-  else
-    EXISTING_DATABASE_CREATE_APP_USER="false"
-  fi
+  EXISTING_DATABASE_CREATE_APP_USER="$(resolve_with_conflict_check \
+    "Create dedicated app DB user (CREATE USER / grants)?" \
+    "$ENV_EXISTING_DATABASE_CREATE_APP_USER" \
+    "${PREV_EXISTING_DATABASE_CREATE_APP_USER:-}" \
+    "$CREATE_APP_DEFAULT" \
+    bool)"
 
   CREATE_SCHEMA_DEFAULT="y"
   [[ "${PREV_EXISTING_DATABASE_CREATE_SCHEMA:-}" == "false" ]] && CREATE_SCHEMA_DEFAULT="n"
-  if [[ -n "$ENV_EXISTING_DATABASE_CREATE_SCHEMA" ]]; then
-    echo "Using ExistingDatabaseCreateSchema from environment variable EXISTING_DATABASE_CREATE_SCHEMA."
-    EXISTING_DATABASE_CREATE_SCHEMA="$ENV_EXISTING_DATABASE_CREATE_SCHEMA"
-    if [[ "$EXISTING_DATABASE_CREATE_SCHEMA" != "true" && "$EXISTING_DATABASE_CREATE_SCHEMA" != "false" ]]; then
-      echo "Error: EXISTING_DATABASE_CREATE_SCHEMA must be true or false." >&2
-      exit 1
-    fi
-  elif prompt_yes_no "Run CREATE DATABASE IF NOT EXISTS for DatabaseSchema?" "$CREATE_SCHEMA_DEFAULT"; then
-    EXISTING_DATABASE_CREATE_SCHEMA="true"
-  else
-    EXISTING_DATABASE_CREATE_SCHEMA="false"
-  fi
+  EXISTING_DATABASE_CREATE_SCHEMA="$(resolve_with_conflict_check \
+    "Run CREATE DATABASE IF NOT EXISTS for DatabaseSchema?" \
+    "$ENV_EXISTING_DATABASE_CREATE_SCHEMA" \
+    "${PREV_EXISTING_DATABASE_CREATE_SCHEMA:-}" \
+    "$CREATE_SCHEMA_DEFAULT" \
+    bool)"
 
   if [[ -z "$EXISTING_DATABASE_HOST" || "$EXISTING_DATABASE_HOST" == REPLACE_ME* ]]; then
     echo "Error: valid ExistingDatabaseHost is required for existing DB mode." >&2
