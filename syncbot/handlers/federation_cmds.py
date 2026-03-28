@@ -336,7 +336,7 @@ def handle_remove_federation_connection(
 
     try:
         member_id = int(member_id_str)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         _logger.warning("remove_federation_connection_invalid_id", extra={"action_id": action_id})
         return
 
@@ -345,6 +345,7 @@ def handle_remove_federation_connection(
         return
 
     from datetime import UTC, datetime
+
     now = datetime.now(UTC)
     DbManager.update_records(
         schemas.WorkspaceGroupMember,

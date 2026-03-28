@@ -40,7 +40,9 @@ class TestSplitMessagePostMeta:
             created.extend(rows)
 
         with (
-            patch("handlers.messages.helpers.get_sync_list", return_value=[(sc_source, ws_source), (sc_target, ws_target)]),
+            patch(
+                "handlers.messages.helpers.get_sync_list", return_value=[(sc_source, ws_source), (sc_target, ws_target)]
+            ),
             patch("handlers.messages.helpers.get_user_info", return_value=("N", "http://i")),
             patch("handlers.messages.helpers.get_mapped_target_user_id", return_value=None),
             patch("handlers.messages.helpers.get_federated_workspace_for_sync", return_value=None),

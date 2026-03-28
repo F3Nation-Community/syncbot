@@ -257,14 +257,14 @@ def build_user_mapping_edit_modal(
     mapping_id_str = action_id.replace(actions.CONFIG_USER_MAPPING_EDIT + "_", "")
     try:
         mapping_id = int(mapping_id_str)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         _logger.warning(f"build_user_mapping_edit_modal: invalid mapping_id: {mapping_id_str}")
         return
 
     raw_group = helpers.safe_get(body, "actions", 0, "value") or "0"
     try:
         group_id = int(raw_group)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         group_id = 0
 
     mapping = DbManager.get_record(UserMapping, id=mapping_id)

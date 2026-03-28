@@ -516,9 +516,7 @@ def find_synced_channel_in_target(source_channel_id: str, target_workspace_id: i
     return target_rows[0].channel_id
 
 
-_ARCHIVE_LINK_PATTERN = re.compile(
-    r"<https://([a-z0-9-]+)\.slack\.com/archives/(C[A-Z0-9]+)\|([^>]+)>"
-)
+_ARCHIVE_LINK_PATTERN = re.compile(r"<https://([a-z0-9-]+)\.slack\.com/archives/(C[A-Z0-9]+)\|([^>]+)>")
 
 
 def _rewrite_slack_archive_links_to_native_channels(msg_text: str, target_workspace_id: int) -> str:
@@ -557,7 +555,7 @@ def _get_workspace_domain(client: WebClient, team_id: str) -> str | None:
 def resolve_channel_references(
     msg_text: str,
     source_client: WebClient | None,
-    source_workspace: "schemas.Workspace | None" = None,
+    source_workspace: schemas.Workspace | None = None,
     target_workspace_id: int | None = None,
 ) -> str:
     """Replace ``<#CHANNEL_ID>`` references with native local channels when synced, else archive URLs or fallbacks.

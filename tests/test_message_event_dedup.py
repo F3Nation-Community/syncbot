@@ -86,7 +86,10 @@ class TestRespondToMessageEventDedup:
         with (
             patch("handlers.messages._is_own_bot_message", return_value=False),
             patch("handlers.messages._handle_new_post") as mock_new,
-            patch("handlers.messages._build_file_context", return_value=([], [], [{"path": "/tmp/x", "name": "x.jpg", "mimetype": "image/jpeg"}])),
+            patch(
+                "handlers.messages._build_file_context",
+                return_value=([], [], [{"path": "/tmp/x", "name": "x.jpg", "mimetype": "image/jpeg"}]),
+            ),
         ):
             respond_to_message_event(body, client, logger, context)
 

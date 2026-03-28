@@ -50,11 +50,7 @@ def get_oauth_flow():
     )
 
     bot_scopes = [s.strip() for s in scopes_raw.split(",") if s.strip()]
-    user_scopes = (
-        [s.strip() for s in user_scopes_raw.split(",") if s.strip()]
-        if user_scopes_raw
-        else list(USER_SCOPES)
-    )
+    user_scopes = [s.strip() for s in user_scopes_raw.split(",") if s.strip()] if user_scopes_raw else list(USER_SCOPES)
 
     return OAuthFlow(
         settings=OAuthSettings(

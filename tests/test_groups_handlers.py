@@ -35,11 +35,7 @@ class TestJoinGroupSubmit:
         ):
             handle_join_group_submit(body, client, logger, context={})
 
-        matched = [
-            call
-            for call in warn_log.call_args_list
-            if call.args and call.args[0] == "group_code_invalid"
-        ]
+        matched = [call for call in warn_log.call_args_list if call.args and call.args[0] == "group_code_invalid"]
         assert matched, "Expected group_code_invalid warning"
         extra = matched[0].kwargs["extra"]
         assert "code" not in extra

@@ -138,7 +138,7 @@ def handle_user_mapping_refresh(
     raw_group = helpers.safe_get(body, "actions", 0, "value") or "0"
     try:
         group_id = int(raw_group)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         group_id = 0
 
     gid_opt = group_id or None

@@ -23,6 +23,7 @@ def _find_source_workspace_id(records: list[tuple], channel_id: str, ws_index: i
             return workspace.id
     return None
 
+
 _logger = logging.getLogger(__name__)
 
 
@@ -770,14 +771,14 @@ def _should_skip_slack_event_retry(body: dict, context: dict) -> bool:
         try:
             if int(rn) >= 1:
                 return True
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
     ra = helpers.safe_get(body, "retry_attempt")
     if ra is not None:
         try:
             if int(ra) >= 1:
                 return True
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
     return False
 

@@ -24,7 +24,7 @@ def safe_get(data: Any, *keys: Any) -> Any:
             else:
                 return None
         return result
-    except (KeyError, AttributeError, IndexError):
+    except KeyError, AttributeError, IndexError:
         return None
 
 

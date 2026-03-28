@@ -6,11 +6,11 @@ Supports MySQL (port 3306) and PostgreSQL (port 5432). It can use:
 - admin password fetched from an admin secret ARN (new-RDS mode).
 """
 
+import base64
 import json
 import re
-import base64
-import time
 import socket
+import time
 
 import boto3
 import psycopg2
@@ -66,9 +66,7 @@ def handler(event, context):
         try:
             send(event, context, "FAILED", reason=f"Unhandled error: {e}")
         except Exception as send_err:
-            raise RuntimeError(
-                f"Unhandled error in handler: {e}; failed to notify CloudFormation: {send_err}"
-            ) from e
+            raise RuntimeError(f"Unhandled error in handler: {e}; failed to notify CloudFormation: {send_err}") from e
         raise
 
 
@@ -169,9 +167,7 @@ def _assert_tcp_reachable(host: str, port: int) -> None:
             time.sleep(DB_CONNECT_RETRY_SECONDS)
         finally:
             sock.close()
-    raise RuntimeError(
-        f"Cannot reach {host}:{port} over TCP after {DB_CONNECT_ATTEMPTS} attempts: {last_exc}"
-    )
+    raise RuntimeError(f"Cannot reach {host}:{port} over TCP after {DB_CONNECT_ATTEMPTS} attempts: {last_exc}")
 
 
 def get_secret_value(secret_arn: str, json_key: str | None = None) -> str:
@@ -228,9 +224,7 @@ def setup_database_mysql(
             last_exc = exc
             time.sleep(DB_CONNECT_RETRY_SECONDS)
     if conn is None:
-        raise RuntimeError(
-            f"MySQL connect failed after {DB_CONNECT_ATTEMPTS} attempts: {last_exc}"
-        )
+        raise RuntimeError(f"MySQL connect failed after {DB_CONNECT_ATTEMPTS} attempts: {last_exc}")
     try:
         with conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE IF NOT EXISTS `{safe_schema}`")
@@ -328,6 +322,5 @@ def setup_database_postgresql(
             last_exc = exc
             time.sleep(db_connect_retry_seconds)
     raise RuntimeError(
-        f"Failed connecting to newly created database '{schema}' after "
-        f"{max_db_connect_attempts} attempts: {last_exc}"
+        f"Failed connecting to newly created database '{schema}' after {max_db_connect_attempts} attempts: {last_exc}"
     )

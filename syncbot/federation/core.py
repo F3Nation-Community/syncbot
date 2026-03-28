@@ -98,12 +98,8 @@ def get_or_create_instance_keypair():
         return private_key, existing[0].public_key
 
     private_key = Ed25519PrivateKey.generate()
-    public_pem = private_key.public_key().public_bytes(
-        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo
-    ).decode()
-    private_pem = private_key.private_bytes(
-        Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
-    ).decode()
+    public_pem = private_key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode()
+    private_pem = private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()).decode()
 
     record = schemas.InstanceKey(
         public_key=public_pem,
@@ -144,7 +140,7 @@ def federation_verify(body: str, signature_b64: str, timestamp: str, public_key_
     """
     try:
         ts_int = int(timestamp)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
 
     if abs(time.time() - ts_int) > _TIMESTAMP_MAX_AGE:
@@ -156,7 +152,7 @@ def federation_verify(body: str, signature_b64: str, timestamp: str, public_key_
         signing_str = f"{timestamp}:{body}".encode()
         public_key.verify(base64.b64decode(signature_b64), signing_str)
         return True
-    except (InvalidSignature, ValueError, TypeError):
+    except InvalidSignature, ValueError, TypeError:
         return False
 
 
@@ -173,7 +169,7 @@ def verify_body(body: str, signature_b64: str, public_key_pem: str) -> bool:
         public_key = load_pem_public_key(public_key_pem.encode())
         public_key.verify(base64.b64decode(signature_b64), body.encode())
         return True
-    except (InvalidSignature, ValueError, TypeError):
+    except InvalidSignature, ValueError, TypeError:
         return False
 
 
@@ -219,6 +215,7 @@ def validate_webhook_url(url: str) -> bool:
         return False
 
     import socket
+
     try:
         addr_infos = socket.getaddrinfo(hostname, None)
         for info in addr_infos:
@@ -230,7 +227,7 @@ def validate_webhook_url(url: str) -> bool:
                         extra={"url": url, "resolved_ip": str(addr)},
                     )
                     return False
-    except (socket.gaierror, ValueError):
+    except socket.gaierror, ValueError:
         return False
 
     return True

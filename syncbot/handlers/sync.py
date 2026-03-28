@@ -35,7 +35,7 @@ def handle_remove_sync(
     raw_value = helpers.safe_get(body, "actions", 0, "value")
     try:
         sync_channel_id = int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         _logger.warning(f"Invalid sync_channel_id value: {raw_value!r}")
         return
 
@@ -119,12 +119,8 @@ def handle_refresh_home(
     cooldown_sec = getattr(constants, "REFRESH_COOLDOWN_SECONDS", 60)
 
     if action == "cooldown" and cached_blocks is not None and remaining is not None:
-        refresh_idx = helpers.index_of_block_with_action(
-            cached_blocks, actions.CONFIG_REFRESH_HOME
-        )
-        blocks_with_message = helpers.inject_cooldown_message(
-            cached_blocks, refresh_idx, remaining
-        )
+        refresh_idx = helpers.index_of_block_with_action(cached_blocks, actions.CONFIG_REFRESH_HOME)
+        blocks_with_message = helpers.inject_cooldown_message(cached_blocks, refresh_idx, remaining)
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks_with_message})
         return
     if action == "cached" and cached_blocks is not None:

@@ -56,10 +56,17 @@ from logger import (
 )
 from routing import MAIN_MAPPER, VIEW_ACK_MAPPER, VIEW_MAPPER
 
-_SENSITIVE_KEYS = frozenset({
-    "token", "bot_token", "access_token", "shared_secret",
-    "public_key", "private_key", "private_key_encrypted",
-})
+_SENSITIVE_KEYS = frozenset(
+    {
+        "token",
+        "bot_token",
+        "access_token",
+        "shared_secret",
+        "public_key",
+        "private_key",
+        "private_key_encrypted",
+    }
+)
 
 
 def _redact_sensitive(obj, _depth=0):
@@ -67,10 +74,7 @@ def _redact_sensitive(obj, _depth=0):
     if _depth > 10:
         return obj
     if isinstance(obj, dict):
-        return {
-            k: "[REDACTED]" if k in _SENSITIVE_KEYS else _redact_sensitive(v, _depth + 1)
-            for k, v in obj.items()
-        }
+        return {k: "[REDACTED]" if k in _SENSITIVE_KEYS else _redact_sensitive(v, _depth + 1) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_redact_sensitive(v, _depth + 1) for v in obj]
     return obj
@@ -98,7 +102,7 @@ def _capture_slack_retry_num(req, resp, next):
         try:
             v = vals[0] if isinstance(vals, (list, tuple)) else vals
             req.context["slack_retry_num"] = int(v)
-        except (ValueError, TypeError, IndexError):
+        except ValueError, TypeError, IndexError:
             pass
     return next()
 
@@ -224,11 +228,7 @@ def main_response(body: dict, logger, client, ack, context: dict) -> None:
             )
             raise
     else:
-        if not (
-            request_type == "view_submission"
-            and request_id in VIEW_ACK_MAPPER
-            and request_id not in VIEW_MAPPER
-        ):
+        if not (request_type == "view_submission" and request_id in VIEW_ACK_MAPPER and request_id not in VIEW_MAPPER):
             _logger.error(
                 "no_handler",
                 extra={
@@ -364,7 +364,7 @@ def run_syncbot_http_server(
                 return
             try:
                 content_len = int(self.headers.get("Content-Length") or 0)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 content_len = 0
             query = self.path.partition("?")[2]
             request_body = self.rfile.read(content_len).decode("utf-8")
@@ -382,13 +382,11 @@ def run_syncbot_http_server(
                     int(self.headers.get("Content-Length", 0)),
                     _fed_max_body,
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 content_len = 0
             body_str = self.rfile.read(content_len).decode() if content_len else ""
             headers = {k: v for k, v in self.headers.items()}
-            status, resp = dispatch_federation_request(
-                method, self._path_no_query(), body_str, headers
-            )
+            status, resp = dispatch_federation_request(method, self._path_no_query(), body_str, headers)
             self._send_raw(
                 status,
                 {"Content-Type": ["application/json"]},

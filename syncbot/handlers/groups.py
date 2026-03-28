@@ -35,8 +35,8 @@ def _generate_invite_code(length: int = 7) -> str:
 
 def _activate_group_membership(
     client: WebClient,
-    workspace_record: "schemas.Workspace",
-    group: "schemas.WorkspaceGroup",
+    workspace_record: schemas.Workspace,
+    group: schemas.WorkspaceGroup,
 ) -> None:
     """Refresh user directories and seed mappings for all existing group members."""
     try:
@@ -365,7 +365,7 @@ def handle_invite_workspace(
     raw_group_id = helpers.safe_get(body, "actions", 0, "value")
     try:
         group_id = int(raw_group_id)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         _logger.warning(f"invite_workspace: invalid group_id: {raw_group_id!r}")
         return
 
@@ -497,7 +497,7 @@ def handle_invite_workspace_submit(
 
     try:
         target_ws_id = int(selected_ws_id)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return
 
     target_ws = helpers.get_workspace_by_id(target_ws_id)
@@ -597,7 +597,7 @@ def handle_accept_group_invite(
     raw_member_id = helpers.safe_get(body, "actions", 0, "value")
     try:
         member_id = int(raw_member_id)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         _logger.warning(f"accept_group_invite: invalid member_id: {raw_member_id!r}")
         return
 
@@ -680,7 +680,7 @@ def handle_decline_group_invite(
     raw_member_id = helpers.safe_get(body, "actions", 0, "value")
     try:
         member_id = int(raw_member_id)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         _logger.warning(f"decline_group_invite: invalid member_id: {raw_member_id!r}")
         return
 
@@ -756,7 +756,7 @@ def _update_invite_dms(
 
     try:
         entries = _json.loads(member.dm_messages)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         _logger.warning("_update_invite_dms: invalid dm_messages JSON for member %s", member.id)
         return
 

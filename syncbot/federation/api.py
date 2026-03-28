@@ -45,6 +45,7 @@ def _find_post_records(post_id: str, sync_channel_id: int) -> list[schemas.PostM
         [schemas.PostMeta.post_id == pid, schemas.PostMeta.sync_channel_id == sync_channel_id],
     )
 
+
 _PAIRING_CODE_RE = re.compile(r"^FED-[0-9A-Fa-f]{8}$")
 
 _FIELD_MAX_LENGTHS = {
@@ -83,7 +84,9 @@ def _validate_fields(body: dict, required: list[str], extras: list[str] | None =
     return None
 
 
-def _pick_user_mapping_for_federated_target(source_user_id: str, target_workspace_id: int) -> schemas.UserMapping | None:
+def _pick_user_mapping_for_federated_target(
+    source_user_id: str, target_workspace_id: int
+) -> schemas.UserMapping | None:
     maps = DbManager.find_records(
         schemas.UserMapping,
         [
