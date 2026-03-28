@@ -263,6 +263,14 @@ resource "google_cloud_run_v2_service" "syncbot" {
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
 
+  labels = merge(
+    {},
+    var.use_existing_database ? {
+      syncbot_existing_db_create_app_user = var.existing_db_create_app_user ? "true" : "false"
+      syncbot_existing_db_create_schema   = var.existing_db_create_schema ? "true" : "false"
+    } : {},
+  )
+
   template {
     service_account = google_service_account.cloud_run.email
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ExistingDatabasePort`, `ExistingDatabaseCreateAppUser`, and `ExistingDatabaseCreateSchema` deploy parameters for external DB providers (e.g. TiDB Cloud)
+
 ### Changed
 
 - Bumped GitHub Actions: `actions/checkout` v6, `actions/setup-python` v6, `actions/upload-artifact` v7, `actions/download-artifact` v8, `aws-actions/configure-aws-credentials` v6

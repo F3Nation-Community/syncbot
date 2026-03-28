@@ -92,3 +92,81 @@ def test_handler_calls_postgresql_setup(cfn_create_event):
         mock_pg.assert_called_once()
         mock_mysql.assert_not_called()
         assert mock_send.call_args[0][2] == "SUCCESS"
+
+
+def test_handler_custom_port_passed_to_tcp_and_mysql(cfn_create_event):
+    cfn_create_event["ResourceProperties"]["Port"] = "4000"
+    handler = _fresh_handler()
+    with (
+        patch.object(handler, "send"),
+        patch.object(handler, "get_secret_value", return_value="apppw"),
+        patch.object(handler, "_assert_tcp_reachable") as mock_tcp,
+        patch.object(handler, "setup_database_mysql") as mock_mysql,
+        patch.object(handler, "setup_database_postgresql"),
+    ):
+        handler._handler_impl(cfn_create_event, MagicMock())
+    mock_tcp.assert_called_once_with("db.example.com", 4000)
+    assert mock_mysql.call_args[1]["port"] == 4000
+
+
+def test_handler_mysql_create_schema_false(cfn_create_event):
+    cfn_create_event["ResourceProperties"]["CreateSchema"] = "false"
+    handler = _fresh_handler()
+    with (
+        patch.object(handler, "send"),
+        patch.object(handler, "get_secret_value", return_value="apppw"),
+        patch.object(handler, "_assert_tcp_reachable"),
+        patch.object(handler, "setup_database_mysql") as mock_mysql,
+        patch.object(handler, "setup_database_postgresql"),
+    ):
+        handler._handler_impl(cfn_create_event, MagicMock())
+    assert mock_mysql.call_args[1]["create_schema"] is False
+
+
+def test_handler_put_secret_when_no_app_user(cfn_create_event):
+    cfn_create_event["ResourceProperties"]["CreateAppUser"] = "false"
+    handler = _fresh_handler()
+    with (
+        patch.object(handler, "send") as mock_send,
+        patch.object(handler, "get_secret_value") as mock_get,
+        patch.object(handler, "_assert_tcp_reachable"),
+        patch.object(handler, "setup_database_mysql") as mock_mysql,
+        patch.object(handler, "setup_database_postgresql") as mock_pg,
+        patch.object(handler, "put_secret_string") as mock_put,
+    ):
+        handler._handler_impl(cfn_create_event, MagicMock())
+    mock_get.assert_not_called()
+    mock_mysql.assert_called_once()
+    assert mock_mysql.call_args[1]["create_app_user"] is False
+    mock_pg.assert_not_called()
+    mock_put.assert_called_once_with(
+        cfn_create_event["ResourceProperties"]["SecretArn"],
+        "adminpw",
+    )
+    assert mock_send.call_args[0][2] == "SUCCESS"
+    assert mock_send.call_args[0][3] == {"Username": "admin"}
+
+
+def test_handler_skip_both_no_db_client(cfn_create_event):
+    cfn_create_event["ResourceProperties"]["CreateAppUser"] = "false"
+    cfn_create_event["ResourceProperties"]["CreateSchema"] = "false"
+    handler = _fresh_handler()
+    with (
+        patch.object(handler, "send") as mock_send,
+        patch.object(handler, "get_secret_value") as mock_get,
+        patch.object(handler, "_assert_tcp_reachable") as mock_tcp,
+        patch.object(handler, "setup_database_mysql") as mock_mysql,
+        patch.object(handler, "setup_database_postgresql") as mock_pg,
+        patch.object(handler, "put_secret_string") as mock_put,
+    ):
+        handler._handler_impl(cfn_create_event, MagicMock())
+    mock_get.assert_not_called()
+    mock_mysql.assert_not_called()
+    mock_pg.assert_not_called()
+    mock_tcp.assert_called_once_with("db.example.com", 3306)
+    mock_put.assert_called_once_with(
+        cfn_create_event["ResourceProperties"]["SecretArn"],
+        "adminpw",
+    )
+    assert mock_send.call_args[0][2] == "SUCCESS"
+    assert mock_send.call_args[0][3] == {"Username": "admin"}

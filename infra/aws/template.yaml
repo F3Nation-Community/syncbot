@@ -126,6 +126,33 @@ Parameters:
     Type: String
     Default: ""
 
+  ExistingDatabasePort:
+    Description: >
+      TCP port for ExistingDatabaseHost (DATABASE_PORT). Leave empty to use engine default (3306 MySQL, 5432 PostgreSQL).
+      Set for external providers with a non-standard port (e.g. TiDB Cloud 4000). Ignored when creating new RDS in stack.
+    Type: String
+    Default: ""
+
+  ExistingDatabaseCreateAppUser:
+    Description: >
+      When ExistingDatabaseHost is set: "true" (default) creates a dedicated app user and grants schema access.
+      Set "false" for managed DBs that disallow CREATE USER; admin password is copied to the app DB secret and DATABASE_USER is the admin user.
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  ExistingDatabaseCreateSchema:
+    Description: >
+      When ExistingDatabaseHost is set: "true" (default) runs CREATE DATABASE IF NOT EXISTS for DatabaseSchema.
+      Set "false" when the database already exists. Ignored when creating new RDS in stack.
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
   DatabaseSchema:
     Description: >
       Database/schema name for MySQL or PostgreSQL. Each app sharing an RDS instance
@@ -286,6 +313,9 @@ Conditions:
   UseExistingDatabasePrivateVpc: !And
     - !Condition UseExistingDatabase
     - !Equals [!Ref ExistingDatabaseNetworkMode, "private"]
+  UseExistingDatabaseWithCustomPort: !And
+    - !Condition UseExistingDatabase
+    - !Not [!Equals [!Ref ExistingDatabasePort, ""]]
   HasTokenEncryptionKeyOverride: !Not [!Equals [!Ref TokenEncryptionKeyOverride, ""]]
   HasExistingTokenEncryptionKeySecretArn: !Not [!Equals [!Ref ExistingTokenEncryptionKeySecretArn, ""]]
   HasAppDbPasswordOverride: !Not [!Equals [!Ref AppDbPasswordOverride, ""]]
@@ -573,7 +603,9 @@ Resources:
         - Version: "2012-10-17"
           Statement:
             - Effect: Allow
-              Action: secretsmanager:GetSecretValue
+              Action:
+                - secretsmanager:GetSecretValue
+                - secretsmanager:PutSecretValue
               Resource:
                 - !If
                   - HasAppDbPasswordOverride
@@ -626,6 +658,21 @@ Resources:
         - !Ref AppDbCredentialsSecretProvided
         - !Ref AppDbCredentialsSecretGenerated
       DatabaseEngine: !Ref DatabaseEngine
+      Port: !If
+        - UseExistingDatabaseWithCustomPort
+        - !Ref ExistingDatabasePort
+        - !If
+          - IsMysqlEngine
+          - "3306"
+          - "5432"
+      CreateAppUser: !If
+        - UseExistingDatabase
+        - !Ref ExistingDatabaseCreateAppUser
+        - "true"
+      CreateSchema: !If
+        - UseExistingDatabase
+        - !Ref ExistingDatabaseCreateSchema
+        - "true"
 
   # ============================================================
   # Lambda Function
@@ -688,9 +735,12 @@ Resources:
           SLACK_CLIENT_ID: !Ref SlackClientID
           DATABASE_BACKEND: !Ref DatabaseEngine
           DATABASE_PORT: !If
-            - IsMysqlEngine
-            - "3306"
-            - "5432"
+            - UseExistingDatabaseWithCustomPort
+            - !Ref ExistingDatabasePort
+            - !If
+              - IsMysqlEngine
+              - "3306"
+              - "5432"
           DATABASE_HOST: !If
             - UseExistingDatabase
             - !Ref ExistingDatabaseHost

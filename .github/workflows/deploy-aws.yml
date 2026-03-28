@@ -103,6 +103,9 @@ jobs:
                ExistingDatabaseNetworkMode=${{ vars.EXISTING_DATABASE_NETWORK_MODE || 'public' }} \
                ExistingDatabaseSubnetIdsCsv=${{ vars.EXISTING_DATABASE_SUBNET_IDS_CSV }} \
                ExistingDatabaseLambdaSecurityGroupId=${{ vars.EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID }} \
+               ExistingDatabasePort=${{ vars.EXISTING_DATABASE_PORT }} \
+               ExistingDatabaseCreateAppUser=${{ vars.EXISTING_DATABASE_CREATE_APP_USER || 'true' }} \
+               ExistingDatabaseCreateSchema=${{ vars.EXISTING_DATABASE_CREATE_SCHEMA || 'true' }} \
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
                RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \
@@ -178,6 +181,9 @@ jobs:
                ExistingDatabaseNetworkMode=${{ vars.EXISTING_DATABASE_NETWORK_MODE || 'public' }} \
                ExistingDatabaseSubnetIdsCsv=${{ vars.EXISTING_DATABASE_SUBNET_IDS_CSV }} \
                ExistingDatabaseLambdaSecurityGroupId=${{ vars.EXISTING_DATABASE_LAMBDA_SECURITY_GROUP_ID }} \
+               ExistingDatabasePort=${{ vars.EXISTING_DATABASE_PORT }} \
+               ExistingDatabaseCreateAppUser=${{ vars.EXISTING_DATABASE_CREATE_APP_USER || 'true' }} \
+               ExistingDatabaseCreateSchema=${{ vars.EXISTING_DATABASE_CREATE_SCHEMA || 'true' }} \
                DatabaseSchema=${{ vars.DATABASE_SCHEMA }} \
                LogLevel=${{ vars.LOG_LEVEL || 'INFO' }} \
                RequireAdmin=${{ vars.REQUIRE_ADMIN || 'true' }} \
